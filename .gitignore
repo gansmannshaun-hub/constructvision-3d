@@ -1,0 +1,41 @@
+# Python
+.venv/
+env/
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+package-lock.json
+npm-debug.log*
+pnpm-lock.yaml
+yarn.lock
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Local uploads / temporary files
+uploads/
+backend/uploads/
+
+.venv/
+venv/
+node_modules/
+__pycache__/
+.DS_Store
+dist/
+
+venv/
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+.DS_Store
