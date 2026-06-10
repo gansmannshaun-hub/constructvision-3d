@@ -1,0 +1,104 @@
+{
+  "theme_and_archetype": {
+    "archetype": "Archetype 4 (Swiss & High-Contrast)",
+    "theme": "Dark",
+    "rationale": "For an engineering/CAD construction management tool, a high-contrast dark mode ensures precision, clarity, and authority while reducing eye strain during long modeling sessions. Avoids the 'SaaS purple' look."
+  },
+  "typography": {
+    "strategy": "Swiss Brutalist (Tech)",
+    "fonts": {
+      "headings": "Chivo",
+      "body": "IBM Plex Sans",
+      "mono": "IBM Plex Mono"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-black tracking-tighter",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h3": "text-xl font-semibold",
+      "h4": "text-lg font-medium",
+      "body": "text-sm sm:text-base leading-relaxed text-neutral-300",
+      "labels": "text-xs font-bold uppercase tracking-[0.2em] text-neutral-400 font-mono",
+      "metrics": "text-3xl font-mono tracking-tight"
+    },
+    "rules": [
+      "No Inter or Space Grotesk.",
+      "Use IBM Plex Mono for all dimensions, file sizes, and structural notes.",
+      "Headings left-aligned by default."
+    ]
+  },
+  "colors": {
+    "backgrounds": {
+      "page": "bg-[#0A0A0A]",
+      "surface": "bg-[#141414]",
+      "surface_hover": "bg-[#1E1E1E]",
+      "panel": "bg-black/80 backdrop-blur-xl"
+    },
+    "text": {
+      "primary": "text-white",
+      "secondary": "text-[#A0A0A0]",
+      "muted": "text-[#666666]",
+      "inverse": "text-black"
+    },
+    "borders": {
+      "default": "border-white/10",
+      "focus": "border-[#0055FF]",
+      "grid": "border-white/5"
+    },
+    "accents": {
+      "primary": "bg-[#0055FF] text-white hover:bg-[#0044CC]", 
+      "blueprint_blue": "#0055FF",
+      "warning": "bg-[#FFCC00] text-black hover:bg-[#E6B800]",
+      "safety_yellow": "#FFCC00",
+      "danger": "bg-[#FF3333] text-white hover:bg-[#CC0000]",
+      "success": "bg-[#00CC66] text-black hover:bg-[#00A352]"
+    },
+    "rules": [
+      "Use 'Safety Yellow' (#FFCC00) for AI extraction badges and progress bars.",
+      "Use 'Blueprint Blue' (#0055FF) for active states, tabs, and primary actions.",
+      "No gradients. Flat colors only. Use 1px borders to separate elements."
+    ]
+  },
+  "spacing_and_layout": {
+    "grid_system": "Control Room Grid",
+    "structure": {
+      "gap": "gap-1 sm:gap-4",
+      "padding": "p-4 sm:p-6 lg:p-8"
+    },
+    "surfaces": "Grid Borders ('Technical' Look) - border-collapse style layout, sharp edges.",
+    "border_radius": "rounded-none",
+    "rules": [
+      "Go cardless. Use flat rectangular layouts with dense spacing.",
+      "Panels should use `border-r border-white/10` rather than floating cards.",
+      "Grid children must be direct children.",
+      "Mobile images must not exceed max-h-[80vh]."
+    ]
+  },
+  "components": {
+    "buttons": "Sharp corners (`rounded-none`). 1px solid border. Hover states lighten the background slightly.",
+    "badges": "Square borders, uppercase mono text (`text-[10px] tracking-wider`), vibrant accent colors.",
+    "tabs": "Override Shadcn tabs to have `rounded-none`. Active tab gets a bottom border of Blueprint Blue or Safety Yellow.",
+    "forms": "Inputs use `rounded-none`, `bg-[#141414]`, 1px border. Focus state outlines in Blueprint Blue.",
+    "panels": "Collapsible side panels for layers/materials with a thin scrollbar. No gutters.",
+    "icons": "Phosphor Icons (@phosphor-icons/react). Use 'duotone' or 'regular' weights."
+  },
+  "motion_and_interaction": {
+    "philosophy": "Minimalist, snappy, hardware-accelerated.",
+    "hover": "Subtle background brightness increase. DO NOT rely on inheritance (e.g. `hover:bg-[#1E1E1E] hover:text-white`).",
+    "transitions": "transition-all duration-150 ease-out",
+    "progress": "Real-time AI pipeline should use a snappy progress bar (width animated) without bouncy easing. Linear and precise.",
+    "accessibility": "Respect prefers-reduced-motion."
+  },
+  "images_and_assets": {
+    "auth_background": "https://images.unsplash.com/photo-1542621334-a254cf47733d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxibHVlcHJpbnQlMjBwbGFucyUyMGFyY2hpdGVjdHVyZXxlbnwwfHx8fDE3ODExMjU0Mjl8MA&ixlib=rb-4.1.0&q=85",
+    "empty_state_blueprint": "https://images.unsplash.com/photo-1721244654392-9c912a6eb236?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwyfHxibHVlcHJpbnQlMjBwbGFucyUyMGFyY2hpdGVjdHVyZXxlbnwwfHx8fDE3ODExMjU0Mjl8MA&ixlib=rb-4.1.0&q=85",
+    "construction_placeholder": "https://images.unsplash.com/photo-1599707254554-027aeb4deacd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBjb25zdHJ1Y3Rpb24lMjBzaXRlfGVufDB8fHx8MTc4MTEyNTQyOXww&ixlib=rb-4.1.0&q=85"
+  },
+  "testing": {
+    "data_testid": "ALL interactive elements MUST include a `data-testid` attribute in kebab-case, role-based. Example: `data-testid='upload-blueprint-button'`, `data-testid='ai-progress-bar'`."
+  },
+  "libraries_and_packages": {
+    "icons": "yarn add @phosphor-icons/react",
+    "3d": "yarn add three @react-three/fiber @react-three/drei (for 3D viewer)",
+    "state": "Use robust context or zustand for cross-tab real-time sync."
+  }
+}
