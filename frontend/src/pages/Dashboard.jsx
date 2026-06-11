@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useStore, apiClient } from "../store";
 import DocumentsTab from "../components/DocumentsTab";
 import MaterialsTab from "../components/MaterialsTab";
@@ -15,9 +15,11 @@ const TABS = [
   { id: "renderer", label: "3D Renderer", hint: "05" },
 ];
 
+const TIER_COLOR = { free: "#A0A0A0", pro: "#FFCC00", studio: "#5588FF" };
+
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user, projects, currentProjectId, documents, logout, loadProjects, selectProject, refreshDocuments, refreshMaterials, refreshBlueprint } =
+  const { user, projects, currentProjectId, documents, billing, logout, loadProjects, selectProject, refreshDocuments, refreshMaterials, refreshBlueprint, refreshBilling } =
     useStore();
   const [tab, setTab] = useState("documents");
   const pollRef = useRef(null);
@@ -28,6 +30,7 @@ export default function Dashboard() {
       return;
     }
     loadProjects();
+    refreshBilling();
     // eslint-disable-next-line
   }, []);
 
@@ -97,6 +100,23 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-stretch border-l border-white/10">
+            <Link
+              to="/billing"
+              data-testid="billing-link"
+              className="px-5 py-3 flex flex-col justify-center hover:bg-white/5 transition-colors border-r border-white/10"
+            >
+              <div className="label-mono">PLAN</div>
+              <div
+                data-testid="plan-badge"
+                className="font-mono text-sm font-bold uppercase tracking-wider mt-0.5"
+                style={{ color: TIER_COLOR[billing?.plan || "free"] }}
+              >
+                {(billing?.plan || "free").toUpperCase()}
+                {billing?.subscription?.status === "trialing" && (
+                  <span className="text-[10px] ml-1 text-neutral-400">· TRIAL</span>
+                )}
+              </div>
+            </Link>
             <div className="px-6 py-3 flex flex-col justify-center">
               <div className="label-mono">SIGNED IN</div>
               <div className="font-mono text-sm" data-testid="current-user">{user?.email}</div>

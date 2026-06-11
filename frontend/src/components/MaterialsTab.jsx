@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useStore, apiClient, API } from "../store";
 
 const CATEGORY_COLORS = {
@@ -24,6 +25,7 @@ const fmtUSD = (n) =>
 export default function MaterialsTab() {
   const { materials, refreshMaterials, currentProjectId, projects } = useStore();
   const project = projects.find((p) => p.id === currentProjectId);
+  const navigate = useNavigate();
   const [downloading, setDownloading] = useState(false);
 
   const grouped = useMemo(() => {
@@ -60,6 +62,13 @@ export default function MaterialsTab() {
       const res = await fetch(`${API}/projects/${currentProjectId}/takeoff.pdf`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 402) {
+        const j = await res.json().catch(() => ({}));
+        if (window.confirm(`${j.detail || "PDF is a Pro feature."}\n\nGo to Billing now?`)) {
+          navigate("/billing");
+        }
+        return;
+      }
       if (!res.ok) throw new Error("PDF generation failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

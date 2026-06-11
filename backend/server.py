@@ -31,6 +31,7 @@ from pydantic import BaseModel, EmailStr, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
+import billing as billing_mod
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -343,6 +344,12 @@ async def upload_document(
     if not proj:
         raise HTTPException(404, "Project not found")
 
+    # Quota gate
+    user = await billing_mod.ensure_user_subscription(db, user)
+    ok, reason = await billing_mod.can_upload(db, user)
+    if not ok:
+        raise HTTPException(402, reason)
+
     content = await file.read()
     if len(content) > 8 * 1024 * 1024:
         raise HTTPException(400, "File too large (max 8MB)")
@@ -368,6 +375,8 @@ async def upload_document(
 
     # Trigger analysis pipeline in background
     if mime.startswith("image/"):
+        # Consume the credit only when we actually kick off analysis
+        await billing_mod.consume_upload_credit(db, user)
         asyncio.create_task(_run_analysis_pipeline(doc_id, project_id, b64, mime))
 
     out = {k: v for k, v in document.items() if k != "image_base64"}
@@ -583,6 +592,12 @@ async def _run_analysis_pipeline(doc_id: str, project_id: str, b64: str, mime: s
 
 @api.get("/projects/{project_id}/takeoff.pdf")
 async def takeoff_pdf(project_id: str, user: dict = Depends(get_current_user)):
+    # Gate by plan
+    user = await billing_mod.ensure_user_subscription(db, user)
+    ok, reason = await billing_mod.can_download_pdf(db, user)
+    if not ok:
+        raise HTTPException(402, reason)
+
     from io import BytesIO
     from collections import defaultdict
     from reportlab.lib.pagesizes import LETTER
@@ -597,6 +612,12 @@ async def takeoff_pdf(project_id: str, user: dict = Depends(get_current_user)):
     proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]}, {"_id": 0})
     if not proj:
         raise HTTPException(404, "Project not found")
+    # Track PDF download
+    await billing_mod.incr_usage(db, user["id"], "pdf_downloads")
+    await db.users.update_one(
+        {"id": user["id"]}, {"$inc": {"entitlements.lifetime_pdfs": 1}}
+    )
+    premium_branding = bool((user.get("entitlements") or {}).get("pdf_premium_branding"))
     mats = await db.materials.find({"project_id": project_id}, {"_id": 0}).sort("category", 1).to_list(1000)
     docs = await db.documents.find(
         {"project_id": project_id, "status": "done"}, {"_id": 0, "image_base64": 0}
@@ -635,9 +656,15 @@ async def takeoff_pdf(project_id: str, user: dict = Depends(get_current_user)):
     elements.append(Paragraph("Material Takeoff", title_style))
     elements.append(Paragraph(
         f"Project: <b>{proj['name']}</b> &nbsp;·&nbsp; "
-        f"Generated: {datetime.now(timezone.utc).strftime('%b %d, %Y %H:%M UTC')}",
+        f"Generated: {datetime.now(timezone.utc).strftime('%b %d, %Y %H:%M UTC')}"
+        + (f" &nbsp;·&nbsp; <font color='#FFCC00'><b>PREMIUM</b></font>" if premium_branding else ""),
         sub_style,
     ))
+    if premium_branding:
+        elements.append(Paragraph(
+            f"<font color='#0055FF' size='11'><b>Prepared by {user.get('name', '')} · {user.get('email', '')}</b></font>",
+            sub_style,
+        ))
 
     # Group materials by category and compute totals
     grouped = defaultdict(list)
@@ -794,6 +821,8 @@ async def root():
 
 # Include
 app.include_router(api)
+app.include_router(billing_mod.build_router(db, get_current_user))
+app.include_router(billing_mod.build_webhook_router(db))
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

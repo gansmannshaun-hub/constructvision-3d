@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiClient, useStore, API } from "../store";
 
 const STATUS_LABEL = {
@@ -31,14 +32,17 @@ function ProgressBar({ status }) {
 }
 
 export default function DocumentsTab() {
-  const { currentProjectId, documents, refreshDocuments, refreshMaterials, refreshBlueprint } = useStore();
+  const { currentProjectId, documents, refreshDocuments, refreshMaterials, refreshBlueprint, refreshBilling } = useStore();
   const fileRef = useRef(null);
+  const navigate = useNavigate();
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [paywall, setPaywall] = useState(null);
 
   const onFiles = async (files) => {
     if (!files?.length || !currentProjectId) return;
     setUploading(true);
+    setPaywall(null);
     try {
       for (const file of files) {
         const fd = new FormData();
@@ -50,8 +54,13 @@ export default function DocumentsTab() {
       await refreshDocuments();
       await refreshMaterials();
       await refreshBlueprint();
+      await refreshBilling();
     } catch (e) {
-      alert(e.response?.data?.detail || "Upload failed");
+      if (e.response?.status === 402) {
+        setPaywall(e.response.data?.detail || "Quota reached — upgrade your plan.");
+      } else {
+        alert(e.response?.data?.detail || "Upload failed");
+      }
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -67,6 +76,22 @@ export default function DocumentsTab() {
         <p className="text-neutral-500 text-sm mb-6 leading-relaxed">
           PNG, JPG, or WEBP. Atlas AI will detect walls, extract materials, and sync every tab automatically.
         </p>
+
+        {paywall && (
+          <div
+            data-testid="upload-paywall"
+            className="mb-4 border border-[#FFCC00] bg-[#FFCC00]/10 text-[#FFCC00] px-4 py-3 text-sm"
+          >
+            <div className="font-bold mb-1">Upload quota reached</div>
+            <div className="text-xs text-neutral-300 mb-2">{paywall}</div>
+            <button
+              onClick={() => navigate("/billing")}
+              className="bg-[#FFCC00] text-black font-bold px-3 py-1.5 text-xs uppercase tracking-wider hover:bg-[#E6B800]"
+            >
+              View plans →
+            </button>
+          </div>
+        )}
 
         <label
           data-testid="upload-dropzone"

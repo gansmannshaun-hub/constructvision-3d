@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 3 monetization backend tested. 18/19 new billing tests pass (94.7%). 1 CRITICAL bug: POST /api/projects does NOT enforce can_create_project quota gate (Free user can create unlimited projects despite 1-project limit). All other billing flows work: /billing/me defaults+catalog, 7-day Pro trial (one-time, 400 on retry), AI upload quota gate (402 after 5 free uploads), PDF gate (402 free / 200 trial), Stripe checkout (subscription + addon) creates real Stripe TEST checkout sessions with stripe.com URLs and persists payment_transactions, cross-user status returns 403, webhook /api/webhook/stripe exists and returns 400 on bad signature. Iter-2 PDF regression tests (3) now fail as EXPECTED — those tests used free users; PDF is now Pro-gated.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/projects", "issue": "Missing quota gate. server.py create_project never calls billing_mod.can_create_project. Free users (Free plan limit = 1, default project auto-created at register) can create unlimited additional projects with 200. Spec requires 402 on the 2nd POST.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/projects/{id}/takeoff.pdf", "issue": "PDF Pro-gate (402) is evaluated BEFORE project ownership lookup. Free user requesting a stranger's project ID gets 402 (was 404 in iter-2). Minor info-leak ordering: 402 reveals 'user is free' regardless of whether project belongs to them or even exists. Consider checking project ownership first, then quota."},
+      {"endpoint": "Iter-2 regression: test_pricing_pdf.py::TestTakeoffPDF", "issue": "3 iter-2 tests now fail because they assumed PDF works for any authed user. They are NOT app bugs — they need start-trial call before requesting PDF. Tests should be updated by main agent OR a 'pro_user' fixture added to conftest.py."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_billing.py",
+    "/app/test_reports/pytest/pytest_iteration3.xml",
+    "/app/test_reports/pytest/pytest_iteration3_regression.xml"
+  ],
+  "action_items": [
+    "ADD quota gate in server.py POST /api/projects: count user's projects, call billing_mod.can_create_project(db, user, count), raise HTTPException(402, reason) if not ok. Mirror the pattern already used in upload_document and takeoff_pdf.",
+    "Update iter-2 tests (test_pricing_pdf.py PDF cases) to first POST /api/billing/start-trial so the user is Pro, OR add a pro_user_a fixture in conftest.py that auto-starts trial.",
+    "OPTIONAL: reorder ownership-check vs PDF-quota-check in takeoff_pdf to avoid the 402-vs-404 info-leak inconsistency."
+  ],
+  "critical_code_review_comments": [
+    "server.py POST /api/projects (lines 182-203) is missing the can_create_project call — direct mismatch with iteration-3 spec.",
+    "billing.py:283-288 defines can_create_project but it is currently NOT WIRED UP anywhere in server.py (grep confirms zero call sites).",
+    "billing.py default_subscription stores trial_ends_at as None; current code path is fine, but datetime.fromisoformat in ensure_user_subscription will throw if trial_ends_at is an empty string vs None — current code only sets ISO strings, so OK, but worth a defensive guard.",
+    "billing.py:308 uses str(request.base_url) for webhook_url — when behind an ingress this may not be the public URL Stripe can reach. Acceptable for test mode but flag for production.",
+    "billing.py:526-530: webhook returns HTTPException(400) on signature failure — good. But on success path emits {ok: True} with status 200. Fine. No 200 returned for invalid sig — matches spec.",
+    "server.py is now ~838 lines, exceeds the 700-line guidance more clearly than iter-2. Splitting into auth/projects/documents/pdf modules is overdue."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_billing.py (new — 19 tests across 8 classes)"
+  ],
+  "success_rate": {
+    "backend": "94.7% iter-3 (18/19) + 92.3% combined regression (36/39 iter-1+2; 3 expected fails due to PDF gate)",
+    "frontend": "n/a (backend-only)"
+  },
+  "test_credentials": "Fresh users per test via _register helper (test_bill_*@example.com / TestPass123!). No fixed seed user.",
+  "seed_data_creation": "Each test creates 1-2 fresh users; quota tests bump usage_periods.ai_uploads=5 directly in MongoDB (test_database) to avoid burning ~5 real GPT-4o calls. Stripe checkout tests create real test-mode sessions on Stripe (no money) and corresponding payment_transactions docs.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_billing.py -v. Stripe sk_test_emergent yields real https://checkout.stripe.com/ URLs in test mode. To exhaust upload quota cheaply, directly set usage_periods.{user_id, period: YYYY-MM}.ai_uploads=5 in test_database via pymongo (already done in tests). Once main agent adds the can_create_project gate in server.py, the only failing test (TestProjectQuota.test_free_user_second_project_returns_402) will pass. The 3 iter-2 PDF regressions need main agent to update those tests to start a trial first; do not treat them as iter-3 app bugs.",
+  "rca of the issue": "POST /api/projects in /app/backend/server.py (lines 182-203) constructs and inserts a project doc with no plan check. billing.can_create_project exists in billing.py but is never imported/called in server.py for project creation. Fix: after `user: dict = Depends(get_current_user)`, fetch `count = await db.projects.count_documents({'user_id': user['id']})`, then `user = await billing_mod.ensure_user_subscription(db, user); ok, reason = await billing_mod.can_create_project(db, user, count); if not ok: raise HTTPException(402, reason)` before inserting. This mirrors the existing pattern in upload_document (line 348-351) and takeoff_pdf (line 596-599)."
+}

@@ -22,6 +22,7 @@ export const useStore = create((set, get) => ({
   documents: [],
   materials: [],
   blueprint: { walls: [], doors: [], windows: [] },
+  billing: null,
 
   setAuth: (token, user) => {
     localStorage.setItem(TOKEN_KEY, token);
@@ -42,6 +43,15 @@ export const useStore = create((set, get) => ({
       await get().loadProjectData(data[0].id);
     }
     return data;
+  },
+  refreshBilling: async () => {
+    try {
+      const { data } = await apiClient.get("/billing/me");
+      set({ billing: data });
+      return data;
+    } catch (e) {
+      return null;
+    }
   },
   selectProject: async (id) => {
     set({ currentProjectId: id });

@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
+import Billing from "@/pages/Billing";
 import { useStore, apiClient } from "@/store";
 import "@/index.css";
 
@@ -35,6 +36,14 @@ export default function App() {
           element={
             <Protected>
               <Dashboard />
+            </Protected>
+          }
+        />
+        <Route
+          path="/billing"
+          element={
+            <Protected>
+              <Billing />
             </Protected>
           }
         />
