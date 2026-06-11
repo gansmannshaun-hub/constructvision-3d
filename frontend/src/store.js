@@ -1,0 +1,86 @@
+import { create } from "zustand";
+import axios from "axios";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+export const API = `${BACKEND_URL}/api`;
+
+const TOKEN_KEY = "cm_token";
+const USER_KEY = "cm_user";
+
+export const apiClient = axios.create({ baseURL: API });
+apiClient.interceptors.request.use((cfg) => {
+  const t = localStorage.getItem(TOKEN_KEY);
+  if (t) cfg.headers.Authorization = `Bearer ${t}`;
+  return cfg;
+});
+
+export const useStore = create((set, get) => ({
+  user: JSON.parse(localStorage.getItem(USER_KEY) || "null"),
+  token: localStorage.getItem(TOKEN_KEY),
+  projects: [],
+  currentProjectId: null,
+  documents: [],
+  materials: [],
+  blueprint: { walls: [], doors: [], windows: [] },
+
+  setAuth: (token, user) => {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    set({ token, user });
+  },
+  logout: () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    set({ token: null, user: null, projects: [], currentProjectId: null });
+  },
+
+  loadProjects: async () => {
+    const { data } = await apiClient.get("/projects");
+    set({ projects: data });
+    if (!get().currentProjectId && data.length) {
+      set({ currentProjectId: data[0].id });
+      await get().loadProjectData(data[0].id);
+    }
+    return data;
+  },
+  selectProject: async (id) => {
+    set({ currentProjectId: id });
+    await get().loadProjectData(id);
+  },
+  loadProjectData: async (id) => {
+    const [docs, mats, bp] = await Promise.all([
+      apiClient.get(`/projects/${id}/documents`),
+      apiClient.get(`/projects/${id}/materials`),
+      apiClient.get(`/projects/${id}/blueprint`),
+    ]);
+    set({ documents: docs.data, materials: mats.data, blueprint: bp.data });
+  },
+  refreshDocuments: async () => {
+    const id = get().currentProjectId;
+    if (!id) return;
+    const { data } = await apiClient.get(`/projects/${id}/documents`);
+    set({ documents: data });
+  },
+  refreshMaterials: async () => {
+    const id = get().currentProjectId;
+    if (!id) return;
+    const { data } = await apiClient.get(`/projects/${id}/materials`);
+    set({ materials: data });
+  },
+  refreshBlueprint: async () => {
+    const id = get().currentProjectId;
+    if (!id) return;
+    const { data } = await apiClient.get(`/projects/${id}/blueprint`);
+    set({ blueprint: data });
+  },
+  saveBlueprint: async (walls, doors, windows) => {
+    const id = get().currentProjectId;
+    if (!id) return;
+    const { data } = await apiClient.put(`/projects/${id}/blueprint`, {
+      walls,
+      doors,
+      windows,
+    });
+    set({ blueprint: data });
+  },
+}));
