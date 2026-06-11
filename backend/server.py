@@ -181,6 +181,11 @@ async def list_projects(user: dict = Depends(get_current_user)):
 
 @api.post("/projects")
 async def create_project(payload: dict, user: dict = Depends(get_current_user)):
+    user = await billing_mod.ensure_user_subscription(db, user)
+    existing_count = await db.projects.count_documents({"user_id": user["id"]})
+    ok, reason = await billing_mod.can_create_project(db, user, existing_count)
+    if not ok:
+        raise HTTPException(402, reason)
     pid = str(uuid.uuid4())
     doc = {
         "id": pid,
@@ -592,6 +597,11 @@ async def _run_analysis_pipeline(doc_id: str, project_id: str, b64: str, mime: s
 
 @api.get("/projects/{project_id}/takeoff.pdf")
 async def takeoff_pdf(project_id: str, user: dict = Depends(get_current_user)):
+    # Verify ownership first (avoids leaking plan info on cross-user lookups)
+    proj_check = await db.projects.find_one({"id": project_id, "user_id": user["id"]}, {"_id": 1})
+    if not proj_check:
+        raise HTTPException(404, "Project not found")
+
     # Gate by plan
     user = await billing_mod.ensure_user_subscription(db, user)
     ok, reason = await billing_mod.can_download_pdf(db, user)

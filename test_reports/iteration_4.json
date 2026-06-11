@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 3 retest — ALL FIXES VERIFIED. Full regression 59/59 pass (100%). The two iter-3 bugs are confirmed fixed: (1) POST /api/projects now correctly returns 402 for a FRESH free user's 2nd project (validated with _register helper, which does NOT auto-trial — so this is independent of the user_a fixture's new auto-trial behavior). (2) GET /api/projects/{id}/takeoff.pdf now checks ownership BEFORE the Pro PDF gate — two FRESH free users (user A creates project, user B requests its PDF) yields 404 instead of 402, eliminating the info-leak. Iter-1 + iter-2 + iter-3 + new explicit cross-user PDF test all green. user_a fixture auto-start-trial works; all iter-2 TestTakeoffPDF cases (which now also call start-trial explicitly) pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_billing.py",
+    "/app/backend/tests/test_pricing_pdf.py",
+    "/app/backend/tests/test_construction_api.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_iteration4.xml",
+    "/app/test_reports/pytest/pytest_iteration4_billing.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is still ~840 lines and exceeds the 700-line guidance — splitting into auth/projects/documents/billing/pdf modules is overdue (non-blocking, code health).",
+    "billing.py:can_create_project is now wired up in create_project — good. Pattern is consistent with upload_document and takeoff_pdf gates. Consider extracting a single async _enforce_quota(db, user, kind, current) helper to DRY the three call sites.",
+    "user_a fixture in conftest.py now silently swallows the start-trial response (no assert on status). Acceptable as best-effort, but a brief comment noting it is intentional would help future readers."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_billing.py (added TestPdfGate.test_pdf_cross_user_two_fresh_free_users_returns_404)"
+  ],
+  "success_rate": {
+    "backend": "100% (59/59) — full regression",
+    "frontend": "n/a (backend-only)"
+  },
+  "test_credentials": "Fresh users per test via _register helper (test_bill_*@example.com / TestPass123!). No fixed seed user.",
+  "seed_data_creation": "Each test creates 1-2 fresh users; upload quota tests bump usage_periods.ai_uploads=5 directly in MongoDB to avoid burning real GPT-4o calls. Stripe checkout tests create real Stripe test-mode sessions and persist payment_transactions docs.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/ -v. All 59 tests should pass in ~40s. New test TestPdfGate.test_pdf_cross_user_two_fresh_free_users_returns_404 explicitly validates the ownership-before-quota ordering with two FRESH free users (independent of user_a/user_b fixtures). TestProjectQuota.test_free_user_second_project_returns_402 validates the project quota gate using a fresh _register user (not the auto-trialed user_a fixture).",
+  "rca of the issue": "Iter-3 fixes verified at the test level: (1) create_project in server.py now calls billing_mod.can_create_project(db, user, count) and raises HTTPException(402, reason) before insert — confirmed by a fresh free user's 2nd POST returning 402. (2) takeoff_pdf now performs db.projects.find_one({id, user_id}) -> 404 BEFORE invoking the PDF Pro-gate — confirmed by a free user B (no trial) requesting free user A's project returning 404 instead of 402. No regressions detected."
+}

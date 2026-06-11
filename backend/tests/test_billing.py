@@ -239,6 +239,21 @@ class TestPdfGate:
         msg = (body.get("detail") or "").lower()
         assert "pdf" in msg or "pro" in msg or "upgrade" in msg
 
+    def test_pdf_cross_user_two_fresh_free_users_returns_404(self):
+        """Iter-3 retest: ownership MUST be checked before PDF Pro-gate.
+        Two FRESH free users (no trial). User B asking for User A's project PDF must get 404,
+        NOT 402. This prevents an info-leak that would reveal a project exists for another user."""
+        owner = _register(name="Owner")
+        other = _register(name="Other")
+        projs = requests.get(f"{BASE_URL}/api/projects", headers=owner["headers"], timeout=15).json()
+        assert len(projs) >= 1
+        pid = projs[0]["id"]
+        r = requests.get(f"{BASE_URL}/api/projects/{pid}/takeoff.pdf",
+                         headers=other["headers"], timeout=15)
+        assert r.status_code == 404, (
+            f"Expected 404 (ownership check first), got {r.status_code}: {r.text}"
+        )
+
     def test_trialing_user_pdf_returns_200(self):
         u = _register()
         # Start trial -> pro

@@ -182,9 +182,16 @@ class TestMaterialDelete:
 
 # ---------- GET /projects/{id}/takeoff.pdf ----------
 class TestTakeoffPDF:
+    @staticmethod
+    def _start_trial(base_url, headers):
+        # PDF is Pro-gated; activate the free trial so the user is Pro.
+        requests.post(f"{base_url}/api/billing/start-trial",
+                      headers=headers, json={}, timeout=10)
+
     def test_pdf_for_project_with_materials(self, base_url, analyzed_project):
         headers = analyzed_project["headers"]
         pid = analyzed_project["project_id"]
+        self._start_trial(base_url, headers)
         r = requests.get(f"{base_url}/api/projects/{pid}/takeoff.pdf",
                          headers=headers, timeout=30)
         assert r.status_code == 200, r.text[:300]
@@ -198,6 +205,7 @@ class TestTakeoffPDF:
         assert r.content.startswith(b"%PDF"), "Not a valid PDF stream"
 
     def test_pdf_for_empty_project(self, base_url, auth_headers_a):
+        self._start_trial(base_url, auth_headers_a)
         # Create an empty project (no materials uploaded)
         cr = requests.post(f"{base_url}/api/projects",
                            json={"name": "TEST_Empty PDF Project"},
@@ -219,6 +227,7 @@ class TestTakeoffPDF:
     def test_pdf_cross_user_returns_404(self, base_url, analyzed_project, user_b):
         pid = analyzed_project["project_id"]
         hb = {"Authorization": f"Bearer {user_b['token']}"}
+        # user_b on free plan now still gets 404 (ownership checked first)
         r = requests.get(f"{base_url}/api/projects/{pid}/takeoff.pdf",
                          headers=hb, timeout=30)
         assert r.status_code == 404

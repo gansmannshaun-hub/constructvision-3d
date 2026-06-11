@@ -74,6 +74,10 @@ def user_a(base_url):
     }, timeout=30)
     assert r.status_code == 200, r.text
     data = r.json()
+    # Auto-activate Pro trial so iter-1/2 tests (multi-project, PDF) keep working.
+    requests.post(f"{base_url}/api/billing/start-trial",
+                  headers={"Authorization": f"Bearer {data['token']}"},
+                  json={}, timeout=10)
     return {"email": email, "password": "TestPass123!", "token": data["token"], "user": data["user"]}
 
 
