@@ -19,25 +19,33 @@ The auto-pipeline (no clicks needed):
 - **Frontend**: React 19 · React Router · Zustand state · Tailwind CSS · `@react-three/fiber` + `@react-three/drei` for 3D · IBM Plex / Chivo fonts
 - **Pipeline**: `asyncio.create_task` background analysis, frontend polls Documents endpoint every 1.5s while any doc is in-flight
 
-## Implemented Features (v1.1 — Jan 2026)
+## Implemented Features (v1.2 — Jan 2026)
 | Feature | Status |
 | --- | --- |
 | Email + password auth (register/login/me) | ✅ Done |
 | Default project auto-created on signup | ✅ Done |
-| Multi-project switching | ✅ Done |
+| Multi-project switching (Pro/Studio unlimited) | ✅ Done |
 | Image upload (PNG/JPG/WEBP, 8MB cap) | ✅ Done |
 | Async AI pipeline: uploaded → analyzing → saving → syncing → done | ✅ Done |
 | Progress bar + status badge per document card | ✅ Done |
 | Materials auto-insertion grouped by category | ✅ Done |
-| Materials stats (Total / Categories / AI Extracted / Project Cost) | ✅ Done |
-| **Per-material unit_price (AI-estimated USD) + editable** | ✅ Done (v1.1) |
-| **Live line totals + category subtotals + grand total bar** | ✅ Done (v1.1) |
-| **One-click branded PDF takeoff report (reportlab)** | ✅ Done (v1.1) |
+| AI-estimated unit prices + editable | ✅ Done |
+| Live line totals + category subtotals + grand total bar | ✅ Done |
+| One-click branded PDF takeoff report (reportlab) | ✅ Done |
 | Live 2D Blueprint view (SVG) | ✅ Done |
 | Interactive 2D CAD Editor (wall/door/window tools, select, delete, save) | ✅ Done |
 | 3D Renderer (vanilla three.js) with shaded / wireframe toggle, orbit controls, grid | ✅ Done |
 | Cross-tab live sync (Zustand + polling) | ✅ Done |
-| 39/39 backend pytest suite green | ✅ Done |
+| **3 subscription tiers: Free / Pro $49 / Studio $149** | ✅ Done (v1.2) |
+| **7-day Pro free trial (one-shot per user)** | ✅ Done (v1.2) |
+| **3 a-la-carte add-ons: $9 / $19 / $4 (uploads / pdf branding / rush)** | ✅ Done (v1.2) |
+| **Plan-gated upload + project + PDF endpoints (402 on quota)** | ✅ Done (v1.2) |
+| **Monthly usage counters + bonus credits** | ✅ Done (v1.2) |
+| **Stripe Checkout (test mode `sk_test_emergent`) wired up** | ✅ Done (v1.2) |
+| **Idempotent entitlement application (status poll + webhook)** | ✅ Done (v1.2) |
+| **Premium PDF branding flag (header with user name/email)** | ✅ Done (v1.2) |
+| **/billing page with plan/usage/add-ons + Stripe redirect handling** | ✅ Done (v1.2) |
+| 59/59 backend pytest suite green | ✅ Done |
 
 ## Backlog (P1)
 - Persist user-edited walls when a new image is uploaded (currently appended, may want replace mode toggle)
