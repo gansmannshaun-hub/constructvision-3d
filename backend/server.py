@@ -263,6 +263,47 @@ async def list_materials(project_id: str, user: dict = Depends(get_current_user)
     return docs
 
 
+class MaterialPatchIn(BaseModel):
+    unit_price: Optional[float] = None
+    quantity: Optional[float] = None
+    name: Optional[str] = None
+
+
+@api.patch("/materials/{material_id}")
+async def update_material(material_id: str, payload: MaterialPatchIn, user: dict = Depends(get_current_user)):
+    mat = await db.materials.find_one({"id": material_id}, {"_id": 0})
+    if not mat:
+        raise HTTPException(404, "Material not found")
+    proj = await db.projects.find_one({"id": mat["project_id"], "user_id": user["id"]})
+    if not proj:
+        raise HTTPException(403, "Forbidden")
+    update = {}
+    if payload.unit_price is not None:
+        update["unit_price"] = round(max(float(payload.unit_price), 0.0), 2)
+    if payload.quantity is not None:
+        update["quantity"] = max(float(payload.quantity), 0.0)
+    if payload.name is not None and payload.name.strip():
+        update["name"] = payload.name.strip()[:120]
+    if not update:
+        raise HTTPException(400, "Nothing to update")
+    update["updated_at"] = now_iso()
+    await db.materials.update_one({"id": material_id}, {"$set": update})
+    out = await db.materials.find_one({"id": material_id}, {"_id": 0})
+    return out
+
+
+@api.delete("/materials/{material_id}")
+async def delete_material(material_id: str, user: dict = Depends(get_current_user)):
+    mat = await db.materials.find_one({"id": material_id}, {"_id": 0})
+    if not mat:
+        raise HTTPException(404, "Material not found")
+    proj = await db.projects.find_one({"id": mat["project_id"], "user_id": user["id"]})
+    if not proj:
+        raise HTTPException(403, "Forbidden")
+    await db.materials.delete_one({"id": material_id})
+    return {"ok": True}
+
+
 # ---------- Documents ----------
 @api.get("/projects/{project_id}/documents")
 async def list_documents(project_id: str, user: dict = Depends(get_current_user)):
@@ -357,8 +398,8 @@ Analyze the provided image (which may be a blueprint, floor plan, site plan, con
   "rooms": [{"name": "Living Room", "approx_area_sqft": 320}],
   "structural_notes": ["..."],
   "materials": [
-    {"name": "2x4 Lumber", "category": "Framing", "quantity": 50, "unit": "pcs"},
-    {"name": "Concrete", "category": "Structural", "quantity": 12, "unit": "cu yd"}
+    {"name": "2x4 Lumber", "category": "Framing", "quantity": 50, "unit": "pcs", "unit_price_usd": 8.5},
+    {"name": "Concrete", "category": "Structural", "quantity": 12, "unit": "cu yd", "unit_price_usd": 165.0}
   ],
   "walls": [{"start": [x, y], "end": [x, y], "thickness": 0.2}],
   "doors": [{"position": [x, y], "width": 3, "wall_index": 0}],
@@ -371,6 +412,7 @@ Coordinate rules:
 - For "photo" or "other", return empty arrays for walls/doors/windows.
 - Materials category MUST be one of: "Structural", "Framing", "Electrical", "Plumbing", "Finishes", "HVAC", "Insulation", "Roofing", "Doors & Windows", "Other".
 - If you cannot identify materials with confidence, still return at least 3-6 plausible inferred materials based on the building type.
+- unit_price_usd MUST be a realistic 2026 US construction trade rate (e.g. 2x4x8 lumber ~$6-9/pc, concrete ~$160-180/cu yd, drywall ~$15/sheet, copper wire ~$1.50/ft, PEX pipe ~$0.50/ft). Always include a non-zero estimate.
 
 Return ONLY the JSON object, no surrounding text.
 """
@@ -426,6 +468,10 @@ async def _run_analysis_pipeline(doc_id: str, project_id: str, b64: str, mime: s
             cat = mat.get("category") or "Other"
             if cat not in valid_categories:
                 cat = "Other"
+            try:
+                price = float(mat.get("unit_price_usd") or 0)
+            except (TypeError, ValueError):
+                price = 0.0
             await db.materials.insert_one(
                 {
                     "id": str(uuid.uuid4()),
@@ -435,6 +481,8 @@ async def _run_analysis_pipeline(doc_id: str, project_id: str, b64: str, mime: s
                     "category": cat,
                     "quantity": float(mat.get("quantity") or 0),
                     "unit": str(mat.get("unit") or "ea")[:24],
+                    "unit_price": round(max(price, 0.0), 2),
+                    "currency": "USD",
                     "ai_extracted": True,
                     "created_at": now_iso(),
                 }
@@ -531,6 +579,211 @@ async def _run_analysis_pipeline(doc_id: str, project_id: str, b64: str, mime: s
     except Exception as exc:
         logger.exception(f"Pipeline failed for {doc_id}")
         await _set_doc_status(doc_id, "error", error=str(exc)[:300])
+
+
+@api.get("/projects/{project_id}/takeoff.pdf")
+async def takeoff_pdf(project_id: str, user: dict = Depends(get_current_user)):
+    from io import BytesIO
+    from collections import defaultdict
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.lib import colors
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak,
+    )
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from fastapi.responses import StreamingResponse
+
+    proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    mats = await db.materials.find({"project_id": project_id}, {"_id": 0}).sort("category", 1).to_list(1000)
+    docs = await db.documents.find(
+        {"project_id": project_id, "status": "done"}, {"_id": 0, "image_base64": 0}
+    ).sort("created_at", -1).to_list(50)
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=LETTER,
+        leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+        topMargin=0.6 * inch, bottomMargin=0.6 * inch,
+        title=f"Takeoff — {proj['name']}",
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "Title", parent=styles["Title"], fontName="Helvetica-Bold",
+        fontSize=28, textColor=colors.HexColor("#0A0A0A"), spaceAfter=4, leading=30,
+    )
+    sub_style = ParagraphStyle(
+        "Sub", parent=styles["Normal"], fontName="Helvetica",
+        fontSize=10, textColor=colors.HexColor("#666666"), spaceAfter=18,
+    )
+    label_style = ParagraphStyle(
+        "Lbl", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=8, textColor=colors.HexColor("#888888"), spaceAfter=2,
+    )
+    h2 = ParagraphStyle(
+        "H2", parent=styles["Heading2"], fontName="Helvetica-Bold",
+        fontSize=14, textColor=colors.HexColor("#0A0A0A"), spaceBefore=10, spaceAfter=8,
+    )
+
+    elements = []
+
+    # Header
+    elements.append(Paragraph("ATLAS&nbsp;&nbsp;<font color='#888888'>// CONSTRUCTION OS</font>", label_style))
+    elements.append(Paragraph("Material Takeoff", title_style))
+    elements.append(Paragraph(
+        f"Project: <b>{proj['name']}</b> &nbsp;·&nbsp; "
+        f"Generated: {datetime.now(timezone.utc).strftime('%b %d, %Y %H:%M UTC')}",
+        sub_style,
+    ))
+
+    # Group materials by category and compute totals
+    grouped = defaultdict(list)
+    for m in mats:
+        grouped[m.get("category") or "Other"].append(m)
+
+    grand_total = 0.0
+    cat_subtotals = {}
+    for cat, items in grouped.items():
+        s = sum(float(i.get("quantity") or 0) * float(i.get("unit_price") or 0) for i in items)
+        cat_subtotals[cat] = s
+        grand_total += s
+
+    # Summary KPI bar
+    kpi_data = [[
+        Paragraph("<b>TOTAL ITEMS</b>", label_style),
+        Paragraph("<b>CATEGORIES</b>", label_style),
+        Paragraph("<b>AI EXTRACTED</b>", label_style),
+        Paragraph("<b>PROJECT COST</b>", label_style),
+    ], [
+        Paragraph(f"<font size='18'><b>{len(mats)}</b></font>", styles["Normal"]),
+        Paragraph(f"<font size='18'><b>{len(grouped)}</b></font>", styles["Normal"]),
+        Paragraph(f"<font size='18'><b>{sum(1 for m in mats if m.get('ai_extracted'))}</b></font>", styles["Normal"]),
+        Paragraph(f"<font size='18' color='#0055FF'><b>${grand_total:,.2f}</b></font>", styles["Normal"]),
+    ]]
+    kpi = Table(kpi_data, colWidths=[1.7 * inch] * 4)
+    kpi.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CCCCCC")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#EEEEEE")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F7F7F7")),
+        ("PADDING", (0, 0), (-1, -1), 10),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    elements.append(kpi)
+    elements.append(Spacer(1, 20))
+
+    if not mats:
+        elements.append(Paragraph(
+            "<i>No materials in this project yet. Upload a blueprint to auto-populate.</i>",
+            sub_style,
+        ))
+    else:
+        # Tables grouped by category
+        for cat in sorted(grouped.keys()):
+            items = grouped[cat]
+            elements.append(Paragraph(
+                f"{cat} &nbsp;<font color='#888888' size='10'>· {len(items)} items · "
+                f"${cat_subtotals[cat]:,.2f}</font>",
+                h2,
+            ))
+            table_data = [["#", "Material", "Qty", "Unit", "Unit Price", "Line Total", "AI"]]
+            for idx, m in enumerate(items, 1):
+                qty = float(m.get("quantity") or 0)
+                price = float(m.get("unit_price") or 0)
+                line_total = qty * price
+                table_data.append([
+                    str(idx),
+                    m.get("name", "")[:48],
+                    f"{qty:g}",
+                    m.get("unit", ""),
+                    f"${price:,.2f}",
+                    f"${line_total:,.2f}",
+                    "✓" if m.get("ai_extracted") else "",
+                ])
+            table_data.append(["", "", "", "", "Subtotal", f"${cat_subtotals[cat]:,.2f}", ""])
+            t = Table(table_data, colWidths=[
+                0.3 * inch, 2.7 * inch, 0.65 * inch, 0.65 * inch,
+                0.9 * inch, 1.0 * inch, 0.35 * inch,
+            ])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A0A0A")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#FFCC00")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 8),
+                ("FONTSIZE", (0, 1), (-1, -1), 9),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#F7F7F7")),
+                ("ALIGN", (2, 1), (5, -1), "RIGHT"),
+                ("ALIGN", (6, 1), (6, -1), "CENTER"),
+                ("ALIGN", (0, 0), (-1, 0), "LEFT"),
+                ("ALIGN", (4, 0), (5, 0), "RIGHT"),
+                ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#DDDDDD")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#FAFAFA")]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            elements.append(t)
+            elements.append(Spacer(1, 14))
+
+        # Grand total
+        gt = Table([["GRAND TOTAL", f"${grand_total:,.2f}"]], colWidths=[5.0 * inch, 1.55 * inch])
+        gt.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0055FF")),
+            ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 14),
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 14),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+            ("TOPPADDING", (0, 0), (-1, -1), 12),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+        ]))
+        elements.append(gt)
+
+    # Source documents page
+    if docs:
+        elements.append(PageBreak())
+        elements.append(Paragraph("Source Documents", h2))
+        for d in docs:
+            summary = (d.get("analysis") or {}).get("summary") or ""
+            row = (
+                f"<b>{d.get('filename', '')}</b> "
+                f"<font color='#888888' size='8'>· {d.get('doc_type') or 'unknown'} · "
+                f"{d.get('materials_count') or 0} materials"
+                f"{' · 3D synced' if d.get('synced_3d') else ''}</font>"
+            )
+            elements.append(Paragraph(row, styles["Normal"]))
+            if summary:
+                elements.append(Paragraph(
+                    f"<font color='#555555' size='9'>{summary}</font>",
+                    styles["Normal"],
+                ))
+            elements.append(Spacer(1, 10))
+
+    # Footer disclaimer
+    elements.append(Spacer(1, 20))
+    elements.append(Paragraph(
+        "<font color='#888888' size='8'><i>Prices are AI-estimated US 2026 trade rates. "
+        "Verify with vendors before final bidding. Generated by Atlas Construction OS.</i></font>",
+        styles["Normal"],
+    ))
+
+    doc.build(elements)
+    buf.seek(0)
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", proj["name"])[:40] or "project"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="atlas_takeoff_{safe_name}.pdf"',
+        },
+    )
 
 
 # ---------- Demo: status check (kept for compatibility) ----------

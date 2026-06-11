@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 2 backend testing complete. Added per-material pricing endpoints (PATCH/DELETE) and Takeoff PDF tests. All 17 new tests + 22 regression tests pass (39/39, 100%). AI pipeline correctly produces unit_price (USD) for materials, validation/auth rules work, PDF endpoint returns valid application/pdf with correct Content-Disposition.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/materials/{id}", "issue": "Negative quantity is silently clamped to 0 but spec only mentions clamping unit_price. Either ok or document the behavior."},
+      {"endpoint": "PATCH /api/materials/{id}", "issue": "Sending only name='   ' (whitespace) results in 400 'Nothing to update' because name.strip() is empty - behavior is reasonable but could be clearer (return validation error instead)."},
+      {"endpoint": "GET /api/projects/{id}/takeoff.pdf", "issue": "Cross-user returns 404 (per spec). Note: list_projects/materials etc. also return 404 for cross-user, consistent."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pricing_pdf.py",
+    "/app/backend/tests/test_construction_api.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_iteration2.xml",
+    "/app/test_reports/pytest/pytest_iteration2_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~810 lines — approaching the 700-line guidance. Consider splitting into modules (auth/, projects/, documents/, pdf/) as the codebase grows.",
+    "Takeoff PDF imports (reportlab) happen inside the request handler. Functionally fine but moving them to module-level imports would slightly reduce per-request latency.",
+    "MaterialPatchIn does not enforce min_length for name (only stripped); empty/whitespace-only names silently fall through to the 'nothing to update' path. Acceptable but worth a unit-level Pydantic validator.",
+    "Cross-user access on PATCH/DELETE returns 403 (material exists, project doesn't belong) while cross-user GET on /takeoff.pdf returns 404. Slight inconsistency in info-leak posture but matches existing project endpoints.",
+    "AI pricing depends on GPT-4o; pipeline still inserts materials with unit_price=0 if model omits price. Test confirms >=50% get prices in practice."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_pricing_pdf.py (new)"
+  ],
+  "success_rate": {"backend": "100% (39/39)", "frontend": "n/a (backend-only)"},
+  "test_credentials": "Tests use freshly-registered users (test_a_*/test_b_*@example.com, password TestPass123!) per session via conftest fixtures.",
+  "seed_data_creation": "Each test session creates 2 users (User A, User B) and uploads a PIL-generated floor_plan.png; analyzed_project module fixture creates one extra project + materials via the real GPT-4o pipeline.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reuse /app/backend/tests/conftest.py for fixtures (base_url, user_a/b, floor_plan_png, auth_headers_a/b). test_pricing_pdf.py owns iteration-2 features (PATCH/DELETE/PDF). For PDF, validate headers + magic bytes (%PDF), don't parse content. AI pipeline takes ~10-20s per upload; fixtures already wait up to 120s."
+}
