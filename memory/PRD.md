@@ -19,7 +19,38 @@ The auto-pipeline (no clicks needed):
 - **Frontend**: React 19 · React Router · Zustand state · Tailwind CSS · `@react-three/fiber` + `@react-three/drei` for 3D · IBM Plex / Chivo fonts
 - **Pipeline**: `asyncio.create_task` background analysis, frontend polls Documents endpoint every 1.5s while any doc is in-flight
 
-## Implemented Features (v1.2 — Jan 2026)
+## Implemented Features (v1.3 — Jan 2026)
+| Feature | Status |
+| --- | --- |
+| Email + password auth (register/login/me) — login response now includes `is_admin` | ✅ Done |
+| Suspended account login is blocked (403) | ✅ Done (v1.3) |
+| Default project auto-created on signup | ✅ Done |
+| Multi-project switching (Pro/Studio unlimited) | ✅ Done |
+| AI Pipeline (Upload → GPT-4o → materials + walls) | ✅ Done |
+| Materials with editable pricing + grand total | ✅ Done |
+| One-click branded PDF takeoff | ✅ Done |
+| Live 2D Blueprint + interactive CAD editor | ✅ Done |
+| Three.js 3D renderer with auto-fit isometric camera | ✅ Done |
+| 3 subscription tiers + 7-day Pro trial + 3 add-ons | ✅ Done |
+| Stripe Checkout (test mode) with idempotent entitlements | ✅ Done |
+| **Seeded admin account (`ADMIN_EMAIL` env, auto-generated password)** | ✅ Done (v1.3) |
+| **`/admin` dashboard (sidebar nav with 7 sections)** | ✅ Done (v1.3) |
+| **Admin Overview — users/projects/docs/revenue KPIs** | ✅ Done (v1.3) |
+| **Admin Users — list, search, edit plan/credits/admin/suspend, delete with cascade** | ✅ Done (v1.3) |
+| **Admin Projects — all projects with owner email + doc/material counts** | ✅ Done (v1.3) |
+| **Admin Billing — MRR / trial-conversion / transactions list** | ✅ Done (v1.3) |
+| **Admin System — JSON-editable catalog & plan-limits overrides** | ✅ Done (v1.3) |
+| **Admin AI Engine — switch GPT-4o / GPT-5.2 / Gemini / Claude + custom system prompt** | ✅ Done (v1.3) |
+| **Admin Audit Log — `audit()` helper writes events on every admin write** | ✅ Done (v1.3) |
+| **User `/settings` page (5 tabs)** | ✅ Done (v1.3) |
+| **Settings → Profile (name/email + password change)** | ✅ Done (v1.3) |
+| **Settings → Preferences (currency, units, date format, theme)** | ✅ Done (v1.3) |
+| **Settings → Notifications (4 email toggles, stored)** | ✅ Done (v1.3) |
+| **Settings → Sessions (revoke-all stub)** | ✅ Done (v1.3) |
+| **Settings → Danger Zone (JSON data export, account self-delete)** | ✅ Done (v1.3) |
+| 96/96 backend pytest suite green (37 new + 59 regression) | ✅ Done |
+
+## Backlog (P1)
 | Feature | Status |
 | --- | --- |
 | Email + password auth (register/login/me) | ✅ Done |
