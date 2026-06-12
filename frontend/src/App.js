@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Billing from "@/pages/Billing";
+import Settings from "@/pages/Settings";
+import Admin from "@/pages/Admin";
 import { useStore, apiClient } from "@/store";
 import "@/index.css";
 
@@ -19,11 +21,14 @@ function HomeRedirect() {
 }
 
 export default function App() {
-  // verify token on mount
+  // verify token on mount + refresh user (incl. is_admin flag)
   useEffect(() => {
-    const { token, logout } = useStore.getState();
+    const { token, logout, setAuth } = useStore.getState();
     if (token) {
-      apiClient.get("/auth/me").catch(() => logout());
+      apiClient
+        .get("/auth/me")
+        .then(({ data }) => setAuth(token, data))
+        .catch(() => logout());
     }
   }, []);
 
@@ -31,22 +36,10 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomeRedirect />} />
-        <Route
-          path="/app"
-          element={
-            <Protected>
-              <Dashboard />
-            </Protected>
-          }
-        />
-        <Route
-          path="/billing"
-          element={
-            <Protected>
-              <Billing />
-            </Protected>
-          }
-        />
+        <Route path="/app" element={<Protected><Dashboard /></Protected>} />
+        <Route path="/billing" element={<Protected><Billing /></Protected>} />
+        <Route path="/settings" element={<Protected><Settings /></Protected>} />
+        <Route path="/admin" element={<Protected><Admin /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

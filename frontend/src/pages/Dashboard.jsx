@@ -117,6 +117,26 @@ export default function Dashboard() {
                 )}
               </div>
             </Link>
+            {user?.is_admin && (
+              <Link
+                to="/admin"
+                data-testid="admin-link"
+                className="px-4 py-3 flex flex-col justify-center hover:bg-[#FF3333]/10 transition-colors border-r border-white/10"
+                title="Admin panel"
+              >
+                <div className="label-mono text-[#FF6666]">ADMIN</div>
+                <div className="font-mono text-xs mt-0.5 text-[#FF6666]">⚡ PANEL</div>
+              </Link>
+            )}
+            <Link
+              to="/settings"
+              data-testid="settings-link"
+              className="px-4 py-3 flex flex-col justify-center hover:bg-white/5 transition-colors border-r border-white/10"
+              title="Account settings"
+            >
+              <div className="label-mono">SETTINGS</div>
+              <div className="font-mono text-xs mt-0.5">⚙</div>
+            </Link>
             <div className="px-6 py-3 flex flex-col justify-center">
               <div className="label-mono">SIGNED IN</div>
               <div className="font-mono text-sm" data-testid="current-user">{user?.email}</div>

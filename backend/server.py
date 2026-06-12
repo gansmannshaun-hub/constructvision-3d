@@ -32,6 +32,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
 import billing as billing_mod
+import admin as admin_mod
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -155,7 +156,9 @@ async def register(payload: RegisterIn):
         }
     )
     token = create_token(uid, payload.email.lower())
-    return AuthOut(token=token, user={"id": uid, "email": payload.email.lower(), "name": payload.name})
+    return AuthOut(token=token, user={
+        "id": uid, "email": payload.email.lower(), "name": payload.name, "is_admin": False,
+    })
 
 
 @api.post("/auth/login", response_model=AuthOut)
@@ -163,8 +166,15 @@ async def login(payload: LoginIn):
     user = await db.users.find_one({"email": payload.email.lower()})
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
+    if user.get("suspended"):
+        raise HTTPException(403, "Account suspended. Contact support.")
     token = create_token(user["id"], user["email"])
-    return AuthOut(token=token, user={"id": user["id"], "email": user["email"], "name": user["name"]})
+    return AuthOut(token=token, user={
+        "id": user["id"],
+        "email": user["email"],
+        "name": user["name"],
+        "is_admin": bool(user.get("is_admin")),
+    })
 
 
 @api.get("/auth/me")
@@ -833,6 +843,8 @@ async def root():
 app.include_router(api)
 app.include_router(billing_mod.build_router(db, get_current_user))
 app.include_router(billing_mod.build_webhook_router(db))
+app.include_router(admin_mod.build_admin_router(db, get_current_user))
+app.include_router(admin_mod.build_user_router(db, get_current_user))
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -840,6 +852,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def _on_startup():
+    try:
+        await admin_mod.seed_admin(db)
+    except Exception as e:
+        logger.exception(f"seed_admin failed: {e}")
 
 
 @app.on_event("shutdown")
