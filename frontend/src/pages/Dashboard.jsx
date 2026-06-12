@@ -22,6 +22,7 @@ export default function Dashboard() {
   const { user, projects, currentProjectId, documents, billing, logout, loadProjects, selectProject, refreshDocuments, refreshMaterials, refreshBlueprint, refreshBilling } =
     useStore();
   const [tab, setTab] = useState("documents");
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const pollRef = useRef(null);
 
   useEffect(() => {
@@ -147,12 +148,7 @@ export default function Dashboard() {
             </div>
             <button
               data-testid="logout-button"
-              onClick={() => {
-                if (window.confirm("Sign out of Atlas?")) {
-                  logout();
-                  navigate("/");
-                }
-              }}
+              onClick={() => setShowLogoutModal(true)}
               className="px-5 bg-[#1A1A1A] hover:bg-[#FF3333] text-white flex flex-col items-center justify-center transition-colors text-sm uppercase tracking-wider font-mono group"
               title="Sign out"
             >
@@ -199,6 +195,88 @@ export default function Dashboard() {
           <div className="p-12 text-center text-neutral-500 font-mono">Loading project…</div>
         )}
       </main>
+
+      {showLogoutModal && (
+        <LogoutModal
+          user={user}
+          onCancel={() => setShowLogoutModal(false)}
+          onConfirm={() => {
+            logout();
+            navigate("/");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function LogoutModal({ user, onConfirm, onCancel }) {
+  // Esc to close
+  useEffect(() => {
+    const h = (e) => {
+      if (e.key === "Escape") onCancel();
+      if (e.key === "Enter") onConfirm();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onCancel, onConfirm]);
+
+  return (
+    <div
+      data-testid="logout-modal"
+      className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm fade-up"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-[#0a0a0a] border border-white/15 max-w-md w-full shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Striped header bar */}
+        <div className="h-1 bg-[length:14px_14px]" style={{
+          backgroundImage: "repeating-linear-gradient(45deg, #FF3333 0 6px, transparent 6px 14px)"
+        }} />
+        <div className="px-7 pt-7 pb-2">
+          <div className="label-mono text-[#FF6666] mb-2">// SIGN OUT</div>
+          <h2 className="font-display text-3xl tracking-tighter leading-none">Ready to step away?</h2>
+        </div>
+        <div className="px-7 py-5 space-y-3">
+          <p className="text-sm text-neutral-300 leading-relaxed">
+            You'll need to sign in again to access your blueprints, materials and 3D models.
+          </p>
+          <div className="border border-white/10 bg-[#141414] px-4 py-3 flex items-center gap-3">
+            <div className="w-8 h-8 bg-[#FFCC00] flex items-center justify-center flex-shrink-0">
+              <span className="font-display text-black text-base">
+                {(user?.name || user?.email || "?").charAt(0).toUpperCase()}
+              </span>
+            </div>
+            <div className="min-w-0">
+              <div className="font-mono text-sm truncate" data-testid="logout-modal-user">{user?.name || user?.email}</div>
+              <div className="label-mono truncate">{user?.email}</div>
+            </div>
+          </div>
+        </div>
+        <div className="px-7 py-5 border-t border-white/10 flex items-center justify-end gap-2">
+          <button
+            data-testid="logout-modal-cancel"
+            onClick={onCancel}
+            className="label-mono px-4 py-2.5 text-neutral-400 hover:bg-white/5 hover:text-white transition-colors"
+          >
+            CANCEL
+          </button>
+          <button
+            data-testid="logout-modal-confirm"
+            onClick={onConfirm}
+            autoFocus
+            className="bg-[#FF3333] hover:bg-[#CC2222] text-white font-bold px-5 py-2.5 text-xs uppercase tracking-wider transition-colors flex items-center gap-2"
+          >
+            <span className="text-base leading-none">⎋</span>
+            <span>Sign me out</span>
+          </button>
+        </div>
+        <div className="px-7 pb-4">
+          <div className="label-mono text-neutral-700">ESC TO CANCEL · ENTER TO CONFIRM</div>
+        </div>
+      </div>
     </div>
   );
 }
