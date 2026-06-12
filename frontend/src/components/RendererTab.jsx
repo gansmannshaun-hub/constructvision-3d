@@ -3,8 +3,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useStore } from "../store";
 
-const WALL_HEIGHT = 8;
-const SCALE = 0.1;
+const WALL_HEIGHT = 2.8; // architecturally sensible relative to 0-100 coord space
+const SCALE = 0.1;        // 0..100 blueprint coords -> -5..5 world units (10x10 footprint)
+const FLOOR_SIZE = 12;    // slightly larger than wall area
 
 // Build a Three.js scene from blueprint data. Returns a group; caller adds to scene.
 function buildModel(walls, doors, windows, shaded) {
@@ -34,9 +35,9 @@ function buildModel(walls, doors, windows, shaded) {
     const dx = ex - sx;
     const dz = ez - sz;
     const length = Math.hypot(dx, dz);
-    if (length < 0.001) continue;
+    if (length < 0.05) continue; // skip degenerate walls
     const angle = Math.atan2(dz, dx);
-    const thickness = Math.max(0.1, (w.thickness || 0.2) * 0.6);
+    const thickness = 0.12;
     const geom = new THREE.BoxGeometry(length, WALL_HEIGHT, thickness);
     const mesh = new THREE.Mesh(geom, wallMat);
     mesh.position.set((sx + ex) / 2, WALL_HEIGHT / 2, (sz + ez) / 2);
@@ -50,10 +51,11 @@ function buildModel(walls, doors, windows, shaded) {
     if (!d.position) continue;
     const x = d.position[0] * SCALE - 5;
     const z = d.position[1] * SCALE - 5;
-    const w = (d.width || 3) * SCALE * 1.5;
-    const geom = new THREE.BoxGeometry(w, 3.2, 0.18);
+    const w = Math.max(0.5, (d.width || 3) * SCALE * 0.6);
+    const h = WALL_HEIGHT * 0.75;
+    const geom = new THREE.BoxGeometry(w, h, 0.14);
     const mesh = new THREE.Mesh(geom, doorMat);
-    mesh.position.set(x, 1.6, z);
+    mesh.position.set(x, h / 2, z);
     mesh.castShadow = true;
     group.add(mesh);
   }
@@ -62,10 +64,11 @@ function buildModel(walls, doors, windows, shaded) {
     if (!wn.position) continue;
     const x = wn.position[0] * SCALE - 5;
     const z = wn.position[1] * SCALE - 5;
-    const w = (wn.width || 4) * SCALE * 1.5;
-    const geom = new THREE.BoxGeometry(w, 1.5, 0.12);
+    const w = Math.max(0.5, (wn.width || 4) * SCALE * 0.6);
+    const h = WALL_HEIGHT * 0.4;
+    const geom = new THREE.BoxGeometry(w, h, 0.1);
     const mesh = new THREE.Mesh(geom, winMat);
-    mesh.position.set(x, 4, z);
+    mesh.position.set(x, WALL_HEIGHT * 0.55, z);
     mesh.castShadow = true;
     group.add(mesh);
   }
@@ -74,18 +77,41 @@ function buildModel(walls, doors, windows, shaded) {
 }
 
 function buildFloor() {
-  const geom = new THREE.PlaneGeometry(20, 20);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 1 });
+  const geom = new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x0e0e0e, roughness: 1 });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = -0.001;
   mesh.receiveShadow = true;
   return mesh;
 }
 
 function buildGrid() {
-  const grid = new THREE.GridHelper(40, 40, 0x0055ff, 0x222222);
-  grid.position.y = 0.001;
+  const grid = new THREE.GridHelper(FLOOR_SIZE, FLOOR_SIZE * 2, 0x0055ff, 0x222222);
+  grid.position.y = 0.002;
   return grid;
+}
+
+// Compute bounding box of all wall endpoints in world coords
+function wallBounds(walls) {
+  if (!walls || walls.length === 0) return null;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const w of walls) {
+    if (!w.start || !w.end) continue;
+    for (const p of [w.start, w.end]) {
+      const x = p[0] * SCALE - 5;
+      const z = p[1] * SCALE - 5;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+  }
+  if (!Number.isFinite(minX)) return null;
+  const cx = (minX + maxX) / 2;
+  const cz = (minZ + maxZ) / 2;
+  const size = Math.max(maxX - minX, maxZ - minZ, 2);
+  return { cx, cz, size };
 }
 
 export default function RendererTab() {
@@ -112,12 +138,12 @@ export default function RendererTab() {
     const height = mount.clientHeight;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x050505);
-    scene.fog = new THREE.Fog(0x050505, 25, 60);
+    scene.background = new THREE.Color(0x080808);
+    scene.fog = new THREE.Fog(0x080808, 18, 45);
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 200);
-    camera.position.set(10, 12, 14);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 200);
+    camera.position.set(8, 9, 8);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -125,23 +151,36 @@ export default function RendererTab() {
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
     rendererRef.current = renderer;
     mount.appendChild(renderer.domElement);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.75);
     scene.add(ambient);
-    const dir = new THREE.DirectionalLight(0xffffff, 1.4);
-    dir.position.set(10, 18, 10);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6);
+    dir.position.set(6, 12, 6);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.mapSize.set(1024, 1024);
+    dir.shadow.camera.left = -8;
+    dir.shadow.camera.right = 8;
+    dir.shadow.camera.top = 8;
+    dir.shadow.camera.bottom = -8;
     scene.add(dir);
+    // soft fill light from opposite side
+    const fill = new THREE.DirectionalLight(0x99bbff, 0.35);
+    fill.position.set(-6, 8, -4);
+    scene.add(fill);
 
     scene.add(buildFloor());
     scene.add(buildGrid());
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.set(0, 1, 0);
+    controls.minDistance = 2;
+    controls.maxDistance = 40;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05;
+    controls.target.set(0, WALL_HEIGHT / 2, 0);
     controlsRef.current = controls;
 
     const animate = () => {
@@ -187,6 +226,8 @@ export default function RendererTab() {
   // Rebuild model when blueprint or shading mode changes
   useEffect(() => {
     const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
     if (!scene) return;
     if (modelRef.current) {
       scene.remove(modelRef.current);
@@ -202,6 +243,21 @@ export default function RendererTab() {
     const model = buildModel(walls, doors, windows, shaded);
     scene.add(model);
     modelRef.current = model;
+
+    // Auto-fit camera to wall bounds (or reset to default for empty)
+    if (camera && controls) {
+      const b = wallBounds(walls);
+      if (b) {
+        // True isometric-ish view: from above and corner so all 4 walls are visible
+        const dist = Math.max(b.size * 2.2, 6);
+        camera.position.set(b.cx + dist * 0.9, dist * 1.1, b.cz + dist * 0.9);
+        controls.target.set(b.cx, WALL_HEIGHT * 0.4, b.cz);
+      } else {
+        camera.position.set(8, 9, 8);
+        controls.target.set(0, WALL_HEIGHT * 0.4, 0);
+      }
+      controls.update();
+    }
   }, [walls, doors, windows, shaded]);
 
   const stats = { walls: walls.length, doors: doors.length, windows: windows.length };
@@ -248,7 +304,7 @@ export default function RendererTab() {
           <StatRow label="Walls" v={stats.walls} />
           <StatRow label="Doors" v={stats.doors} />
           <StatRow label="Windows" v={stats.windows} />
-          <StatRow label="Wall Height" v={`${WALL_HEIGHT} ft`} />
+          <StatRow label="Wall Height" v="2.8m" />
         </div>
 
         <div className="label-mono mb-2">// CONTROLS</div>

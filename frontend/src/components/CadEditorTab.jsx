@@ -43,19 +43,21 @@ export default function CadEditorTab() {
   const onCanvasClick = (e) => {
     const [x, y] = toSvgCoord(e);
     if (tool === "wall") {
-      if (!pendingStart) {
-        setPendingStart([x, y]);
-      } else {
+      // Use functional state so rapid clicks don't see a stale `pendingStart`
+      setPendingStart((prev) => {
+        if (!prev) return [x, y];
+        const dist = Math.hypot(x - prev[0], y - prev[1]);
+        if (dist < 0.5) return prev; // ignore near-duplicate clicks
         const newWall = {
           id: cryptoId(),
-          start: pendingStart,
+          start: prev,
           end: [x, y],
           thickness: 0.2,
         };
         setWalls((arr) => [...arr, newWall]);
-        setPendingStart(null);
         markDirty();
-      }
+        return null;
+      });
     } else if (tool === "door") {
       const newDoor = { id: cryptoId(), position: [x, y], width: 3, wall_index: 0 };
       setDoors((arr) => [...arr, newDoor]);
