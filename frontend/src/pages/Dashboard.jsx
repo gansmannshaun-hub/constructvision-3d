@@ -69,7 +69,7 @@ export default function Dashboard() {
     <div className="min-h-screen flex flex-col" data-testid="dashboard">
       {/* Top bar */}
       <header className="border-b border-white/10 bg-black flex-shrink-0">
-        <div className="flex items-stretch">
+        <div className="flex items-stretch flex-wrap">
           <div className="flex items-center gap-3 px-6 py-4 border-r border-white/10">
             <div className="w-8 h-8 bg-[#FFCC00] flex items-center justify-center">
               <span className="font-display text-black text-lg">A</span>
@@ -80,23 +80,27 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="flex-1 flex items-center px-6 gap-6 overflow-x-auto">
-            <div>
+          <div className="flex-1 min-w-0 flex items-center px-6 gap-4">
+            <div className="min-w-0">
               <div className="label-mono">// PROJECT</div>
-              <select
-                data-testid="project-selector"
-                value={currentProjectId || ""}
-                onChange={(e) => selectProject(e.target.value)}
-                className="bg-transparent text-white font-mono text-sm mt-1 outline-none cursor-pointer hover:text-[#FFCC00] transition-colors"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id} className="bg-black">
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              {projects.length > 0 ? (
+                <select
+                  data-testid="project-selector"
+                  value={currentProjectId || ""}
+                  onChange={(e) => selectProject(e.target.value)}
+                  className="bg-transparent text-white font-mono text-sm mt-1 outline-none cursor-pointer hover:text-[#FFCC00] transition-colors max-w-[280px] truncate"
+                >
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id} className="bg-black">
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="font-mono text-sm mt-1 text-neutral-500">No projects yet</div>
+              )}
             </div>
-            <NewProjectButton />
+            <NewProjectButton primary={projects.length === 0} />
           </div>
 
           <div className="flex items-stretch border-l border-white/10">
@@ -135,21 +139,25 @@ export default function Dashboard() {
               title="Account settings"
             >
               <div className="label-mono">SETTINGS</div>
-              <div className="font-mono text-xs mt-0.5">⚙</div>
+              <div className="font-mono text-xs mt-0.5">⚙ ACCOUNT</div>
             </Link>
-            <div className="px-6 py-3 flex flex-col justify-center">
-              <div className="label-mono">SIGNED IN</div>
-              <div className="font-mono text-sm" data-testid="current-user">{user?.email}</div>
+            <div className="px-5 py-3 flex flex-col justify-center border-r border-white/10 min-w-0">
+              <div className="label-mono">SIGNED IN AS</div>
+              <div className="font-mono text-xs truncate max-w-[180px]" data-testid="current-user" title={user?.email}>{user?.email}</div>
             </div>
             <button
               data-testid="logout-button"
               onClick={() => {
-                logout();
-                navigate("/");
+                if (window.confirm("Sign out of Atlas?")) {
+                  logout();
+                  navigate("/");
+                }
               }}
-              className="px-6 hover:bg-[#1E1E1E] text-neutral-400 hover:text-white transition-colors text-sm uppercase tracking-wider font-mono"
+              className="px-5 bg-[#1A1A1A] hover:bg-[#FF3333] text-white flex flex-col items-center justify-center transition-colors text-sm uppercase tracking-wider font-mono group"
+              title="Sign out"
             >
-              Logout →
+              <span className="text-lg leading-none group-hover:translate-x-0.5 transition-transform">⎋</span>
+              <span className="label-mono mt-1 text-[#FF6666] group-hover:text-white">LOG&nbsp;OUT</span>
             </button>
           </div>
         </div>
@@ -185,15 +193,90 @@ export default function Dashboard() {
             {tab === "cad" && <CadEditorTab />}
             {tab === "renderer" && <RendererTab />}
           </>
+        ) : projects.length === 0 ? (
+          <EmptyProjectsState />
         ) : (
-          <div className="p-12 text-center text-neutral-500 font-mono">Loading project...</div>
+          <div className="p-12 text-center text-neutral-500 font-mono">Loading project…</div>
         )}
       </main>
     </div>
   );
 }
 
-function NewProjectButton() {
+function EmptyProjectsState() {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { loadProjects, selectProject } = useStore();
+  const create = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setLoading(true);
+    try {
+      const { data } = await apiClient.post("/projects", { name });
+      await loadProjects();
+      await selectProject(data.id);
+    } catch (e2) {
+      alert(e2.response?.data?.detail || "Could not create project");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="h-full flex items-center justify-center p-8" data-testid="empty-projects-state">
+      <div className="max-w-md w-full text-center fade-up">
+        <div className="w-20 h-20 mx-auto mb-6 border-2 border-[#FFCC00] flex items-center justify-center">
+          <span className="font-display text-5xl text-[#FFCC00] leading-none">+</span>
+        </div>
+        <div className="label-mono mb-2">// LET'S START</div>
+        <h1 className="font-display text-4xl tracking-tighter mb-3">Create your first project.</h1>
+        <p className="text-neutral-400 text-sm leading-relaxed mb-8">
+          Every project is its own workspace — blueprints, materials, 3D model, and PDF takeoffs all live together.
+          You can have unlimited projects on Pro and Studio plans.
+        </p>
+        {open ? (
+          <form onSubmit={create} className="flex flex-col items-stretch gap-3">
+            <input
+              autoFocus
+              data-testid="empty-state-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Project name (e.g. Mason Heights Duplex)"
+              className="w-full bg-[#141414] border border-white/10 px-4 py-3 text-center font-mono"
+              required
+            />
+            <button
+              data-testid="empty-state-create"
+              type="submit"
+              disabled={loading || !name.trim()}
+              className="bg-[#FFCC00] hover:bg-[#E6B800] text-black font-bold py-3 uppercase tracking-wider text-sm disabled:opacity-50"
+            >
+              {loading ? "Creating…" : "Create project →"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="label-mono text-neutral-500 hover:text-white pt-2"
+            >
+              CANCEL
+            </button>
+          </form>
+        ) : (
+          <button
+            data-testid="empty-state-start"
+            onClick={() => setOpen(true)}
+            className="bg-[#FFCC00] hover:bg-[#E6B800] text-black font-bold px-8 py-3 uppercase tracking-wider text-sm transition-colors"
+          >
+            + Create new project
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewProjectButton({ primary = false }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -209,19 +292,25 @@ function NewProjectButton() {
       await selectProject(data.id);
       setOpen(false);
       setName("");
+    } catch (e2) {
+      alert(e2.response?.data?.detail || "Could not create project");
     } finally {
       setLoading(false);
     }
   };
 
   if (!open) {
+    const cls = primary
+      ? "bg-[#FFCC00] hover:bg-[#E6B800] text-black font-bold border border-[#FFCC00]"
+      : "border border-[#FFCC00]/60 text-[#FFCC00] hover:bg-[#FFCC00] hover:text-black";
     return (
       <button
         data-testid="new-project-button"
         onClick={() => setOpen(true)}
-        className="ml-auto label-mono border border-white/10 px-4 py-2 hover:bg-[#FFCC00] hover:text-black hover:border-[#FFCC00] transition-all duration-150"
+        className={`ml-auto label-mono px-4 py-2 transition-all duration-150 flex items-center gap-2 ${cls}`}
       >
-        + NEW PROJECT
+        <span className="text-base leading-none">+</span>
+        <span>NEW&nbsp;PROJECT</span>
       </button>
     );
   }
@@ -241,7 +330,7 @@ function NewProjectButton() {
         disabled={loading}
         className="bg-[#FFCC00] text-black px-4 py-2 text-sm font-bold uppercase tracking-wider"
       >
-        Create
+        {loading ? "Creating…" : "Create"}
       </button>
       <button
         type="button"
