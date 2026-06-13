@@ -19,9 +19,12 @@ The auto-pipeline (no clicks needed):
 - **Frontend**: React 19 · React Router · Zustand state · Tailwind CSS · `@react-three/fiber` + `@react-three/drei` for 3D · IBM Plex / Chivo fonts
 - **Pipeline**: `asyncio.create_task` background analysis, frontend polls Documents endpoint every 1.5s while any doc is in-flight
 
-## Implemented Features (v1.4 — Jan 2026)
+## Implemented Features (v1.5 — Feb 2026)
 | Feature | Status |
 | --- | --- |
+| **Renderer — MEP + Site Utilities** (Underground Utilities, Septic/Drain Field, Plumbing, Electrical as toggleable peelable layers + new phases) | ✅ Done (v1.5) |
+| **Renderer — Roof config controls** (gable/shed/flat/hip + pitch slider + wall/roof color pickers) | ✅ Done (v1.5) |
+| **Renderer — Animate phases play button** (auto-scrubs phase slider on a timer) | ✅ Done (v1.5) |
 | **CAD Editor — SketchUp-style** (cream canvas, icon toolbar, snap inference, pan/zoom, VCB length input) | ✅ Done (v1.4) |
 | **DIM toggle** — auto-render dimension annotations next to every wall | ✅ Done (v1.4) |
 | **Text Label tool** (X key) — click + inline editor + persistent labels | ✅ Done (v1.4) |

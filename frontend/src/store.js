@@ -83,15 +83,18 @@ export const useStore = create((set, get) => ({
     const { data } = await apiClient.get(`/projects/${id}/blueprint`);
     set({ blueprint: data });
   },
-  saveBlueprint: async (walls, doors, windows, labels = []) => {
+  saveBlueprint: async (walls, doors, windows, labels = [], extra = {}) => {
     const id = get().currentProjectId;
     if (!id) return;
-    const { data } = await apiClient.put(`/projects/${id}/blueprint`, {
-      walls,
-      doors,
-      windows,
-      labels,
-    });
+    const cur = get().blueprint || {};
+    const body = {
+      walls, doors, windows, labels,
+      roof_type: extra.roof_type ?? cur.roof_type ?? "gable",
+      roof_pitch_deg: extra.roof_pitch_deg ?? cur.roof_pitch_deg ?? 12,
+      wall_color: extra.wall_color ?? cur.wall_color ?? "#D8D4CC",
+      roof_color: extra.roof_color ?? cur.roof_color ?? "#4A5C6E",
+    };
+    const { data } = await apiClient.put(`/projects/${id}/blueprint`, body);
     set({ blueprint: data });
   },
 }));

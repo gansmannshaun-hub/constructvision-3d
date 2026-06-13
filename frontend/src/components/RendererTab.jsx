@@ -8,7 +8,6 @@ const SCALE = 0.1;             // blueprint 0-100 -> world -5..5 (10m)
 const SLAB_THICK = 0.18;
 const FOOTING_DEPTH = 0.45;
 const EAVE_OVERHANG = 0.3;
-const ROOF_PITCH_DEG = 12;     // shallow gable pitch
 const COLUMN_SIZE = 0.18;
 const GIRT_SIZE = 0.12;
 const GIRT_HEIGHTS = [0.6, 1.5, 2.4];
@@ -17,35 +16,59 @@ const PURLIN_SIZE = 0.12;
 const PANEL_THICKNESS = 0.04;
 const TRIM_THICKNESS = 0.06;
 const COLUMN_MAX_SPACING = 4.0;
+const ROOF_TYPES = [
+  { id: "gable", label: "Gable" },
+  { id: "shed",  label: "Shed (Mono)" },
+  { id: "flat",  label: "Flat" },
+  { id: "hip",   label: "Hip" },
+];
 
 const PHASES = [
   { id: 0,  label: "Site",        layers: ["excavation"] },
-  { id: 1,  label: "Foundation",  layers: ["excavation", "foundation"] },
-  { id: 2,  label: "Columns",     layers: ["foundation", "columns"] },
-  { id: 3,  label: "Frame",       layers: ["foundation", "columns", "frame"] },
-  { id: 4,  label: "Wall Girts",  layers: ["foundation", "columns", "frame", "girts"] },
-  { id: 5,  label: "Roof Purlins",layers: ["foundation", "columns", "frame", "girts", "purlins"] },
-  { id: 6,  label: "Roof Sheet",  layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet"] },
-  { id: 7,  label: "Wall Sheet",  layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet"] },
-  { id: 8,  label: "Openings",    layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet", "openings"] },
-  { id: 9,  label: "Trim",        layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet", "openings", "trim"] },
-  { id: 10, label: "Finished",    layers: ["foundation", "wallSheet", "roofSheet", "openings", "trim"] },
+  { id: 1,  label: "Underground", layers: ["excavation", "underground"] },
+  { id: 2,  label: "Septic",      layers: ["excavation", "underground", "septic"] },
+  { id: 3,  label: "Foundation",  layers: ["foundation", "underground", "septic"] },
+  { id: 4,  label: "Columns",     layers: ["foundation", "underground", "septic", "columns"] },
+  { id: 5,  label: "Frame",       layers: ["foundation", "underground", "septic", "columns", "frame"] },
+  { id: 6,  label: "Plumbing",    layers: ["foundation", "columns", "frame", "plumbing"] },
+  { id: 7,  label: "Electrical",  layers: ["foundation", "columns", "frame", "plumbing", "electrical"] },
+  { id: 8,  label: "Wall Girts",  layers: ["foundation", "columns", "frame", "plumbing", "electrical", "girts"] },
+  { id: 9,  label: "Roof Purlins",layers: ["foundation", "columns", "frame", "plumbing", "electrical", "girts", "purlins"] },
+  { id: 10, label: "Roof Sheet",  layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet"] },
+  { id: 11, label: "Wall Sheet",  layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet"] },
+  { id: 12, label: "Openings",    layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet", "openings"] },
+  { id: 13, label: "Trim",        layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet", "openings", "trim"] },
+  { id: 14, label: "Finished",    layers: ["foundation", "wallSheet", "roofSheet", "openings", "trim"] },
 ];
+const MAX_PHASE = PHASES.length - 1;
 
 const ALL_LAYERS = [
-  { id: "excavation", label: "Excavation",   color: "#5C3A1E" },
-  { id: "foundation", label: "Foundation",   color: "#B0B0B0" },
-  { id: "columns",    label: "Columns",      color: "#444444" },
-  { id: "frame",      label: "Primary Frame",color: "#555555" },
-  { id: "girts",      label: "Wall Girts",   color: "#8C9499" },
-  { id: "purlins",    label: "Roof Purlins", color: "#8C9499" },
-  { id: "roofSheet",  label: "Roof Sheeting",color: "#4A5C6E" },
-  { id: "wallSheet",  label: "Wall Sheeting",color: "#D8D4CC" },
-  { id: "openings",   label: "Doors & Windows", color: "#FFCC00" },
-  { id: "trim",       label: "Trim & Flashing", color: "#FFFFFF" },
+  { id: "excavation",  label: "Excavation",           color: "#5C3A1E" },
+  { id: "underground", label: "Underground Utilities", color: "#3a78d6" },
+  { id: "septic",      label: "Septic / Drain Field",  color: "#4d6b3a" },
+  { id: "foundation",  label: "Foundation",           color: "#B0B0B0" },
+  { id: "columns",     label: "Columns",              color: "#444444" },
+  { id: "frame",       label: "Primary Frame",        color: "#555555" },
+  { id: "plumbing",    label: "Plumbing",             color: "#3a9ed6" },
+  { id: "electrical",  label: "Electrical",           color: "#FF6600" },
+  { id: "girts",       label: "Wall Girts",           color: "#8C9499" },
+  { id: "purlins",     label: "Roof Purlins",         color: "#8C9499" },
+  { id: "roofSheet",   label: "Roof Sheeting",        color: "#4A5C6E" },
+  { id: "wallSheet",   label: "Wall Sheeting",        color: "#D8D4CC" },
+  { id: "openings",    label: "Doors & Windows",      color: "#FFCC00" },
+  { id: "trim",        label: "Trim & Flashing",      color: "#FFFFFF" },
 ];
 
-// ---------- Coord helpers ----------
+// Mutable config used by procedural builders (set by component before building)
+let CFG = { roof_type: "gable", roof_pitch_deg: 12, wall_color: "#D8D4CC", roof_color: "#4A5C6E" };
+const pitchH = (aabb) => {
+  if (CFG.roof_type === "flat") return 0;
+  const ridgeAlongX = aabb.w >= aabb.d;
+  const run = CFG.roof_type === "shed"
+    ? (ridgeAlongX ? aabb.d : aabb.w)
+    : (ridgeAlongX ? aabb.d / 2 : aabb.w / 2);
+  return Math.tan(THREE.MathUtils.degToRad(CFG.roof_pitch_deg || 0)) * run;
+};
 const toWorld = (p) => [p[0] * SCALE - 5, p[1] * SCALE - 5];
 
 function wallSegment(w) {
@@ -153,7 +176,6 @@ function buildColumns(walls) {
 function buildFrame(walls, aabb) {
   const g = new THREE.Group();
   if (!aabb) return g;
-  // Eave beams (horizontal beams along the top of each wall)
   for (const w of walls) {
     const s = wallSegment(w);
     if (!s) continue;
@@ -162,42 +184,26 @@ function buildFrame(walls, aabb) {
     beam.rotation.y = -s.angle;
     g.add(beam);
   }
-  // Ridge beam along longer axis
+  if (CFG.roof_type === "flat") return g;
   const ridgeAlongX = aabb.w >= aabb.d;
-  const pitchH = Math.tan(THREE.MathUtils.degToRad(ROOF_PITCH_DEG)) * (ridgeAlongX ? aabb.d / 2 : aabb.w / 2);
-  const ridgeY = WALL_HEIGHT + SLAB_THICK + pitchH;
+  const ph = pitchH(aabb);
+  const ridgeY = WALL_HEIGHT + SLAB_THICK + ph;
+  if (CFG.roof_type === "shed") {
+    // single sloped beam at high end
+    const len = ridgeAlongX ? aabb.w : aabb.d;
+    const ridge = makeBox(len, 0.2, 0.2, "#444", { roughness: 0.4, metalness: 0.85 });
+    if (ridgeAlongX) ridge.position.set(aabb.cx, ridgeY, aabb.minZ);
+    else { ridge.position.set(aabb.minX, ridgeY, aabb.cz); ridge.rotation.y = Math.PI / 2; }
+    g.add(ridge);
+    return g;
+  }
+  // gable / hip (hip approximated as gable with shorter ridge)
   const ridgeLen = ridgeAlongX ? aabb.w : aabb.d;
-  const ridge = makeBox(ridgeLen, 0.2, 0.2, "#444", { roughness: 0.4, metalness: 0.85 });
+  const ridgeShrink = CFG.roof_type === "hip" ? Math.min(aabb.w, aabb.d) * 0.5 : 0;
+  const ridge = makeBox(ridgeLen - ridgeShrink, 0.2, 0.2, "#444", { roughness: 0.4, metalness: 0.85 });
   ridge.position.set(aabb.cx, ridgeY, aabb.cz);
   if (!ridgeAlongX) ridge.rotation.y = Math.PI / 2;
   g.add(ridge);
-  // Rafters: from eave to ridge, spaced
-  const rafterCount = Math.max(2, Math.floor(ridgeLen / 2.0));
-  for (let i = 0; i <= rafterCount; i++) {
-    const t = rafterCount === 0 ? 0 : i / rafterCount;
-    if (ridgeAlongX) {
-      const x = aabb.minX + t * aabb.w;
-      // two rafters per slice (left & right slopes)
-      [aabb.minZ, aabb.maxZ].forEach((zEnd) => {
-        const dz = aabb.cz - zEnd;
-        const len = Math.hypot(dz, pitchH);
-        const r = makeBox(len, 0.14, 0.18, "#555", { roughness: 0.5, metalness: 0.85 });
-        r.position.set(x, (WALL_HEIGHT + SLAB_THICK + ridgeY) / 2, (zEnd + aabb.cz) / 2);
-        r.rotation.x = Math.atan2(pitchH, dz);
-        g.add(r);
-      });
-    } else {
-      const z = aabb.minZ + t * aabb.d;
-      [aabb.minX, aabb.maxX].forEach((xEnd) => {
-        const dx = aabb.cx - xEnd;
-        const len = Math.hypot(dx, pitchH);
-        const r = makeBox(len, 0.14, 0.18, "#555", { roughness: 0.5, metalness: 0.85 });
-        r.position.set((xEnd + aabb.cx) / 2, (WALL_HEIGHT + SLAB_THICK + ridgeY) / 2, z);
-        r.rotation.z = -Math.atan2(pitchH, dx);
-        g.add(r);
-      });
-    }
-  }
   return g;
 }
 
@@ -218,30 +224,29 @@ function buildGirts(walls) {
 
 function buildPurlins(aabb) {
   const g = new THREE.Group();
-  if (!aabb) return g;
+  if (!aabb || CFG.roof_type === "flat") return g;
   const ridgeAlongX = aabb.w >= aabb.d;
-  const pitchH = Math.tan(THREE.MathUtils.degToRad(ROOF_PITCH_DEG)) * (ridgeAlongX ? aabb.d / 2 : aabb.w / 2);
-  const ridgeY = WALL_HEIGHT + SLAB_THICK + pitchH;
-  const sideLen = ridgeAlongX ? aabb.w + EAVE_OVERHANG * 2 : aabb.d + EAVE_OVERHANG * 2;
-  const slopeRun = ridgeAlongX ? aabb.d / 2 : aabb.w / 2;
-  const slopeLen = Math.hypot(slopeRun, pitchH);
+  const ph = pitchH(aabb);
+  const isShed = CFG.roof_type === "shed";
+  const slopeRun = isShed ? (ridgeAlongX ? aabb.d : aabb.w) : (ridgeAlongX ? aabb.d / 2 : aabb.w / 2);
+  const slopeLen = Math.hypot(slopeRun, ph);
+  const sideLen = (ridgeAlongX ? aabb.w : aabb.d) + EAVE_OVERHANG * 2;
   const purlinCount = Math.max(2, Math.floor(slopeLen / PURLIN_SPACING));
+  const sides = isShed ? [1] : [-1, 1];
   for (let i = 0; i <= purlinCount; i++) {
     const t = purlinCount === 0 ? 0 : i / purlinCount;
-    const yAtSlope = WALL_HEIGHT + SLAB_THICK + pitchH * (1 - t);
+    const yAtSlope = WALL_HEIGHT + SLAB_THICK + ph * (1 - t);
     const offRun = slopeRun * t;
-    if (ridgeAlongX) {
-      [-1, 1].forEach((side) => {
+    for (const side of sides) {
+      if (ridgeAlongX) {
         const p = makeBox(sideLen, PURLIN_SIZE, PURLIN_SIZE, "#A4ACB0", { roughness: 0.4, metalness: 0.85 });
         p.position.set(aabb.cx, yAtSlope, aabb.cz + side * offRun);
         g.add(p);
-      });
-    } else {
-      [-1, 1].forEach((side) => {
+      } else {
         const p = makeBox(PURLIN_SIZE, PURLIN_SIZE, sideLen, "#A4ACB0", { roughness: 0.4, metalness: 0.85 });
         p.position.set(aabb.cx + side * offRun, yAtSlope, aabb.cz);
         g.add(p);
-      });
+      }
     }
   }
   return g;
@@ -254,7 +259,7 @@ function buildWallSheeting(walls, doors, windows, openings) {
     if (!s) continue;
     // sheet positioned slightly outside wall (offset along normal)
     const nx = -Math.sin(-s.angle), nz = Math.cos(-s.angle);
-    const panel = makeBox(s.length, WALL_HEIGHT, PANEL_THICKNESS, "#D8D4CC", { roughness: 0.5, metalness: 0.6 });
+    const panel = makeBox(s.length, WALL_HEIGHT, PANEL_THICKNESS, CFG.wall_color || "#D8D4CC", { roughness: 0.5, metalness: 0.6 });
     panel.position.set(s.cx + nx * (PANEL_THICKNESS / 2 + 0.05),
                        WALL_HEIGHT / 2 + SLAB_THICK,
                        s.cz + nz * (PANEL_THICKNESS / 2 + 0.05));
@@ -278,20 +283,43 @@ function buildWallSheeting(walls, doors, windows, openings) {
 function buildRoofSheeting(aabb) {
   const g = new THREE.Group();
   if (!aabb) return g;
+  const color = CFG.roof_color || "#4A5C6E";
   const ridgeAlongX = aabb.w >= aabb.d;
-  const pitchH = Math.tan(THREE.MathUtils.degToRad(ROOF_PITCH_DEG)) * (ridgeAlongX ? aabb.d / 2 : aabb.w / 2);
+  const ph = pitchH(aabb);
+  if (CFG.roof_type === "flat") {
+    const panel = makeBox(aabb.w + EAVE_OVERHANG * 2, PANEL_THICKNESS, aabb.d + EAVE_OVERHANG * 2, color, { roughness: 0.4, metalness: 0.7 });
+    panel.position.set(aabb.cx, WALL_HEIGHT + SLAB_THICK + PANEL_THICKNESS / 2, aabb.cz);
+    g.add(panel);
+    return g;
+  }
+  if (CFG.roof_type === "shed") {
+    const run = ridgeAlongX ? aabb.d : aabb.w;
+    const slope = Math.hypot(run, ph);
+    const panel = makeBox(
+      ridgeAlongX ? aabb.w + EAVE_OVERHANG * 2 : slope + EAVE_OVERHANG * 2,
+      PANEL_THICKNESS,
+      ridgeAlongX ? slope + EAVE_OVERHANG * 2 : aabb.d + EAVE_OVERHANG * 2,
+      color, { roughness: 0.4, metalness: 0.7 }
+    );
+    panel.position.set(aabb.cx, WALL_HEIGHT + SLAB_THICK + ph / 2, aabb.cz);
+    if (ridgeAlongX) panel.rotation.x = -Math.atan2(ph, run);
+    else             panel.rotation.z = Math.atan2(ph, run);
+    g.add(panel);
+    return g;
+  }
+  // gable / hip (hip approximated as gable)
   const slopeRun = ridgeAlongX ? aabb.d / 2 : aabb.w / 2;
-  const slopeLen = Math.hypot(slopeRun, pitchH);
+  const slopeLen = Math.hypot(slopeRun, ph);
   const sideLen = (ridgeAlongX ? aabb.w : aabb.d) + EAVE_OVERHANG * 2;
   for (const side of [-1, 1]) {
-    const panel = makeBox(sideLen, PANEL_THICKNESS, slopeLen + EAVE_OVERHANG * 2, "#4A5C6E", { roughness: 0.4, metalness: 0.7 });
-    const midY = WALL_HEIGHT + SLAB_THICK + pitchH / 2;
+    const panel = makeBox(sideLen, PANEL_THICKNESS, slopeLen + EAVE_OVERHANG * 2, color, { roughness: 0.4, metalness: 0.7 });
+    const midY = WALL_HEIGHT + SLAB_THICK + ph / 2;
     if (ridgeAlongX) {
       panel.position.set(aabb.cx, midY, aabb.cz + side * slopeRun / 2);
-      panel.rotation.x = side * Math.atan2(pitchH, slopeRun);
+      panel.rotation.x = side * Math.atan2(ph, slopeRun);
     } else {
       panel.position.set(aabb.cx + side * slopeRun / 2, midY, aabb.cz);
-      panel.rotation.z = -side * Math.atan2(pitchH, slopeRun);
+      panel.rotation.z = -side * Math.atan2(ph, slopeRun);
       panel.rotation.y = Math.PI / 2;
     }
     g.add(panel);
@@ -326,6 +354,177 @@ function buildOpenings(walls, doors, windows) {
   return g;
 }
 
+function buildUnderground(aabb) {
+  const g = new THREE.Group();
+  if (!aabb) return g;
+  const yBelow = -FOOTING_DEPTH * 0.4;
+  const runLen = Math.max(aabb.w, aabb.d) + 6;
+  const mk = (color, len, roughness = 0.5) =>
+    new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.09, len, 12),
+      new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.3 })
+    );
+  // Water main — blue, enters from west
+  const water = mk("#3a78d6", aabb.w + 6);
+  water.rotation.z = Math.PI / 2;
+  water.position.set(aabb.cx - 1, yBelow, aabb.cz - 0.6);
+  g.add(water);
+  // Gas line — yellow, enters from west
+  const gas = mk("#FFCC00", aabb.w + 6, 0.6);
+  gas.rotation.z = Math.PI / 2;
+  gas.position.set(aabb.cx - 1, yBelow - 0.25, aabb.cz + 0.6);
+  g.add(gas);
+  // Sewer — gray, exits east
+  const sewer = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.14, 0.14, runLen, 12),
+    new THREE.MeshStandardMaterial({ color: "#5a5a5a", roughness: 0.85 })
+  );
+  sewer.rotation.z = Math.PI / 2;
+  sewer.position.set(aabb.cx + 1, yBelow - 0.4, aabb.cz);
+  g.add(sewer);
+  // Meter/curb stops at edge (small markers)
+  const meter = makeBox(0.3, 0.5, 0.3, "#888", { roughness: 0.6, metalness: 0.6 });
+  meter.position.set(aabb.minX - 2.5, 0.25, aabb.cz - 0.6);
+  g.add(meter);
+  return g;
+}
+
+function buildSeptic(aabb) {
+  const g = new THREE.Group();
+  if (!aabb) return g;
+  // Septic tank offset from the building
+  const tankW = 2.4, tankH = 1.4, tankD = 1.4;
+  const tankX = aabb.maxX + 3.0;
+  const tankZ = aabb.minZ - 1.2;
+  const tank = makeBox(tankW, tankH, tankD, "#4d6b3a", { roughness: 0.9, metalness: 0 });
+  tank.position.set(tankX, -tankH / 2 - 0.1, tankZ);
+  g.add(tank);
+  // Lid/access ports (two small risers on top)
+  for (const dx of [-0.55, 0.55]) {
+    const lid = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.22, 0.3, 16),
+      new THREE.MeshStandardMaterial({ color: "#2f3d22", roughness: 0.9 })
+    );
+    lid.position.set(tankX + dx, 0.05, tankZ);
+    g.add(lid);
+  }
+  // Distribution box
+  const dbox = makeBox(0.6, 0.5, 0.6, "#5d7b4a", { roughness: 0.9 });
+  dbox.position.set(tankX + 1.8, -0.4, tankZ);
+  g.add(dbox);
+  // Outflow pipe (tank -> distribution box)
+  const outflow = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, 1.4, 10),
+    new THREE.MeshStandardMaterial({ color: "#8a7a4a", roughness: 0.7 })
+  );
+  outflow.rotation.z = Math.PI / 2;
+  outflow.position.set(tankX + 1.1, -0.5, tankZ);
+  g.add(outflow);
+  // Leach field laterals (parallel perforated pipes in gravel beds)
+  const fieldStartX = tankX + 2.3;
+  const lateralLen = Math.max(4, aabb.d * 0.8);
+  const lateralCount = 4;
+  const spacing = 1.0;
+  for (let i = 0; i < lateralCount; i++) {
+    const zOff = tankZ + (i - (lateralCount - 1) / 2) * spacing;
+    const pipe = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, lateralLen, 10),
+      new THREE.MeshStandardMaterial({ color: "#a89a6a", roughness: 0.7 })
+    );
+    pipe.rotation.z = Math.PI / 2;
+    pipe.position.set(fieldStartX + lateralLen / 2, -0.55, zOff);
+    g.add(pipe);
+    // Gravel bed under each pipe
+    const bed = makeBox(lateralLen + 0.3, 0.08, 0.55, "#7a7868", { roughness: 1, noShadow: true });
+    bed.position.set(fieldStartX + lateralLen / 2, -0.72, zOff);
+    g.add(bed);
+  }
+  return g;
+}
+
+function buildPlumbing(walls, aabb) {
+  const g = new THREE.Group();
+  if (!aabb) return g;
+  // Vertical drain stack rising through roof near corner
+  const stackX = aabb.minX + 1.0, stackZ = aabb.minZ + 1.0;
+  const stack = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.1, WALL_HEIGHT + 0.8, 12),
+    new THREE.MeshStandardMaterial({ color: "#cccccc", roughness: 0.6 })
+  );
+  stack.position.set(stackX, SLAB_THICK + (WALL_HEIGHT + 0.8) / 2, stackZ);
+  g.add(stack);
+  // Supply lines & drain lines following inside of walls
+  for (const w of walls) {
+    const s = wallSegment(w);
+    if (!s) continue;
+    // inside-facing normal (perpendicular, pointing toward center)
+    const nx = Math.sin(-s.angle) * -1, nz = Math.cos(-s.angle) * -1;
+    const towardCenter = ((aabb.cx - s.cx) * nx + (aabb.cz - s.cz) * nz) > 0 ? 1 : -1;
+    const inx = nx * towardCenter, inz = nz * towardCenter;
+    const cold = makeBox(s.length * 0.95, 0.04, 0.04, "#3a78d6", { roughness: 0.4, metalness: 0.5, noShadow: true });
+    cold.position.set(s.cx + inx * 0.12, SLAB_THICK + 0.45, s.cz + inz * 0.12);
+    cold.rotation.y = -s.angle;
+    g.add(cold);
+    const hot = makeBox(s.length * 0.95, 0.04, 0.04, "#cc4422", { roughness: 0.4, metalness: 0.5, noShadow: true });
+    hot.position.set(s.cx + inx * 0.18, SLAB_THICK + 0.55, s.cz + inz * 0.18);
+    hot.rotation.y = -s.angle;
+    g.add(hot);
+    const drain = makeBox(s.length * 0.95, 0.07, 0.07, "#999", { roughness: 0.7, noShadow: true });
+    drain.position.set(s.cx + inx * 0.14, SLAB_THICK + 0.18, s.cz + inz * 0.14);
+    drain.rotation.y = -s.angle;
+    g.add(drain);
+  }
+  return g;
+}
+
+function buildElectrical(walls, aabb) {
+  const g = new THREE.Group();
+  if (!aabb) return g;
+  // Panel mounted on first wall
+  const first = walls.length ? wallSegment(walls[0]) : null;
+  if (first) {
+    const nx = Math.sin(-first.angle) * -1, nz = Math.cos(-first.angle) * -1;
+    const towardCenter = ((aabb.cx - first.cx) * nx + (aabb.cz - first.cz) * nz) > 0 ? 1 : -1;
+    const inx = nx * towardCenter, inz = nz * towardCenter;
+    const panel = makeBox(0.5, 0.7, 0.15, "#888888", { roughness: 0.5, metalness: 0.8 });
+    panel.position.set(first.cx + inx * 0.25, SLAB_THICK + 1.4, first.cz + inz * 0.25);
+    panel.rotation.y = -first.angle;
+    g.add(panel);
+    const face = makeBox(0.42, 0.62, 0.02, "#1f1f1f", { roughness: 0.3, metalness: 0.6 });
+    face.position.set(first.cx + inx * 0.33, SLAB_THICK + 1.4, first.cz + inz * 0.33);
+    face.rotation.y = -first.angle;
+    g.add(face);
+  }
+  // Conduit along ceiling + outlet boxes on walls
+  const condY = WALL_HEIGHT + SLAB_THICK - 0.25;
+  for (const w of walls) {
+    const s = wallSegment(w);
+    if (!s) continue;
+    const nx = Math.sin(-s.angle) * -1, nz = Math.cos(-s.angle) * -1;
+    const towardCenter = ((aabb.cx - s.cx) * nx + (aabb.cz - s.cz) * nz) > 0 ? 1 : -1;
+    const inx = nx * towardCenter, inz = nz * towardCenter;
+    const cond = makeBox(s.length * 0.92, 0.04, 0.04, "#cc6622", { roughness: 0.4, metalness: 0.85, noShadow: true });
+    cond.position.set(s.cx + inx * 0.28, condY, s.cz + inz * 0.28);
+    cond.rotation.y = -s.angle;
+    g.add(cond);
+    const outletCount = Math.max(2, Math.floor(s.length / 2.5));
+    for (let i = 0; i < outletCount; i++) {
+      const t = (i + 0.5) / outletCount;
+      const box = makeBox(0.12, 0.12, 0.08, "#FF6600", { roughness: 0.6, metalness: 0.3 });
+      const x = s.sx + s.dx * t + inx * 0.09;
+      const z = s.sz + s.dz * t + inz * 0.09;
+      box.position.set(x, SLAB_THICK + 0.4, z);
+      box.rotation.y = -s.angle;
+      g.add(box);
+    }
+  }
+  // Center ceiling junction box
+  const jbox = makeBox(0.22, 0.1, 0.22, "#FF6600", { roughness: 0.6 });
+  jbox.position.set(aabb.cx, condY + 0.1, aabb.cz);
+  g.add(jbox);
+  return g;
+}
+
 function buildTrim(walls, aabb) {
   const g = new THREE.Group();
   if (!aabb) return g;
@@ -353,24 +552,41 @@ function buildTrim(walls, aabb) {
     g.add(t);
   }
   // ridge cap
-  const ridgeAlongX = aabb.w >= aabb.d;
-  const pitchH = Math.tan(THREE.MathUtils.degToRad(ROOF_PITCH_DEG)) * (ridgeAlongX ? aabb.d / 2 : aabb.w / 2);
-  const ridge = makeBox(ridgeAlongX ? aabb.w + 0.4 : 0.25, 0.08, ridgeAlongX ? 0.25 : aabb.d + 0.4, "#FFFFFF", { roughness: 0.3, metalness: 0.4 });
-  ridge.position.set(aabb.cx, WALL_HEIGHT + SLAB_THICK + pitchH + 0.05, aabb.cz);
-  g.add(ridge);
+  if (CFG.roof_type !== "flat" && CFG.roof_type !== "shed") {
+    const ridgeAlongX = aabb.w >= aabb.d;
+    const ph = pitchH(aabb);
+    const ridge = makeBox(ridgeAlongX ? aabb.w + 0.4 : 0.25, 0.08, ridgeAlongX ? 0.25 : aabb.d + 0.4, "#FFFFFF", { roughness: 0.3, metalness: 0.4 });
+    ridge.position.set(aabb.cx, WALL_HEIGHT + SLAB_THICK + ph + 0.05, aabb.cz);
+    g.add(ridge);
+  }
   return g;
 }
 
 // ---------- React component ----------
 export default function RendererTab() {
-  const { blueprint } = useStore();
+  const { blueprint, saveBlueprint } = useStore();
   const walls = blueprint.walls || [];
   const doors = blueprint.doors || [];
   const windows = blueprint.windows || [];
+  const roofType   = blueprint.roof_type || "gable";
+  const roofPitch  = blueprint.roof_pitch_deg ?? 12;
+  const wallColor  = blueprint.wall_color || "#D8D4CC";
+  const roofColor  = blueprint.roof_color || "#4A5C6E";
 
-  const [phase, setPhase] = useState(10);
-  const [layerOverrides, setLayerOverrides] = useState({}); // {layerId: true/false}
+  const [phase, setPhase] = useState(MAX_PHASE);
+  const [layerOverrides, setLayerOverrides] = useState({});
   const [autoMode, setAutoMode] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [savingCfg, setSavingCfg] = useState(false);
+
+  const updateCfg = useCallback(async (patch) => {
+    setSavingCfg(true);
+    try {
+      await saveBlueprint(walls, doors, windows, blueprint.labels || [], patch);
+    } finally {
+      setSavingCfg(false);
+    }
+  }, [saveBlueprint, walls, doors, windows, blueprint.labels]);
 
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
@@ -482,8 +698,9 @@ export default function RendererTab() {
     };
   }, []);
 
-  // 2) Rebuild all groups when walls/doors/windows change
+  // 2) Rebuild all groups when walls/doors/windows or roof config change
   useEffect(() => {
+    CFG = { roof_type: roofType, roof_pitch_deg: roofPitch, wall_color: wallColor, roof_color: roofColor };
     const scene = sceneRef.current;
     if (!scene) return;
     // dispose previous
@@ -502,16 +719,20 @@ export default function RendererTab() {
 
     const aabb = footprintAabb(walls);
     const builds = {
-      excavation: () => buildExcavation(aabb),
-      foundation: () => buildFoundation(aabb, walls),
-      columns:    () => buildColumns(walls),
-      frame:      () => buildFrame(walls, aabb),
-      girts:      () => buildGirts(walls),
-      purlins:    () => buildPurlins(aabb),
-      roofSheet:  () => buildRoofSheeting(aabb),
-      wallSheet:  () => buildWallSheeting(walls, doors, windows),
-      openings:   () => buildOpenings(walls, doors, windows),
-      trim:       () => buildTrim(walls, aabb),
+      excavation:  () => buildExcavation(aabb),
+      underground: () => buildUnderground(aabb),
+      septic:      () => buildSeptic(aabb),
+      foundation:  () => buildFoundation(aabb, walls),
+      columns:     () => buildColumns(walls),
+      frame:       () => buildFrame(walls, aabb),
+      plumbing:    () => buildPlumbing(walls, aabb),
+      electrical:  () => buildElectrical(walls, aabb),
+      girts:       () => buildGirts(walls),
+      purlins:     () => buildPurlins(aabb),
+      roofSheet:   () => buildRoofSheeting(aabb),
+      wallSheet:   () => buildWallSheeting(walls, doors, windows),
+      openings:    () => buildOpenings(walls, doors, windows),
+      trim:        () => buildTrim(walls, aabb),
     };
     for (const layer of ALL_LAYERS) {
       const g = builds[layer.id]();
@@ -539,6 +760,21 @@ export default function RendererTab() {
     }
   }, [visibleLayers]);
 
+  // 4) Animate phases when playing
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => {
+      setPhase((p) => {
+        if (p >= MAX_PHASE) {
+          setPlaying(false);
+          return MAX_PHASE;
+        }
+        return p + 1;
+      });
+    }, 850);
+    return () => clearInterval(t);
+  }, [playing]);
+
   const empty = walls.length === 0;
 
   return (
@@ -561,8 +797,20 @@ export default function RendererTab() {
         {/* Phase slider at bottom */}
         <div className="absolute bottom-3 left-3 right-3 z-10 bg-black/80 border border-white/10 backdrop-blur-sm p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="label-mono text-[#FFCC00]">// PHASE {phase} / 10 · {PHASES[phase].label}</div>
+            <div className="label-mono text-[#FFCC00]">// PHASE {phase} / {MAX_PHASE} · {PHASES[phase].label}</div>
             <div className="flex items-center gap-2">
+              <button
+                data-testid="renderer-play"
+                onClick={() => {
+                  if (!playing && phase >= MAX_PHASE) setPhase(0);
+                  setPlaying((p) => !p);
+                  setAutoMode(true);
+                }}
+                className={`label-mono px-2 py-1 border ${playing ? "bg-[#FF3333] text-white border-[#FF3333]" : "bg-[#00CC66] text-black border-[#00CC66]"}`}
+                title="Animate construction phases"
+              >
+                {playing ? "■ STOP" : "▶ PLAY"}
+              </button>
               <button
                 data-testid="renderer-auto-toggle"
                 onClick={() => setAutoMode((a) => !a)}
@@ -580,9 +828,9 @@ export default function RendererTab() {
               </button>
               <button
                 data-testid="renderer-next"
-                onClick={() => { setPhase((p) => Math.min(10, p + 1)); setAutoMode(true); }}
+                onClick={() => { setPhase((p) => Math.min(MAX_PHASE, p + 1)); setAutoMode(true); }}
                 className="label-mono px-2 py-1 border border-white/20 hover:bg-white/10"
-                disabled={phase === 10}
+                disabled={phase === MAX_PHASE}
               >
                 ▶
               </button>
@@ -592,20 +840,69 @@ export default function RendererTab() {
             data-testid="renderer-phase-slider"
             type="range"
             min={0}
-            max={10}
+            max={MAX_PHASE}
             value={phase}
             onChange={(e) => { setPhase(Number(e.target.value)); setAutoMode(true); }}
             className="w-full accent-[#FFCC00]"
           />
-          <div className="flex justify-between mt-1 text-[10px] font-mono text-neutral-500">
+          <div className="flex justify-between mt-1 text-[9px] font-mono text-neutral-500 gap-0.5 overflow-hidden">
             {PHASES.map((p) => (
-              <span key={p.id} className={p.id === phase ? "text-[#FFCC00]" : ""}>{p.label.slice(0, 6)}</span>
+              <span key={p.id} className={`truncate ${p.id === phase ? "text-[#FFCC00]" : ""}`}>{p.label.slice(0, 5)}</span>
             ))}
           </div>
         </div>
       </section>
 
       <aside className="border-l border-white/10 p-5 overflow-y-auto">
+        <div className="label-mono mb-2">// ROOF & FINISH</div>
+        <div className="space-y-3 mb-6">
+          <label className="block">
+            <div className="label-mono mb-1">Roof type</div>
+            <select
+              data-testid="renderer-roof-type"
+              value={roofType}
+              onChange={(e) => updateCfg({ roof_type: e.target.value })}
+              className="w-full bg-black border border-white/15 px-3 py-2 text-sm"
+            >
+              {ROOF_TYPES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <div className="label-mono mb-1 flex justify-between">
+              <span>Roof pitch</span><span className="text-[#FFCC00]">{roofPitch}°</span>
+            </div>
+            <input
+              data-testid="renderer-roof-pitch"
+              type="range" min="0" max="45" step="1"
+              value={roofPitch}
+              onChange={(e) => updateCfg({ roof_pitch_deg: Number(e.target.value) })}
+              disabled={roofType === "flat"}
+              className="w-full accent-[#FFCC00]"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <div className="label-mono mb-1">Wall color</div>
+              <input
+                data-testid="renderer-wall-color"
+                type="color" value={wallColor}
+                onChange={(e) => updateCfg({ wall_color: e.target.value })}
+                className="w-full h-9 bg-black border border-white/15 cursor-pointer"
+              />
+            </label>
+            <label className="block">
+              <div className="label-mono mb-1">Roof color</div>
+              <input
+                data-testid="renderer-roof-color"
+                type="color" value={roofColor}
+                onChange={(e) => updateCfg({ roof_color: e.target.value })}
+                className="w-full h-9 bg-black border border-white/15 cursor-pointer"
+              />
+            </label>
+          </div>
+          {savingCfg && <div className="label-mono text-[#FFCC00]">SAVING…</div>}
+        </div>
+
         <div className="label-mono mb-2">// LAYERS</div>
         <p className="text-xs text-neutral-500 leading-relaxed mb-4">
           Toggle individual layers to peel through the build. AUTO mode follows the phase slider; MANUAL gives you per-layer control.

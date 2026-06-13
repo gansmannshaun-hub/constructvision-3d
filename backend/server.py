@@ -262,6 +262,10 @@ async def save_blueprint(project_id: str, payload: BlueprintIn, user: dict = Dep
                 "doors": payload.doors,
                 "windows": payload.windows,
                 "labels": payload.labels,
+                "roof_type": payload.roof_type,
+                "roof_pitch_deg": payload.roof_pitch_deg,
+                "wall_color": payload.wall_color,
+                "roof_color": payload.roof_color,
                 "updated_at": now_iso(),
             }
         },
