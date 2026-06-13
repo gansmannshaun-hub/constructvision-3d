@@ -264,8 +264,8 @@ export default function RendererTab() {
   const empty = walls.length === 0 && doors.length === 0 && windows.length === 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] h-full" data-testid="renderer-tab">
-      <section className="relative min-h-0">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] grid-rows-[60vh_auto] lg:grid-rows-1 h-full" data-testid="renderer-tab">
+      <section className="relative min-h-[60vh] lg:min-h-0 border-b border-white/10 lg:border-b-0">
         <div className="absolute top-4 left-4 z-10 bg-black/70 border border-white/10 px-4 py-2 backdrop-blur-sm pointer-events-none">
           <div className="label-mono">// 3D MODEL</div>
           <div className="font-display text-lg tracking-tighter">Live Renderer</div>
