@@ -19,7 +19,19 @@ The auto-pipeline (no clicks needed):
 - **Frontend**: React 19 · React Router · Zustand state · Tailwind CSS · `@react-three/fiber` + `@react-three/drei` for 3D · IBM Plex / Chivo fonts
 - **Pipeline**: `asyncio.create_task` background analysis, frontend polls Documents endpoint every 1.5s while any doc is in-flight
 
-## Implemented Features (v1.3 — Jan 2026)
+## Implemented Features (v1.4 — Jan 2026)
+| Feature | Status |
+| --- | --- |
+| **CAD Editor — SketchUp-style** (cream canvas, icon toolbar, snap inference, pan/zoom, VCB length input) | ✅ Done (v1.4) |
+| **DIM toggle** — auto-render dimension annotations next to every wall | ✅ Done (v1.4) |
+| **Text Label tool** (X key) — click + inline editor + persistent labels | ✅ Done (v1.4) |
+| **Offset tool** (O key) — pick wall + click side OR type distance | ✅ Done (v1.4) |
+| **Linear Array** — select wall + count + spacing prompt → N parallel copies | ✅ Done (v1.4) |
+| **Mirror** — select wall = axis → mirrors all other walls across it | ✅ Done (v1.4) |
+| Blueprint persists `labels` array alongside walls/doors/windows | ✅ Done (v1.4) |
+| All prior v1.0-v1.3 features | ✅ Done |
+
+## Backlog (P1)
 | Feature | Status |
 | --- | --- |
 | Email + password auth (register/login/me) — login response now includes `is_admin` | ✅ Done |

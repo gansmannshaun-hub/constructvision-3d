@@ -26,6 +26,8 @@ const TOOLS = [
   { id: "eraser",   key: "E", label: "Eraser",       hint: "Click any element to remove it." },
   { id: "tape",     key: "T", label: "Tape Measure", hint: "Click two points to measure distance." },
   { id: "move",     key: "M", label: "Move",         hint: "Click an element, then click a destination." },
+  { id: "offset",   key: "O", label: "Offset",       hint: "Click a wall, then click the side / type a distance and Enter." },
+  { id: "text",     key: "X", label: "Text",         hint: "Click anywhere to place a text label." },
   { id: "pan",      key: "H", label: "Pan",          hint: "Drag to pan the view." },
   { id: "zoom",     key: "Z", label: "Zoom",         hint: "Click to zoom in. Shift+click to zoom out." },
 ];
@@ -65,6 +67,8 @@ const TOOL_ICON = ({ id, className = "" }) => {
     case "eraser":  return <svg {...s}><path d="M21 14L11 4l-7 7 10 10h7z" /><path d="M14 21l-3-3" /><path d="M3 21h18" /></svg>;
     case "tape":    return <svg {...s}><path d="M3 9h18v6H3z" /><path d="M7 9v6M11 9v6M15 9v6M19 9v3" /></svg>;
     case "move":    return <svg {...s}><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" /></svg>;
+    case "offset":  return <svg {...s}><path d="M5 6l14 0M5 18l14 0" /><path d="M9 10l-3 2 3 2" /><path d="M5 12h7" /></svg>;
+    case "text":    return <svg {...s}><path d="M5 5h14M12 5v14M9 19h6" /></svg>;
     case "pan":     return <svg {...s}><path d="M9 11V5a2 2 0 0 1 4 0v6M13 7v9a2 2 0 0 1-4 0V9M5 13l1 3a4 4 0 0 0 4 3h2a4 4 0 0 0 4-4v-4" /></svg>;
     case "zoom":    return <svg {...s}><circle cx="11" cy="11" r="7" /><path d="M21 21l-5-5M8 11h6M11 8v6" /></svg>;
     default:        return null;
@@ -81,12 +85,15 @@ export default function CadEditorTab() {
   const [walls, setWalls] = useState(blueprint.walls || []);
   const [doors, setDoors] = useState(blueprint.doors || []);
   const [windows, setWindows] = useState(blueprint.windows || []);
+  const [labels, setLabels] = useState(blueprint.labels || []);
   const [selected, setSelected] = useState(null);
   const [pendingStart, setPendingStart] = useState(null);     // 2-click tools
   const [rectStart, setRectStart] = useState(null);
   const [circleCenter, setCircleCenter] = useState(null);
   const [tapeStart, setTapeStart] = useState(null);
   const [moveFrom, setMoveFrom] = useState(null);             // {type, id, anchor}
+  const [offsetWall, setOffsetWall] = useState(null);         // wall picked for offset
+  const [textEditor, setTextEditor] = useState(null);         // {x, y, value}
   const [hover, setHover] = useState(null);                   // current cursor in coords
   const [inference, setInference] = useState(null);           // {type, point} for snap indicator
   const [measureInput, setMeasureInput] = useState("");
@@ -94,6 +101,7 @@ export default function CadEditorTab() {
   const [saving, setSaving] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
+  const [showDimensions, setShowDimensions] = useState(false);
 
   // viewbox state (pan/zoom)
   const [vb, setVb] = useState({ x: 0, y: 0, w: 100, h: 100 });
@@ -104,22 +112,24 @@ export default function CadEditorTab() {
     setWalls(blueprint.walls || []);
     setDoors(blueprint.doors || []);
     setWindows(blueprint.windows || []);
+    setLabels(blueprint.labels || []);
     setDirty(false);
   }, [blueprint]);
 
   const markDirty = () => setDirty(true);
 
-  // ---------- Coord conversion ----------
+  // ---------- Coord conversion (handles viewBox + preserveAspectRatio correctly) ----------
   const toSvgCoord = useCallback((e) => {
     const svg = svgRef.current;
     if (!svg) return [0, 0];
-    const rect = svg.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / rect.width;
-    const py = (e.clientY - rect.top) / rect.height;
-    const x = vb.x + px * vb.w;
-    const y = vb.y + py * vb.h;
-    return [x, y];
-  }, [vb]);
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return [0, 0];
+    const p = pt.matrixTransform(ctm.inverse());
+    return [p.x, p.y];
+  }, []);
 
   // ---------- Inference & snapping ----------
   const findInference = useCallback((p) => {
@@ -179,12 +189,16 @@ export default function CadEditorTab() {
     if (panning) {
       const svg = svgRef.current;
       if (!svg) return;
-      const rect = svg.getBoundingClientRect();
+      // Convert client-pixel delta to viewBox-coord delta using CTM
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return;
       const dxPx = e.clientX - panning.startClient[0];
       const dyPx = e.clientY - panning.startClient[1];
-      const dx = (dxPx / rect.width) * panning.startVb.w;
-      const dy = (dyPx / rect.height) * panning.startVb.h;
-      setVb({ ...panning.startVb, x: panning.startVb.x - dx, y: panning.startVb.y - dy });
+      const invScaleX = panning.startVb.w / (svg.clientWidth || 1);
+      const invScaleY = panning.startVb.h / (svg.clientHeight || 1);
+      // Use min scale so pan respects letterbox
+      const s = Math.max(invScaleX, invScaleY);
+      setVb({ ...panning.startVb, x: panning.startVb.x - dxPx * s, y: panning.startVb.y - dyPx * s });
       return;
     }
     const raw = toSvgCoord(e);
@@ -197,17 +211,16 @@ export default function CadEditorTab() {
 
   const onWheel = (e) => {
     e.preventDefault();
+    const [cx, cy] = toSvgCoord(e);
+    const scale = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+    const newW = Math.max(5, Math.min(400, vb.w * scale));
+    const newH = newW;
+    // Keep cursor world-position stable: adjust origin so that (cx, cy) stays where the mouse points
     const svg = svgRef.current;
-    if (!svg) return;
     const rect = svg.getBoundingClientRect();
     const mx = (e.clientX - rect.left) / rect.width;
     const my = (e.clientY - rect.top) / rect.height;
-    const scale = e.deltaY > 0 ? 1.15 : 1 / 1.15;
-    const newW = Math.max(5, Math.min(400, vb.w * scale));
-    const newH = newW; // keep square
-    const newX = vb.x + (vb.w - newW) * mx;
-    const newY = vb.y + (vb.h - newH) * my;
-    setVb({ x: newX, y: newY, w: newW, h: newH });
+    setVb({ x: cx - newW * mx, y: cy - newH * my, w: newW, h: newH });
   };
 
   const resetView = () => setVb({ x: 0, y: 0, w: 100, h: 100 });
@@ -263,6 +276,42 @@ export default function CadEditorTab() {
     }
     if (tool === "door")    { setDoors((arr) => [...arr, { id: cryptoId(), position: p, width: 3, wall_index: 0 }]); markDirty(); return; }
     if (tool === "window")  { setWindows((arr) => [...arr, { id: cryptoId(), position: p, width: 4, wall_index: 0 }]); markDirty(); return; }
+    if (tool === "text")    { setTextEditor({ position: p, value: "" }); return; }
+    if (tool === "offset") {
+      if (!offsetWall) {
+        // pick the nearest wall under cursor
+        let best = null;
+        for (const w of walls) {
+          if (!w.start || !w.end) continue;
+          const r = nearestOnSegment(p, w.start, w.end);
+          if (r.dist < 5 && (!best || r.dist < best.dist)) best = { wall: w, near: r };
+        }
+        if (best) setOffsetWall(best.wall);
+        return;
+      }
+      // commit offset by side click
+      const w = offsetWall;
+      const dx = w.end[0] - w.start[0];
+      const dy = w.end[1] - w.start[1];
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) { setOffsetWall(null); return; }
+      // unit normal
+      const nx = -dy / len, ny = dx / len;
+      // signed distance from wall to p (perpendicular)
+      const mid = [(w.start[0] + w.end[0]) / 2, (w.start[1] + w.end[1]) / 2];
+      const signed = (p[0] - mid[0]) * nx + (p[1] - mid[1]) * ny;
+      if (Math.abs(signed) < 0.05) { setOffsetWall(null); return; }
+      const newWall = {
+        id: cryptoId(),
+        start: [w.start[0] + nx * signed, w.start[1] + ny * signed],
+        end:   [w.end[0]   + nx * signed, w.end[1]   + ny * signed],
+        thickness: w.thickness || 0.2,
+      };
+      setWalls((arr) => [...arr, newWall]);
+      setOffsetWall(null);
+      markDirty();
+      return;
+    }
     if (tool === "tape") {
       setTapeStart((prev) => (prev ? null : p));
       return;
@@ -282,6 +331,7 @@ export default function CadEditorTab() {
       if (type === "wall")   setWalls((a) => a.filter((x) => x.id !== id));
       if (type === "door")   setDoors((a) => a.filter((x) => x.id !== id));
       if (type === "window") setWindows((a) => a.filter((x) => x.id !== id));
+      if (type === "label")  setLabels((a) => a.filter((x) => x.id !== id));
       markDirty();
       return;
     }
@@ -329,6 +379,7 @@ export default function CadEditorTab() {
         if (selected.type === "wall")   setWalls((a) => a.filter((w) => w.id !== selected.id));
         if (selected.type === "door")   setDoors((a) => a.filter((w) => w.id !== selected.id));
         if (selected.type === "window") setWindows((a) => a.filter((w) => w.id !== selected.id));
+        if (selected.type === "label")  setLabels((a) => a.filter((w) => w.id !== selected.id));
         setSelected(null);
         markDirty();
         return;
@@ -351,7 +402,7 @@ export default function CadEditorTab() {
     const v = parseFloat(measureInput);
     setMeasureInput("");
     if (!Number.isFinite(v) || v <= 0) return;
-    // Only meaningful for line tool while pendingStart set
+    // Line tool: exact-length wall
     if (tool === "line" && pendingStart && hover) {
       const dx = hover[0] - pendingStart[0];
       const dy = hover[1] - pendingStart[1];
@@ -362,18 +413,102 @@ export default function CadEditorTab() {
       setWalls((arr) => [...arr, { id: cryptoId(), start: pendingStart, end, thickness: 0.2 }]);
       setPendingStart(null);
       markDirty();
+      return;
+    }
+    // Offset tool: exact distance on side of cursor
+    if (tool === "offset" && offsetWall && hover) {
+      const w = offsetWall;
+      const dx = w.end[0] - w.start[0];
+      const dy = w.end[1] - w.start[1];
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) return;
+      const nx = -dy / len, ny = dx / len;
+      const mid = [(w.start[0] + w.end[0]) / 2, (w.start[1] + w.end[1]) / 2];
+      const side = Math.sign((hover[0] - mid[0]) * nx + (hover[1] - mid[1]) * ny) || 1;
+      const off = side * v;
+      setWalls((arr) => [...arr, {
+        id: cryptoId(),
+        start: [w.start[0] + nx * off, w.start[1] + ny * off],
+        end:   [w.end[0]   + nx * off, w.end[1]   + ny * off],
+        thickness: w.thickness || 0.2,
+      }]);
+      setOffsetWall(null);
+      markDirty();
     }
   };
 
   // ---------- Save ----------
   const save = async () => {
     setSaving(true);
-    try { await saveBlueprint(walls, doors, windows); setDirty(false); }
+    try { await saveBlueprint(walls, doors, windows, labels); setDirty(false); }
     finally { setSaving(false); }
   };
   const clearAll = () => {
-    if (!window.confirm("Remove ALL walls, doors, and windows?")) return;
-    setWalls([]); setDoors([]); setWindows([]); markDirty();
+    if (!window.confirm("Remove ALL walls, doors, windows, and labels?")) return;
+    setWalls([]); setDoors([]); setWindows([]); setLabels([]); markDirty();
+  };
+
+  // ---------- Linear Array (acts on selected wall) ----------
+  const doArray = () => {
+    if (!selected || selected.type !== "wall") {
+      alert("Select a wall first (use the Select tool).");
+      return;
+    }
+    const w = walls.find((x) => x.id === selected.id);
+    if (!w) return;
+    const countStr = window.prompt("Number of copies (linear array):", "3");
+    const count = parseInt(countStr, 10);
+    if (!Number.isFinite(count) || count < 1) return;
+    const spacingStr = window.prompt("Spacing in coord units (perpendicular to wall):", "10");
+    const spacing = parseFloat(spacingStr);
+    if (!Number.isFinite(spacing) || spacing <= 0) return;
+    const dx = w.end[0] - w.start[0];
+    const dy = w.end[1] - w.start[1];
+    const len = Math.hypot(dx, dy);
+    if (len < 0.001) return;
+    const nx = -dy / len, ny = dx / len;
+    const copies = [];
+    for (let i = 1; i <= count; i++) {
+      const o = spacing * i;
+      copies.push({
+        id: cryptoId(),
+        start: [w.start[0] + nx * o, w.start[1] + ny * o],
+        end:   [w.end[0]   + nx * o, w.end[1]   + ny * o],
+        thickness: w.thickness || 0.2,
+      });
+    }
+    setWalls((arr) => [...arr, ...copies]);
+    markDirty();
+  };
+
+  const doMirror = () => {
+    if (!selected || selected.type !== "wall") {
+      alert("Select a wall first to use as the mirror axis.");
+      return;
+    }
+    const axis = walls.find((x) => x.id === selected.id);
+    if (!axis) return;
+    // Mirror ALL other walls across the axis
+    const ax = axis.start[0], ay = axis.start[1];
+    const bx = axis.end[0],   by = axis.end[1];
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-6) return;
+    const reflect = ([px, py]) => {
+      const t = ((px - ax) * dx + (py - ay) * dy) / len2;
+      const fx = ax + t * dx, fy = ay + t * dy;
+      return [2 * fx - px, 2 * fy - py];
+    };
+    const mirrored = walls
+      .filter((w) => w.id !== axis.id)
+      .map((w) => ({
+        id: cryptoId(),
+        start: reflect(w.start),
+        end: reflect(w.end),
+        thickness: w.thickness || 0.2,
+      }));
+    setWalls((arr) => [...arr, ...mirrored]);
+    markDirty();
   };
 
   // ---------- Render helpers ----------
@@ -414,6 +549,8 @@ export default function CadEditorTab() {
     eraser: "cursor-not-allowed",
     tape: "cursor-cell",
     move: "cursor-move",
+    offset: "cursor-copy",
+    text: "cursor-text",
     pan: panning ? "cursor-grabbing" : "cursor-grab",
     zoom: "cursor-zoom-in",
   }[tool];
@@ -456,12 +593,40 @@ export default function CadEditorTab() {
           GRID
         </button>
         <button
+          data-testid="cad-toggle-dim"
+          onClick={() => setShowDimensions((s) => !s)}
+          className={`h-10 px-3 text-xs uppercase tracking-wider font-bold border ${showDimensions ? "bg-[#0055FF] text-white border-[#0055FF]" : "bg-white border-[#CCC] text-[#333]"}`}
+          title="Show dimension annotations"
+        >
+          DIM
+        </button>
+        <button
           data-testid="cad-reset-view"
           onClick={resetView}
           className="h-10 px-3 text-xs uppercase tracking-wider font-bold bg-white border border-[#CCC] text-[#333] hover:bg-[#FFCC00]/30"
           title="Reset zoom & pan"
         >
           ⌂ FIT
+        </button>
+
+        <div className="w-px h-8 bg-[#CCC] mx-1" />
+        <button
+          data-testid="cad-action-array"
+          onClick={doArray}
+          disabled={!selected || selected.type !== "wall"}
+          className="h-10 px-3 text-xs uppercase tracking-wider font-bold bg-white border border-[#CCC] text-[#333] hover:bg-[#FFCC00]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Linear array of the selected wall (count + spacing prompt)"
+        >
+          ⋮⋮ ARRAY
+        </button>
+        <button
+          data-testid="cad-action-mirror"
+          onClick={doMirror}
+          disabled={!selected || selected.type !== "wall"}
+          className="h-10 px-3 text-xs uppercase tracking-wider font-bold bg-white border border-[#CCC] text-[#333] hover:bg-[#FFCC00]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Mirror all other walls across the selected wall axis"
+        >
+          ⇄ MIRROR
         </button>
 
         <div className="flex-1" />
@@ -553,6 +718,73 @@ export default function CadEditorTab() {
             );
           })}
 
+          {/* Auto dimension annotations (toggleable) */}
+          {showDimensions && walls.map((w) => {
+            if (!w.start || !w.end) return null;
+            const dx = w.end[0] - w.start[0];
+            const dy = w.end[1] - w.start[1];
+            const len = Math.hypot(dx, dy);
+            if (len < 1) return null;
+            const mx = (w.start[0] + w.end[0]) / 2;
+            const my = (w.start[1] + w.end[1]) / 2;
+            const nx = -dy / len, ny = dx / len;
+            const off = 1.6; // perpendicular offset
+            const tx = mx + nx * off;
+            const ty = my + ny * off;
+            const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const flip = angle > 90 || angle < -90 ? 180 : 0;
+            return (
+              <g key={`dim-${w.id}`} pointerEvents="none">
+                <line x1={w.start[0]} y1={w.start[1]} x2={w.start[0] + nx * off * 0.9} y2={w.start[1] + ny * off * 0.9} stroke="#0055FF" strokeWidth="0.08" />
+                <line x1={w.end[0]} y1={w.end[1]} x2={w.end[0] + nx * off * 0.9} y2={w.end[1] + ny * off * 0.9} stroke="#0055FF" strokeWidth="0.08" />
+                <line x1={w.start[0] + nx * off} y1={w.start[1] + ny * off} x2={w.end[0] + nx * off} y2={w.end[1] + ny * off} stroke="#0055FF" strokeWidth="0.08" />
+                <text x={tx} y={ty} fontSize="1.6" fill="#0055FF" textAnchor="middle"
+                  transform={`rotate(${angle + flip}, ${tx}, ${ty})`}
+                  fontFamily="IBM Plex Mono, monospace" fontWeight="600">
+                  {len.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Text labels */}
+          {labels.map((l) => {
+            const isSel = selected?.type === "label" && selected.id === l.id;
+            return (
+              <g key={l.id} onClick={(e) => onElementClick(e, "label", l.id)} style={{ cursor: (tool === "select" || tool === "eraser") ? "pointer" : undefined }}>
+                <rect x={l.position[0] - (String(l.text || "").length * 0.45 + 0.6)} y={l.position[1] - 1.1}
+                  width={String(l.text || "").length * 0.9 + 1.2} height={2.2}
+                  fill={isSel ? "#FFCC00" : "rgba(255,255,255,0.85)"} stroke="#333" strokeWidth="0.08" />
+                <text x={l.position[0]} y={l.position[1] + 0.55}
+                  fontSize="1.5" fill="#1a1a1a" textAnchor="middle"
+                  fontFamily="IBM Plex Mono, monospace" fontWeight="600">
+                  {l.text}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Offset preview */}
+          {tool === "offset" && offsetWall && hover && (() => {
+            const w = offsetWall;
+            const dx = w.end[0] - w.start[0];
+            const dy = w.end[1] - w.start[1];
+            const len = Math.hypot(dx, dy);
+            if (len < 0.001) return null;
+            const nx = -dy / len, ny = dx / len;
+            const mid = [(w.start[0] + w.end[0]) / 2, (w.start[1] + w.end[1]) / 2];
+            const signed = (hover[0] - mid[0]) * nx + (hover[1] - mid[1]) * ny;
+            return (
+              <g pointerEvents="none">
+                <line x1={w.start[0]} y1={w.start[1]} x2={w.end[0]} y2={w.end[1]} stroke="#FF8800" strokeWidth="0.5" opacity="0.6" />
+                <line x1={w.start[0] + nx * signed} y1={w.start[1] + ny * signed} x2={w.end[0] + nx * signed} y2={w.end[1] + ny * signed} stroke="#FF8800" strokeWidth="0.4" strokeDasharray="1 0.6" />
+                <text x={mid[0] + nx * (signed / 2)} y={mid[1] + ny * (signed / 2)} fontSize="1.8" fill="#FF8800" textAnchor="middle" fontFamily="IBM Plex Mono, monospace">
+                  {Math.abs(signed).toFixed(1)}
+                </text>
+              </g>
+            );
+          })()}
+
           {/* Pending previews */}
           {tool === "line" && pendingStart && hover && (
             <>
@@ -601,6 +833,52 @@ export default function CadEditorTab() {
             }}>
             {inference.type}
           </div>
+        )}
+
+        {/* Text label inline editor */}
+        {textEditor && (
+          <form
+            data-testid="cad-text-editor"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const v = (textEditor.value || "").trim();
+              if (v) {
+                setLabels((arr) => [...arr, { id: cryptoId(), position: textEditor.position, text: v.slice(0, 40) }]);
+                markDirty();
+              }
+              setTextEditor(null);
+            }}
+            className="absolute"
+            style={{
+              left: `${((textEditor.position[0] - vb.x) / vb.w) * 100}%`,
+              top: `${((textEditor.position[1] - vb.y) / vb.h) * 100}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+          >
+            <input
+              autoFocus
+              data-testid="cad-text-input"
+              value={textEditor.value}
+              onChange={(e) => setTextEditor({ ...textEditor, value: e.target.value })}
+              onBlur={(e) => {
+                const v = (e.target.value || "").trim();
+                if (v) {
+                  setLabels((arr) => [...arr, { id: cryptoId(), position: textEditor.position, text: v.slice(0, 40) }]);
+                  markDirty();
+                }
+                setTextEditor(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setTextEditor(null);
+                  e.stopPropagation();
+                }
+              }}
+              placeholder="Type label…"
+              maxLength={40}
+              className="bg-white border-2 border-[#FFCC00] px-2 py-1 text-sm font-mono text-black shadow-md w-44"
+            />
+          </form>
         )}
       </div>
 

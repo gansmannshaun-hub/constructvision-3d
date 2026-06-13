@@ -21,7 +21,7 @@ export const useStore = create((set, get) => ({
   currentProjectId: null,
   documents: [],
   materials: [],
-  blueprint: { walls: [], doors: [], windows: [] },
+  blueprint: { walls: [], doors: [], windows: [], labels: [] },
   billing: null,
 
   setAuth: (token, user) => {
@@ -83,13 +83,14 @@ export const useStore = create((set, get) => ({
     const { data } = await apiClient.get(`/projects/${id}/blueprint`);
     set({ blueprint: data });
   },
-  saveBlueprint: async (walls, doors, windows) => {
+  saveBlueprint: async (walls, doors, windows, labels = []) => {
     const id = get().currentProjectId;
     if (!id) return;
     const { data } = await apiClient.put(`/projects/${id}/blueprint`, {
       walls,
       doors,
       windows,
+      labels,
     });
     set({ blueprint: data });
   },
