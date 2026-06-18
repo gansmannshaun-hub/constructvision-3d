@@ -112,8 +112,8 @@ export default function RendererTab() {
   const empty = walls.length === 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] grid-rows-[1fr_auto] lg:grid-rows-1 h-full" data-testid="renderer-tab">
-      <section className="relative min-h-[60vh] lg:min-h-0 border-b border-white/10 lg:border-b-0">
+    <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] xl:grid-cols-[1fr_320px] grid-rows-[1fr_auto] md:grid-rows-1 h-full" data-testid="renderer-tab">
+      <section className="relative min-h-[60vh] md:min-h-0 border-b border-white/10 md:border-b-0">
         <div className="absolute top-4 left-4 z-10 bg-black/70 border border-white/10 px-4 py-2 backdrop-blur-sm pointer-events-none">
           <div className="label-mono">// CONSTRUCTION PHASE</div>
           <div className="font-display text-lg tracking-tighter">{PHASES[phase].label}</div>
