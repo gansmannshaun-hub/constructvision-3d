@@ -56,6 +56,22 @@ def _gen_password(n: int = 20) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(n))
 
 
+async def _seed_default_project(db, user_id: str) -> str:
+    pid = str(uuid.uuid4())
+    await db.projects.insert_one({
+        "id": pid, "user_id": user_id,
+        "name": "My First Project",
+        "description": "Default project — upload a blueprint to get started",
+        "created_at": now_iso(),
+    })
+    await db.blueprints.insert_one({
+        "id": str(uuid.uuid4()), "project_id": pid,
+        "walls": [], "doors": [], "windows": [],
+        "updated_at": now_iso(),
+    })
+    return pid
+
+
 async def seed_admin(db) -> Optional[dict]:
     """Ensure admin user exists. Returns (email, password) if newly created, else None."""
     admin_email = (os.environ.get("ADMIN_EMAIL") or ADMIN_EMAIL_DEFAULT).lower()

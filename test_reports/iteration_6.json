@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 6 (Renderer refactor + Utilities/MEP takeoff + BlueprintIn fields fix) validated. Created /app/backend/tests/test_iter6_blueprint_utilities.py (5 new tests: admin login, full blueprint payload PUT, partial blueprint defaults, takeoff PDF utilities, EMERGENT_LLM_KEY pipeline regression). All 5 new tests pass. Full regression: 79/79 relevant tests pass — the 21 errors + 1 failure in test_admin_user_settings.py are PRE-EXISTING (hardcoded wrong admin password Ce#mgdP2l1E5KM*FnS02 in that test file, documented in iteration_5.json context). Frontend renderer Playwright test passes end-to-end: all 14 layer testids present, PLAY auto-advance works (0 -> 14 in ~13s @ ~850ms intervals), roof type/pitch/wall color/roof color all PUT successfully with NO 422/500 errors, layer toggling works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login (admin)", "issue": "Pre-existing: test_admin_user_settings.py hardcodes 'Ce#mgdP2l1E5KM*FnS02' but actual seeded password is 'Open0says3me#*03#*' from /app/memory/test_credentials.md. Causes 21 errors + 1 failure in that file ONLY. The admin login endpoint itself works correctly (verified in new test_iter6 suite)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "3D Renderer (dev mode only)", "issues": ["Benign 'ResizeObserver loop completed with undelivered notifications' overlay shown by react-dev-overlay — does NOT affect functionality; scene renders correctly, all interactions work. Suppress in dev or ignore."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_blueprint_utilities.py",
+    "/app/test_reports/pytest/pytest_iteration6.xml",
+    "/app/test_reports/pytest/pytest_iteration6_full.xml"
+  ],
+  "action_items": [
+    "(Optional) Fix the hardcoded admin password in /app/backend/tests/test_admin_user_settings.py — change 'Ce#mgdP2l1E5KM*FnS02' to 'Open0says3me#*03#*' OR read from /app/memory/test_credentials.md. This is pre-existing tech debt, not introduced by this refactor.",
+    "(Optional) Suppress react-dev-overlay's ResizeObserver loop noise in dev (window.addEventListener('error', e=>{ if(/ResizeObserver loop/.test(e.message)) e.stopImmediatePropagation();})). Cosmetic only."
+  ],
+  "critical_code_review_comments": [
+    "GOOD: server.py calls load_dotenv() FIRST (line 15) before any other imports that touch env vars. EMERGENT_LLM_KEY is read lazily via _llm_key() at call time inside documents.py (line 24-25), so even if load order changed, the key would still be picked up. Verified — no 'EMERGENT_LLM_KEY missing' error in pipeline regression test.",
+    "GOOD: BlueprintIn now includes labels/roof_type/roof_pitch_deg/wall_color/roof_color with proper defaults; PUT with full payload returns 200 + all fields persist (was 422 before).",
+    "GOOD: utilities_takeoff.py produces all 5 expected phrase markers in PDF text (verified via pypdf text extraction): Septic tank, Leach field, Water main, EMT conduit, Vertical drain stack, plus 'AUTO' src column.",
+    "Minor: routes/takeoff.py imports get_or_create_blueprint from routes.projects — implicit cross-router dep is acceptable here but consider moving shared blueprint helpers to a dedicated /app/backend/services/blueprint_service.py if more cross-imports appear.",
+    "Minor: documents.py:_build_pipeline closure captures db but its returned 'run' is wired as a module-level helper per router — fine, but the 'syncing' status is only emitted if walls/doors/windows are non-empty AND doc_type is floor_plan; one-line earlier status transition keeps the polling tests happy.",
+    "Minor: utilities_takeoff.py uses math.hypot for wall length but rounds quantity asymmetrically (round(qty,1) only when float). For 'ea' counts (outlet_count etc) this leaves int unchanged — works but reads inconsistently."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6_blueprint_utilities.py (new — 5 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% on iter-6 new tests (5/5) + 79/79 non-pre-existing-fail tests pass (101 collected; 21 errors+1 fail are pre-existing in test_admin_user_settings.py — hardcoded wrong admin password, unrelated to this iteration)",
+    "frontend": "100% — all 14 layer testids present, PLAY auto-advance OK (0->14), roof/color/pitch save with NO 422/500, layer toggling works"
+  },
+  "test_credentials": "Admin: admin@atlas.app / Open0says3me#*03#* (verified working). Ephemeral test users via /api/auth/register with TestPass123!.",
+  "seed_data_creation": "test_iter6_blueprint_utilities.py creates 1-2 TEST_iter6_* projects under the admin account per session (not cleaned up; admin is on studio plan so quota is not an issue).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iter6_blueprint_utilities.py -v (5 tests, ~40s). For full regression: pytest /app/backend/tests/ -v (~115s). Ignore the 21 errors+1 failure in test_admin_user_settings.py — that file has hardcoded wrong admin password (Ce#mgdP2l1E5KM*FnS02) and is documented as pre-existing in iteration_5.json. PDF text validation requires `pypdf` package (installed via pip in iter-6). PDF body bytes are flate-compressed so direct byte search WILL FAIL — always use pypdf.PdfReader to extract text first. Frontend renderer: testids are stable; ALL_LAYERS ids = excavation, underground, septic, foundation, columns, frame, plumbing, electrical, girts, purlins, roofSheet, wallSheet, openings, trim (14 total). Renderer canvas mounts inside [data-testid='renderer-canvas-mount']; the 'ResizeObserver loop' overlay is a react-dev-overlay artifact only.",
+  "rca of the issue": "Pre-iter-6 bug 1 (BlueprintIn 422): models/blueprint.py was missing labels/roof_type/roof_pitch_deg/wall_color/roof_color fields, so Pydantic v2 strict mode raised 422 when frontend sent any of them. Fix verified: BlueprintIn now declares all 5 with defaults — full payload PUT returns 200 and all fields persist via GET. Pre-iter-6 bug 2 (EMERGENT_LLM_KEY missing): pipeline read the key at module-import time before load_dotenv. Fix verified: documents.py now reads via _llm_key() lazily, so key is read AFTER server.py's load_dotenv() at line 15. Pipeline regression test confirms no 'EMERGENT_LLM_KEY missing' error."
+}

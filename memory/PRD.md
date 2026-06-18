@@ -19,6 +19,15 @@ The auto-pipeline (no clicks needed):
 - **Frontend**: React 19 · React Router · Zustand state · Tailwind CSS · `@react-three/fiber` + `@react-three/drei` for 3D · IBM Plex / Chivo fonts
 - **Pipeline**: `asyncio.create_task` background analysis, frontend polls Documents endpoint every 1.5s while any doc is in-flight
 
+## Implemented Features (v1.6 — Feb 2026)
+| Feature | Status |
+| --- | --- |
+| **Takeoff PDF — Utilities/MEP auto-BOM** (septic tank, leach field, water/gas/sewer mains, plumbing rough-in, electrical conduit/outlets/wire, all derived procedurally from blueprint footprint and marked "AUTO" in Src column) | ✅ Done (v1.6) |
+| **Backend refactor** (server.py 873 → 80 lines; modular `/app/backend/models/` + `/app/backend/routes/auth,projects,materials,documents,takeoff` + `/app/backend/utils.py`) | ✅ Done (v1.6) |
+| **Renderer refactor** (RendererTab.jsx 900 → 230 lines + pure Three.js engine at `/app/frontend/src/lib/renderer/sceneBuilder.js`) | ✅ Done (v1.6) |
+| **Bug fix** — `BlueprintIn` Pydantic model was missing labels/roof_type/roof_pitch_deg/wall_color/roof_color → all roof+color saves were silently 422-ing | ✅ Done (v1.6) |
+| **Bug fix** — admin.py referenced undefined `_seed_default_project` | ✅ Done (v1.6) |
+
 ## Implemented Features (v1.5 — Feb 2026)
 | Feature | Status |
 | --- | --- |

@@ -27,7 +27,7 @@ if not BASE_URL:
 BASE_URL = BASE_URL.rstrip("/")
 
 ADMIN_EMAIL = "admin@atlas.app"
-ADMIN_PASSWORD = "Ce#mgdP2l1E5KM*FnS02"
+ADMIN_PASSWORD = "Open0says3me#*03#*"
 
 
 # ---------- helpers ----------
