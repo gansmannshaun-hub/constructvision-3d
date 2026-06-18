@@ -9,8 +9,8 @@ from math import hypot
 from typing import List
 
 # Renderer constants (kept in sync with frontend/src/lib/renderer/sceneBuilder.js)
-SCALE = 0.1  # blueprint 0-100 -> world meters
-WALL_HEIGHT_M = 3.0
+SCALE = 0.3048  # blueprint units (ft) -> meters
+WALL_HEIGHT_M = 3.05
 M_TO_FT = 3.28084
 
 

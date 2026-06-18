@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useStore } from "../store";
+import { formatFeetInches, wallsAabb } from "../lib/dim";
 
 /** Read-only blueprint view: draws walls/doors/windows on the blueprint grid */
 export default function BlueprintTab() {
@@ -8,13 +9,20 @@ export default function BlueprintTab() {
   const doors = blueprint?.doors || [];
   const windows = blueprint?.windows || [];
 
+  const [showDimensions, setShowDimensions] = useState(true);
+
   const lastSourceDoc = useMemo(() => {
     const id = blueprint?.last_source_document_id;
     if (!id) return null;
     return documents.find((d) => d.id === id) || null;
   }, [blueprint, documents]);
 
-  const VB = 100; // viewbox 0..100
+  const aabb = useMemo(() => wallsAabb(walls), [walls]);
+
+  // Expand SVG viewBox to accommodate outer dimension chains
+  const VB_PAD = 8;
+  const vbMin = -VB_PAD;
+  const vbSize = 100 + VB_PAD * 2;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] h-full" data-testid="blueprint-tab">
@@ -24,8 +32,20 @@ export default function BlueprintTab() {
             <div className="label-mono">// VIEW</div>
             <h2 className="font-display text-2xl tracking-tighter">Live Blueprint</h2>
           </div>
-          <div className="label-mono">
-            {walls.length} walls · {doors.length} doors · {windows.length} windows
+          <div className="flex items-center gap-4">
+            <button
+              data-testid="blueprint-dims-toggle"
+              onClick={() => setShowDimensions((d) => !d)}
+              className={`label-mono px-2 py-1 border ${showDimensions ? "bg-[#FF6600] text-black border-[#FF6600]" : "border-white/20 hover:bg-white/10"}`}
+            >DIMS {showDimensions ? "ON" : "OFF"}</button>
+            <div className="label-mono">
+              {walls.length} walls · {doors.length} doors · {windows.length} windows
+              {aabb && showDimensions && (
+                <span className="text-[#FF6600] ml-3">
+                  {formatFeetInches(aabb.w)} × {formatFeetInches(aabb.h)}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -39,7 +59,7 @@ export default function BlueprintTab() {
                 </div>
               </div>
             ) : (
-              <svg viewBox={`0 0 ${VB} ${VB}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet" data-testid="blueprint-svg">
+              <svg viewBox={`${vbMin} ${vbMin} ${vbSize} ${vbSize}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet" data-testid="blueprint-svg">
                 {/* Walls */}
                 {walls.map((w) => (
                   <line
@@ -76,6 +96,64 @@ export default function BlueprintTab() {
                     fill="#0055FF"
                   />
                 ))}
+
+                {/* Per-wall dimensions */}
+                {showDimensions && walls.map((w) => {
+                  if (!w.start || !w.end) return null;
+                  const dx = w.end[0] - w.start[0];
+                  const dy = w.end[1] - w.start[1];
+                  const len = Math.hypot(dx, dy);
+                  if (len < 1) return null;
+                  const mx = (w.start[0] + w.end[0]) / 2;
+                  const my = (w.start[1] + w.end[1]) / 2;
+                  const nx = -dy / len, ny = dx / len;
+                  const off = 1.8;
+                  const tx = mx + nx * off;
+                  const ty = my + ny * off;
+                  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+                  const flip = angle > 90 || angle < -90 ? 180 : 0;
+                  return (
+                    <g key={`dim-${w.id}`} pointerEvents="none">
+                      <line x1={w.start[0]} y1={w.start[1]} x2={w.start[0] + nx * off * 0.9} y2={w.start[1] + ny * off * 0.9} stroke="#7AB8FF" strokeWidth="0.08" />
+                      <line x1={w.end[0]} y1={w.end[1]} x2={w.end[0] + nx * off * 0.9} y2={w.end[1] + ny * off * 0.9} stroke="#7AB8FF" strokeWidth="0.08" />
+                      <line x1={w.start[0] + nx * off} y1={w.start[1] + ny * off} x2={w.end[0] + nx * off} y2={w.end[1] + ny * off} stroke="#7AB8FF" strokeWidth="0.08" />
+                      <text x={tx} y={ty} fontSize="1.6" fill="#7AB8FF" textAnchor="middle"
+                        transform={`rotate(${angle + flip}, ${tx}, ${ty})`}
+                        fontFamily="IBM Plex Mono, monospace" fontWeight="600">
+                        {formatFeetInches(len)}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Overall outer dimension chain */}
+                {showDimensions && aabb && aabb.w >= 1 && aabb.h >= 1 && (() => {
+                  const outer = 5.5;
+                  const tick = 0.9;
+                  return (
+                    <g pointerEvents="none">
+                      <line x1={aabb.minX} y1={aabb.minY - outer} x2={aabb.maxX} y2={aabb.minY - outer} stroke="#FF6600" strokeWidth="0.14" />
+                      <line x1={aabb.minX} y1={aabb.minY - outer - tick / 2} x2={aabb.minX} y2={aabb.minY - outer + tick / 2} stroke="#FF6600" strokeWidth="0.14" />
+                      <line x1={aabb.maxX} y1={aabb.minY - outer - tick / 2} x2={aabb.maxX} y2={aabb.minY - outer + tick / 2} stroke="#FF6600" strokeWidth="0.14" />
+                      <line x1={aabb.minX} y1={aabb.minY} x2={aabb.minX} y2={aabb.minY - outer + tick} stroke="#FF6600" strokeWidth="0.07" strokeDasharray="0.5 0.5" />
+                      <line x1={aabb.maxX} y1={aabb.minY} x2={aabb.maxX} y2={aabb.minY - outer + tick} stroke="#FF6600" strokeWidth="0.07" strokeDasharray="0.5 0.5" />
+                      <text x={(aabb.minX + aabb.maxX) / 2} y={aabb.minY - outer - 1.1} fontSize="2.4" fill="#FF6600" textAnchor="middle"
+                        fontFamily="IBM Plex Mono, monospace" fontWeight="700">
+                        {formatFeetInches(aabb.w)}
+                      </text>
+                      <line x1={aabb.minX - outer} y1={aabb.minY} x2={aabb.minX - outer} y2={aabb.maxY} stroke="#FF6600" strokeWidth="0.14" />
+                      <line x1={aabb.minX - outer - tick / 2} y1={aabb.minY} x2={aabb.minX - outer + tick / 2} y2={aabb.minY} stroke="#FF6600" strokeWidth="0.14" />
+                      <line x1={aabb.minX - outer - tick / 2} y1={aabb.maxY} x2={aabb.minX - outer + tick / 2} y2={aabb.maxY} stroke="#FF6600" strokeWidth="0.14" />
+                      <line x1={aabb.minX} y1={aabb.minY} x2={aabb.minX - outer + tick} y2={aabb.minY} stroke="#FF6600" strokeWidth="0.07" strokeDasharray="0.5 0.5" />
+                      <line x1={aabb.minX} y1={aabb.maxY} x2={aabb.minX - outer + tick} y2={aabb.maxY} stroke="#FF6600" strokeWidth="0.07" strokeDasharray="0.5 0.5" />
+                      <text x={aabb.minX - outer - 1.1} y={(aabb.minY + aabb.maxY) / 2} fontSize="2.4" fill="#FF6600" textAnchor="middle"
+                        transform={`rotate(-90, ${aabb.minX - outer - 1.1}, ${(aabb.minY + aabb.maxY) / 2})`}
+                        fontFamily="IBM Plex Mono, monospace" fontWeight="700">
+                        {formatFeetInches(aabb.h)}
+                      </text>
+                    </g>
+                  );
+                })()}
               </svg>
             )}
           </div>
@@ -89,6 +167,8 @@ export default function BlueprintTab() {
           <LegendRow color="#FFFFFF" label="Walls" />
           <LegendRow color="#FFCC00" label="Doors" />
           <LegendRow color="#0055FF" label="Windows" />
+          <LegendRow color="#7AB8FF" label="Wall dimensions" />
+          <LegendRow color="#FF6600" label="Overall dimensions" />
         </div>
 
         <div className="label-mono mb-2">// LAST SYNC</div>

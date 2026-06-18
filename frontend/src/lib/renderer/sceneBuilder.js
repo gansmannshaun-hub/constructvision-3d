@@ -9,8 +9,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 // ---------- Constants ----------
-export const WALL_HEIGHT = 3.0;
-export const SCALE = 0.1;
+export const WALL_HEIGHT = 3.05;   // ~10 ft default
+export const SCALE = 0.3048;        // 1 blueprint unit (ft) -> meters
 export const SLAB_THICK = 0.18;
 export const FOOTING_DEPTH = 0.45;
 export const EAVE_OVERHANG = 0.3;

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
+import { formatFeetInches, wallsAabb } from "../lib/dim";
 
 /** SketchUp-inspired 2D CAD editor.
  *  - Tools: Select / Line / Rectangle / Circle / Door / Window / Eraser /
@@ -101,7 +102,7 @@ export default function CadEditorTab() {
   const [saving, setSaving] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
-  const [showDimensions, setShowDimensions] = useState(false);
+  const [showDimensions, setShowDimensions] = useState(true);
 
   // viewbox state (pan/zoom)
   const [vb, setVb] = useState({ x: 0, y: 0, w: 100, h: 100 });
@@ -741,11 +742,44 @@ export default function CadEditorTab() {
                 <text x={tx} y={ty} fontSize="1.6" fill="#0055FF" textAnchor="middle"
                   transform={`rotate(${angle + flip}, ${tx}, ${ty})`}
                   fontFamily="IBM Plex Mono, monospace" fontWeight="600">
-                  {len.toFixed(1)}
+                  {formatFeetInches(len)}
                 </text>
               </g>
             );
           })}
+
+          {/* Overall outer dimension chain (W × H) */}
+          {showDimensions && (() => {
+            const aabb = wallsAabb(walls);
+            if (!aabb || aabb.w < 1 || aabb.h < 1) return null;
+            const outer = 4.5;            // distance outside footprint
+            const tick = 0.8;             // tick mark length
+            return (
+              <g pointerEvents="none">
+                {/* Top: overall width */}
+                <line x1={aabb.minX} y1={aabb.minY - outer} x2={aabb.maxX} y2={aabb.minY - outer} stroke="#FF6600" strokeWidth="0.12" />
+                <line x1={aabb.minX} y1={aabb.minY - outer - tick / 2} x2={aabb.minX} y2={aabb.minY - outer + tick / 2} stroke="#FF6600" strokeWidth="0.12" />
+                <line x1={aabb.maxX} y1={aabb.minY - outer - tick / 2} x2={aabb.maxX} y2={aabb.minY - outer + tick / 2} stroke="#FF6600" strokeWidth="0.12" />
+                <line x1={aabb.minX} y1={aabb.minY} x2={aabb.minX} y2={aabb.minY - outer + tick} stroke="#FF6600" strokeWidth="0.06" strokeDasharray="0.4 0.4" />
+                <line x1={aabb.maxX} y1={aabb.minY} x2={aabb.maxX} y2={aabb.minY - outer + tick} stroke="#FF6600" strokeWidth="0.06" strokeDasharray="0.4 0.4" />
+                <text x={(aabb.minX + aabb.maxX) / 2} y={aabb.minY - outer - 1.0} fontSize="2.2" fill="#FF6600" textAnchor="middle"
+                  fontFamily="IBM Plex Mono, monospace" fontWeight="700">
+                  {formatFeetInches(aabb.w)}
+                </text>
+                {/* Left: overall height */}
+                <line x1={aabb.minX - outer} y1={aabb.minY} x2={aabb.minX - outer} y2={aabb.maxY} stroke="#FF6600" strokeWidth="0.12" />
+                <line x1={aabb.minX - outer - tick / 2} y1={aabb.minY} x2={aabb.minX - outer + tick / 2} y2={aabb.minY} stroke="#FF6600" strokeWidth="0.12" />
+                <line x1={aabb.minX - outer - tick / 2} y1={aabb.maxY} x2={aabb.minX - outer + tick / 2} y2={aabb.maxY} stroke="#FF6600" strokeWidth="0.12" />
+                <line x1={aabb.minX} y1={aabb.minY} x2={aabb.minX - outer + tick} y2={aabb.minY} stroke="#FF6600" strokeWidth="0.06" strokeDasharray="0.4 0.4" />
+                <line x1={aabb.minX} y1={aabb.maxY} x2={aabb.minX - outer + tick} y2={aabb.maxY} stroke="#FF6600" strokeWidth="0.06" strokeDasharray="0.4 0.4" />
+                <text x={aabb.minX - outer - 1.0} y={(aabb.minY + aabb.maxY) / 2} fontSize="2.2" fill="#FF6600" textAnchor="middle"
+                  transform={`rotate(-90, ${aabb.minX - outer - 1.0}, ${(aabb.minY + aabb.maxY) / 2})`}
+                  fontFamily="IBM Plex Mono, monospace" fontWeight="700">
+                  {formatFeetInches(aabb.h)}
+                </text>
+              </g>
+            );
+          })()}
 
           {/* Text labels */}
           {labels.map((l) => {
@@ -779,7 +813,7 @@ export default function CadEditorTab() {
                 <line x1={w.start[0]} y1={w.start[1]} x2={w.end[0]} y2={w.end[1]} stroke="#FF8800" strokeWidth="0.5" opacity="0.6" />
                 <line x1={w.start[0] + nx * signed} y1={w.start[1] + ny * signed} x2={w.end[0] + nx * signed} y2={w.end[1] + ny * signed} stroke="#FF8800" strokeWidth="0.4" strokeDasharray="1 0.6" />
                 <text x={mid[0] + nx * (signed / 2)} y={mid[1] + ny * (signed / 2)} fontSize="1.8" fill="#FF8800" textAnchor="middle" fontFamily="IBM Plex Mono, monospace">
-                  {Math.abs(signed).toFixed(1)}
+                  {formatFeetInches(Math.abs(signed))}
                 </text>
               </g>
             );
@@ -889,7 +923,7 @@ export default function CadEditorTab() {
         <div className="flex-1" />
         {liveDistance != null && (
           <span data-testid="cad-live-distance" className="bg-black px-2 py-1 border border-white/10">
-            Δ {liveDistance.toFixed(2)}
+            Δ {formatFeetInches(liveDistance)}
           </span>
         )}
         {hover && (
