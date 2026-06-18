@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   APIProvider,
   Map,
-  AdvancedMarker,
+  Marker,
   useMap,
   useMapsLibrary,
 } from "@vis.gl/react-google-maps";
@@ -79,7 +79,6 @@ export default function SitePickerModal({ projectId, currentSite, onClose, onCap
               style={{ width: "100%", height: "100%" }}
               defaultCenter={position}
               defaultZoom={zoom}
-              mapId="atlas-site-picker"
               mapTypeId="hybrid"
               gestureHandling="greedy"
               disableDefaultUI={false}
@@ -90,9 +89,7 @@ export default function SitePickerModal({ projectId, currentSite, onClose, onCap
               onCenterChanged={(e) => setPosition(e.detail.center)}
               onZoomChanged={(e) => setZoom(e.detail.zoom)}
             >
-              <AdvancedMarker position={position}>
-                <div className="w-8 h-8 -translate-y-1/2 -translate-x-1/2 border-2 border-[#FFCC00] bg-[#FFCC00]/30 rounded-full pointer-events-none" />
-              </AdvancedMarker>
+              <Marker position={position} />
             </Map>
             <PlacesAutocomplete
               value={address}
