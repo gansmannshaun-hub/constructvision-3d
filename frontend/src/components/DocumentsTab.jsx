@@ -74,7 +74,7 @@ export default function DocumentsTab() {
         <div className="label-mono mb-2">// STEP 01</div>
         <h2 className="font-display text-3xl tracking-tighter mb-2">Drop a blueprint.</h2>
         <p className="text-neutral-500 text-sm mb-6 leading-relaxed">
-          PNG, JPG, or WEBP. Atlas AI will detect walls, extract materials, and sync every tab automatically.
+          PNG, JPG, WEBP, or <span className="text-[#FFCC00] font-bold">multi-page PDF</span> (up to 20 sheets). Atlas AI will detect walls, extract materials with cross-page deduplication, and sync every tab automatically.
         </p>
 
         {paywall && (
@@ -113,7 +113,7 @@ export default function DocumentsTab() {
             ref={fileRef}
             data-testid="upload-file-input"
             type="file"
-            accept="image/png,image/jpeg,image/jpg,image/webp"
+            accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf,.pdf"
             multiple
             className="hidden"
             onChange={(e) => onFiles(Array.from(e.target.files))}
@@ -126,7 +126,7 @@ export default function DocumentsTab() {
           <div className="font-display text-xl">
             {uploading ? "Uploading..." : "Drop or browse"}
           </div>
-          <div className="label-mono mt-2 text-neutral-500">PNG · JPG · WEBP · MAX 8MB</div>
+          <div className="label-mono mt-2 text-neutral-500">PNG · JPG · WEBP · PDF · MAX 16MB</div>
         </label>
 
         <div className="mt-8 space-y-4 text-sm">
@@ -248,6 +248,11 @@ function DocCard({ doc }) {
             }`}
           >
             {STATUS_LABEL[doc.status] || doc.status}
+            {doc.pages_total > 1 && !done && !error && (
+              <span className="ml-1 text-neutral-400">
+                · pg {doc.pages_done || 0}/{doc.pages_total}
+              </span>
+            )}
           </span>
         </div>
 
@@ -260,6 +265,7 @@ function DocCard({ doc }) {
         {done && (
           <div className="flex flex-wrap gap-1 mt-3">
             <Badge>✓ Analyzed</Badge>
+            {doc.pages_total > 1 && <Badge variant="blue">{doc.pages_total} pages</Badge>}
             <Badge>{doc.materials_count || 0} new</Badge>
             {(doc.materials_merged || 0) > 0 && (
               <Badge variant="orange" title="Merged into existing materials">

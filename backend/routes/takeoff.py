@@ -1,17 +1,41 @@
-"""Materials takeoff PDF generation."""
+"""Materials takeoff PDF/CSV/XLSX generation."""
 from __future__ import annotations
 
+import csv
 import re
 from collections import defaultdict
 from datetime import datetime, timezone
-from io import BytesIO
+from io import BytesIO, StringIO
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 import billing as billing_mod
 from routes.projects import get_or_create_blueprint
 from utilities_takeoff import compute_utilities_takeoff
+
+
+async def _build_combined_materials(db, project_id: str) -> list[dict]:
+    """Materials from DB + auto-computed utilities, in display order."""
+    mats = await db.materials.find({"project_id": project_id}, {"_id": 0}).sort("category", 1).to_list(2000)
+    bp = await get_or_create_blueprint(db, project_id)
+    utilities = compute_utilities_takeoff(bp)
+    return list(mats) + utilities
+
+
+def _safe_name(s: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", s or "")[:40] or "project"
+
+
+def _src_label(m: dict) -> str:
+    if m.get("auto_computed"):
+        return "AUTO"
+    if m.get("ai_extracted"):
+        return "AI"
+    return ""
 
 
 def build_takeoff_router(db, get_current_user) -> APIRouter:
@@ -259,6 +283,118 @@ def build_takeoff_router(db, get_current_user) -> APIRouter:
             headers={
                 "Content-Disposition": f'attachment; filename="atlas_takeoff_{safe_name}.pdf"',
             },
+        )
+
+    @router.get("/projects/{project_id}/takeoff.csv")
+    async def takeoff_csv(project_id: str, user: dict = Depends(get_current_user)):
+        proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]}, {"_id": 0})
+        if not proj:
+            raise HTTPException(404, "Project not found")
+        mats = await _build_combined_materials(db, project_id)
+        sio = StringIO()
+        writer = csv.writer(sio)
+        writer.writerow([
+            "Category", "Material", "Quantity", "Unit",
+            "Unit Price (USD)", "Line Total (USD)", "Source",
+        ])
+        grand_total = 0.0
+        for m in sorted(mats, key=lambda x: (x.get("category") or "", x.get("name") or "")):
+            qty = float(m.get("quantity") or 0)
+            price = float(m.get("unit_price") or 0)
+            line = qty * price
+            grand_total += line
+            writer.writerow([
+                m.get("category") or "Other",
+                m.get("name") or "",
+                f"{qty:g}",
+                m.get("unit") or "",
+                f"{price:.2f}",
+                f"{line:.2f}",
+                _src_label(m),
+            ])
+        writer.writerow([])
+        writer.writerow(["", "", "", "", "GRAND TOTAL", f"{grand_total:.2f}", ""])
+        out = sio.getvalue().encode("utf-8-sig")  # BOM for Excel
+        safe = _safe_name(proj["name"])
+        return StreamingResponse(
+            BytesIO(out),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="atlas_takeoff_{safe}.csv"'},
+        )
+
+    @router.get("/projects/{project_id}/takeoff.xlsx")
+    async def takeoff_xlsx(project_id: str, user: dict = Depends(get_current_user)):
+        proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]}, {"_id": 0})
+        if not proj:
+            raise HTTPException(404, "Project not found")
+        mats = await _build_combined_materials(db, project_id)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Takeoff"
+
+        # Title block
+        ws["A1"] = f"Atlas Takeoff — {proj['name']}"
+        ws["A1"].font = Font(name="Calibri", size=16, bold=True)
+        ws["A2"] = f"Generated {datetime.now(timezone.utc).strftime('%b %d, %Y %H:%M UTC')}"
+        ws["A2"].font = Font(name="Calibri", size=10, color="666666")
+        ws.append([])
+
+        header = ["#", "Category", "Material", "Quantity", "Unit", "Unit Price (USD)", "Line Total (USD)", "Source"]
+        ws.append(header)
+        header_row = ws.max_row
+        head_fill = PatternFill("solid", fgColor="0A0A0A")
+        head_font = Font(name="Calibri", bold=True, color="FFCC00", size=11)
+        for col in range(1, len(header) + 1):
+            c = ws.cell(row=header_row, column=col)
+            c.fill = head_fill
+            c.font = head_font
+            c.alignment = Alignment(horizontal="left", vertical="center")
+
+        grand_total = 0.0
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for m in mats:
+            grouped[m.get("category") or "Other"].append(m)
+
+        idx = 0
+        for cat in sorted(grouped.keys()):
+            for m in grouped[cat]:
+                idx += 1
+                qty = float(m.get("quantity") or 0)
+                price = float(m.get("unit_price") or 0)
+                line = qty * price
+                grand_total += line
+                ws.append([idx, cat, m.get("name") or "", qty, m.get("unit") or "", price, line, _src_label(m)])
+                row = ws.max_row
+                ws.cell(row=row, column=6).number_format = '"$"#,##0.00'
+                ws.cell(row=row, column=7).number_format = '"$"#,##0.00'
+                src_cell = ws.cell(row=row, column=8)
+                if src_cell.value == "AUTO":
+                    src_cell.font = Font(bold=True, color="FF6600")
+                elif src_cell.value == "AI":
+                    src_cell.font = Font(bold=True, color="0055FF")
+
+        ws.append([])
+        ws.append(["", "", "", "", "", "GRAND TOTAL", grand_total, ""])
+        total_row = ws.max_row
+        ws.cell(row=total_row, column=7).number_format = '"$"#,##0.00'
+        ws.cell(row=total_row, column=6).font = Font(bold=True, size=12)
+        ws.cell(row=total_row, column=7).font = Font(bold=True, size=12, color="0055FF")
+
+        # Column widths
+        widths = [5, 18, 42, 12, 10, 16, 16, 10]
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+        ws.freeze_panes = "A5"
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        safe = _safe_name(proj["name"])
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="atlas_takeoff_{safe}.xlsx"'},
         )
 
     return router

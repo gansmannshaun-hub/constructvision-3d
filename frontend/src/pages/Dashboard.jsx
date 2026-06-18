@@ -102,6 +102,7 @@ export default function Dashboard() {
               )}
             </div>
             <NewProjectButton primary={projects.length === 0} />
+            {currentProjectId && <ShareButton projectId={currentProjectId} />}
           </div>
 
           <div className="flex items-stretch border-l border-white/10">
@@ -420,3 +421,146 @@ function NewProjectButton({ primary = false }) {
     </form>
   );
 }
+
+function ShareButton({ projectId }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [state, setState] = useState({ enabled: false, token: null });
+  const [copied, setCopied] = useState(false);
+
+  React.useEffect(() => {
+    if (!open || !projectId) return;
+    (async () => {
+      try {
+        const { data } = await apiClient.get(`/projects/${projectId}/share`);
+        setState(data);
+      } catch {/* ignore */}
+    })();
+  }, [open, projectId]);
+
+  const shareUrl = state.token ? `${window.location.origin}/share/${state.token}` : "";
+
+  const enable = async () => {
+    setLoading(true);
+    try {
+      const { data } = await apiClient.post(`/projects/${projectId}/share`);
+      setState(data);
+    } finally { setLoading(false); }
+  };
+  const rotate = async () => {
+    setLoading(true);
+    try {
+      const { data } = await apiClient.post(`/projects/${projectId}/share/rotate`);
+      setState(data);
+      setCopied(false);
+    } finally { setLoading(false); }
+  };
+  const disable = async () => {
+    if (!window.confirm("Revoke this share link? Anyone who has the URL will lose access.")) return;
+    setLoading(true);
+    try {
+      await apiClient.delete(`/projects/${projectId}/share`);
+      setState({ enabled: false, token: null });
+    } finally { setLoading(false); }
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {/* ignore */}
+  };
+
+  return (
+    <>
+      <button
+        data-testid="share-button"
+        onClick={() => setOpen(true)}
+        className="ml-2 label-mono px-3 py-2 border border-[#0055FF]/60 text-[#5588FF] hover:bg-[#0055FF] hover:text-white transition-colors flex items-center gap-2"
+        title="Share read-only link with client"
+      >
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13" /></svg>
+        SHARE
+      </button>
+
+      {open && (
+        <div
+          data-testid="share-modal"
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
+        >
+          <div className="bg-[#0f0f0f] border border-white/10 w-full max-w-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+              <div>
+                <div className="label-mono text-[#5588FF]">// CLIENT SHARE</div>
+                <div className="font-display text-xl mt-1">Share this project</div>
+              </div>
+              <button onClick={() => setOpen(false)} className="text-neutral-500 hover:text-white text-2xl leading-none">✕</button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-neutral-400 leading-relaxed">
+                Anyone with the link can view this project's 3D model, blueprint, and materials list — read-only,
+                no login required. Perfect for sharing proposals with clients.
+              </p>
+
+              {!state.enabled ? (
+                <button
+                  data-testid="share-enable"
+                  onClick={enable}
+                  disabled={loading}
+                  className="w-full bg-[#0055FF] hover:bg-[#0044DD] text-white font-bold py-3 uppercase tracking-wider text-sm"
+                >
+                  {loading ? "Generating…" : "Generate share link"}
+                </button>
+              ) : (
+                <>
+                  <div className="flex items-stretch">
+                    <input
+                      data-testid="share-url-input"
+                      readOnly
+                      value={shareUrl}
+                      onClick={(e) => e.target.select()}
+                      className="flex-1 bg-black border border-white/15 px-3 py-2.5 font-mono text-xs text-neutral-300 truncate"
+                    />
+                    <button
+                      data-testid="share-copy"
+                      onClick={copy}
+                      className={`px-4 font-bold text-xs uppercase tracking-wider border ${copied ? "bg-[#00CC66] text-black border-[#00CC66]" : "bg-[#FFCC00] text-black border-[#FFCC00] hover:bg-[#E6B800]"}`}
+                    >
+                      {copied ? "✓ COPIED" : "COPY"}
+                    </button>
+                  </div>
+                  <div className="text-xs text-neutral-500 font-mono">
+                    Created {state.created_at ? new Date(state.created_at).toLocaleString() : "—"}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <a
+                      data-testid="share-open"
+                      href={shareUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-center border border-white/15 hover:bg-white/5 px-3 py-2 text-xs font-bold uppercase tracking-wider"
+                    >Open ↗</a>
+                    <button
+                      data-testid="share-rotate"
+                      onClick={rotate}
+                      disabled={loading}
+                      className="border border-[#FF6600]/60 text-[#FF6600] hover:bg-[#FF6600] hover:text-black px-3 py-2 text-xs font-bold uppercase tracking-wider"
+                    >Rotate link</button>
+                  </div>
+                  <button
+                    data-testid="share-disable"
+                    onClick={disable}
+                    disabled={loading}
+                    className="w-full border border-[#FF3333]/40 text-[#FF6666] hover:bg-[#FF3333]/10 px-3 py-2 text-xs font-bold uppercase tracking-wider"
+                  >Revoke link</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+

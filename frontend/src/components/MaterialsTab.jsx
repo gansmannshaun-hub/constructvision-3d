@@ -54,28 +54,28 @@ export default function MaterialsTab() {
     return { subtotals: subs, grandTotal: total };
   }, [grouped, categories]);
 
-  const downloadPdf = async () => {
+  const downloadTakeoff = async (kind) => {
     if (!currentProjectId) return;
     setDownloading(true);
     try {
       const token = localStorage.getItem("cm_token");
-      const res = await fetch(`${API}/projects/${currentProjectId}/takeoff.pdf`, {
+      const res = await fetch(`${API}/projects/${currentProjectId}/takeoff.${kind}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 402) {
         const j = await res.json().catch(() => ({}));
-        if (window.confirm(`${j.detail || "PDF is a Pro feature."}\n\nGo to Billing now?`)) {
+        if (window.confirm(`${j.detail || "Export is a Pro feature."}\n\nGo to Billing now?`)) {
           navigate("/billing");
         }
         return;
       }
-      if (!res.ok) throw new Error("PDF generation failed");
+      if (!res.ok) throw new Error(`${kind.toUpperCase()} generation failed`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       const safe = (project?.name || "project").replace(/[^a-z0-9_-]+/gi, "_");
-      a.download = `atlas_takeoff_${safe}.pdf`;
+      a.download = `atlas_takeoff_${safe}.${kind}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -87,6 +87,8 @@ export default function MaterialsTab() {
     }
   };
 
+  const downloadPdf = () => downloadTakeoff("pdf");
+
   return (
     <div className="h-full overflow-y-auto p-8" data-testid="materials-tab">
       <div className="flex items-baseline justify-between mb-6 gap-4">
@@ -94,18 +96,40 @@ export default function MaterialsTab() {
           <div className="label-mono mb-1">// AUTO-EXTRACTED · LIVE PRICING</div>
           <h2 className="font-display text-3xl tracking-tighter">Materials & Takeoff</h2>
         </div>
-        <button
-          data-testid="download-pdf-button"
-          onClick={downloadPdf}
-          disabled={downloading || materials.length === 0}
-          className="bg-[#FFCC00] hover:bg-[#E6B800] disabled:bg-white/10 disabled:text-neutral-500 text-black font-bold px-5 py-3 text-xs uppercase tracking-wider transition-colors whitespace-nowrap flex items-center gap-2"
-          title={materials.length === 0 ? "Add materials first" : "Download takeoff PDF"}
-        >
-          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <path d="M12 3v12m0 0l-5-5m5 5l5-5M3 21h18" />
-          </svg>
-          {downloading ? "Generating..." : "Takeoff PDF"}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            data-testid="download-csv-button"
+            onClick={() => downloadTakeoff("csv")}
+            disabled={downloading || materials.length === 0}
+            className="border border-white/15 hover:bg-white/5 disabled:opacity-40 text-white font-bold px-3 py-3 text-xs uppercase tracking-wider transition-colors whitespace-nowrap flex items-center gap-1.5"
+            title="Download takeoff as CSV (Excel-compatible, opens directly in QuickBooks/Sage/Procore)"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 3v4a1 1 0 0 0 1 1h4M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" /><path d="M8 13h8M8 17h8" /></svg>
+            CSV
+          </button>
+          <button
+            data-testid="download-xlsx-button"
+            onClick={() => downloadTakeoff("xlsx")}
+            disabled={downloading || materials.length === 0}
+            className="border border-[#00CC66]/40 bg-[#00CC66]/10 hover:bg-[#00CC66]/20 disabled:opacity-40 text-[#00CC66] font-bold px-3 py-3 text-xs uppercase tracking-wider transition-colors whitespace-nowrap flex items-center gap-1.5"
+            title="Download takeoff as Excel (.xlsx) with grouped categories and formulas"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 8l8 8M16 8l-8 8" /></svg>
+            XLSX
+          </button>
+          <button
+            data-testid="download-pdf-button"
+            onClick={downloadPdf}
+            disabled={downloading || materials.length === 0}
+            className="bg-[#FFCC00] hover:bg-[#E6B800] disabled:bg-white/10 disabled:text-neutral-500 text-black font-bold px-5 py-3 text-xs uppercase tracking-wider transition-colors whitespace-nowrap flex items-center gap-2"
+            title={materials.length === 0 ? "Add materials first" : "Download takeoff PDF"}
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M12 3v12m0 0l-5-5m5 5l5-5M3 21h18" />
+            </svg>
+            {downloading ? "Generating..." : "PDF"}
+          </button>
+        </div>
       </div>
 
       {/* Stats — now 4 cards including Project Cost */}

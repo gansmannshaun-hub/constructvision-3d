@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 8 (multi-page PDF upload + CSV/XLSX export + shareable client links) FULLY PASSED end-to-end. Backend: created /app/backend/tests/test_iter8_pdf_share_export.py — 9 pytest tests in 3 suites, all passing in 17.20s (TestPdfUpload: 4 tests, TestExports: 2 tests, TestShare: 3 tests). Generated a 2-page synthetic PDF with reportlab (Plan + Elevation pages), uploaded via POST /api/projects/{id}/documents/upload, asserted pages_total=2, pages_done=2, is_pdf=true, status=done end-to-end (~25s including 2 GPT-4o vision calls). Verified single-image upload regression (is_pdf=false, pages_total=1), 17MB size rejection (400), text/plain rejection (400). CSV export: Content-Type text/csv, UTF-8 BOM (0xEF 0xBB 0xBF) at byte 0, exact header row, AUTO/AI/blank Source labels, last non-empty row = GRAND TOTAL, utilities BOM present (Septic/EMT/Water main). XLSX export: correct openpyxl mimetype, header at row found with 'Material' at column C (index 3), GRAND TOTAL row last, currency columns formatted with $ number_format. Share: enable returns urlsafe token, GET idempotent, public GET /api/share/{token} works with NO auth header, exposes project/owner/blueprint/materials/grand_total, scrubs password_hash + entitlements from owner, public CSV with BOM works no-auth, rotate generates new token and invalidates old (404 on old), disable removes token (404), cross-user isolation verified (User B 404 on User A's share). Frontend: live UI on the admin's TEST_iter7_ui_dedup project — SHARE button in header opens modal showing token URL with /share/<token>, all 4 action buttons (Copy, Open, Rotate, Revoke/disable) rendered with correct testids. Materials tab shows 3 export buttons (download-csv-button, download-xlsx-button, download-pdf-button), all enabled with 4 material rows; clicking CSV triggers HTTP 200 download with Content-Disposition: attachment; filename=\"atlas_takeoff_*.csv\". Documents tab file input accept attr = 'image/png,image/jpeg,image/jpg,image/webp,application/pdf,.pdf' and helper text shows MAX 16MB. SharedProject page at /share/<token> with cleared localStorage/cookies renders shared-project-name, shared-grand-total ($23,723.01), all 3 tabs (3D/Plan/Mats), shared-download-csv triggers 200 + attachment response, 3D tab has shared-3d-canvas + shared-3d-play + shared-3d-slider with phase animation, Plan tab renders, Materials tab renders 6 shared-cat-* category sections. Owner identity 'PREPARED BY ATLAS ADMIN' visible. Bogus /share/<bad> token shows '// LINK UNAVAILABLE — Share link not found or revoked.' clean error page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "SharedProject bogus token error", "issues": ["Error wording is 'Share link not found or revoked' (passthrough of backend HTTPException detail) rather than the spec wording 'This link is invalid or has been revoked.' — semantically equivalent and clear, but worth aligning if exact copy matters."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter8_pdf_share_export.py",
+    "/app/test_reports/pytest/pytest_iteration8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GOOD: documents.py _rasterize_pdf_pages uses pypdfium2 with PDF_RASTER_SCALE=2.0 (~144dpi) and caps at MAX_PDF_PAGES=20 — prevents runaway AI cost on huge PDFs. pdf.close() in finally block prevents resource leak.",
+    "GOOD: pipeline run() emits incremental pages_done updates per page (current_page=page_idx+1) so the frontend progress bar is real-time, and accumulates page_summaries[] + walls/doors/windows across all pages before the final blueprint merge — single atomic blueprint update at end avoids partial-state races.",
+    "GOOD: Cross-page dedup leverages the same existing_keys/_norm_key fuzzy fallback as iter7 — each page's prompt is built from working_existing which is mutated in-place as new pages add/merge items, so page N's prompt actually sees page N-1's contributions.",
+    "GOOD: takeoff.csv writes utf-8-sig (BOM) so Excel auto-detects UTF-8 — handles names like 'Façade'/'¾\" PEX' correctly. Source column distinguishes AUTO vs AI vs blank (manual) cleanly.",
+    "GOOD: takeoff.xlsx number_format uses '\"$\"#,##0.00' on unit_price + line_total + grand total cells; column widths and freeze_panes at A5 give a polished Excel deliverable.",
+    "GOOD: share.py — public _resolve_shared_project queries only by share_token (correctly indexed conceptually); returned materials_public dict whitelists fields and never leaks document refs, source pages, or internal IDs. owner projection {name:1,email:1,entitlements:1} INCLUDES entitlements which is then dropped in the response dict — good, but slightly safer to drop entitlements from the projection itself.",
+    "MINOR: share.py owner projection fetches entitlements but the response only includes name + email — verified no leak; consider removing entitlements from the projection for cleaner intent.",
+    "MINOR: bogus token error message ('Share link not found or revoked') is passed through from HTTPException detail; consider standardising on the user-facing copy from the spec ('This link is invalid or has been revoked.') in SharedProject.jsx fallback rendering for consistency.",
+    "MINOR: share token is 18-byte urlsafe (~24 chars) — sufficient entropy (~144 bits) but no rate limiting on the public GET /api/share/{token} endpoint; brute-forcing is infeasible but a Mongo index on share_token would help at scale and prevent timing-side-channel inference."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter8_pdf_share_export.py (new — 9 tests)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100%"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (from /app/memory/test_credentials.md, verified working)",
+  "seed_data_creation": "Tests create ephemeral users (test_a_*, test_b_*) and TEST_iter8_* projects via existing conftest.py fixtures. Synthetic 2-page PDF generated in-test via reportlab. Existing admin TEST_iter7_ui_dedup project (with 4 materials + 2 floor-plan docs) used for live UI screenshot verification of share modal + materials export buttons.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 8 features (multi-page PDF, CSV/XLSX export, shareable links) are fully working backend + frontend. Backend regression suite: pytest /app/backend/tests/test_iter8_pdf_share_export.py runs in ~17s. Test PDF is generated in-test with reportlab (Plan + Elevation rectangles), each ~50KB. Two GPT-4o vision calls fire per PDF run (~10-15s each) so allow ~240s timeout for the full 2-page pipeline test. Share token URL pattern: {BASE}/share/{18-byte-urlsafe-token}. Public endpoints DO NOT require Authorization header — explicit requests.get(url) (no auth) was used in tests and works. Pre-existing failing tests in /app/backend/tests/test_admin_user_settings.py (stale admin password) and TestDocumentPipeline.final_doc (missing fixture) are documented pre-existing failures per the review request and were ignored.",
+  "rca of the issue": "N/A — no issues found this iteration. All assertions across 9 backend tests + 6 frontend flows pass on first attempt."
+}

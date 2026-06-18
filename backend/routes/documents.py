@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ import re
 import uuid
 from typing import Any
 
+import pypdfium2 as pdfium
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
@@ -19,6 +21,9 @@ from routes.projects import get_or_create_blueprint
 from utils import clean, now_iso
 
 logger = logging.getLogger("documents")
+
+MAX_PDF_PAGES = 20
+PDF_RASTER_SCALE = 2.0  # 2x = ~144dpi, good balance of detail/AI cost
 
 
 def _llm_key() -> str:
@@ -132,6 +137,24 @@ def _coord(p):
     return None
 
 
+def _rasterize_pdf_pages(pdf_bytes: bytes) -> list[str]:
+    """Render up to MAX_PDF_PAGES pages to base64-encoded PNGs (in order)."""
+    pages_b64: list[str] = []
+    pdf = pdfium.PdfDocument(io.BytesIO(pdf_bytes))
+    try:
+        n = min(len(pdf), MAX_PDF_PAGES)
+        for i in range(n):
+            page = pdf[i]
+            pil_image = page.render(scale=PDF_RASTER_SCALE).to_pil()
+            buf = io.BytesIO()
+            pil_image.save(buf, format="PNG", optimize=True)
+            pages_b64.append(base64.b64encode(buf.getvalue()).decode("utf-8"))
+            page.close()
+    finally:
+        pdf.close()
+    return pages_b64
+
+
 def _build_pipeline(db):
     async def _set_doc_status(doc_id: str, status_val: str, **extras: Any) -> None:
         await db.documents.update_one(
@@ -139,10 +162,11 @@ def _build_pipeline(db):
             {"$set": {"status": status_val, "updated_at": now_iso(), **extras}},
         )
 
-    async def run(doc_id: str, project_id: str, b64: str, mime: str) -> None:
+    async def run(doc_id: str, project_id: str, pages_b64: list[str], mime: str) -> None:
         try:
             await asyncio.sleep(0.3)
-            await _set_doc_status(doc_id, "analyzing")
+            total_pages = len(pages_b64)
+            await _set_doc_status(doc_id, "analyzing", pages_total=total_pages, pages_done=0)
             if not _llm_key():
                 await _set_doc_status(doc_id, "error", error="EMERGENT_LLM_KEY missing")
                 return
@@ -151,158 +175,201 @@ def _build_pipeline(db):
                 {"project_id": project_id},
                 {"_id": 0, "id": 1, "name": 1, "category": 1, "quantity": 1, "unit": 1},
             ).sort("created_at", 1).to_list(500)
-            # ref index in the prompt is 1-based; map back to actual id
-            ref_to_id = {i + 1: m["id"] for i, m in enumerate(existing_materials)}
+            working_existing = list(existing_materials)
+            ref_to_id = {i + 1: m["id"] for i, m in enumerate(working_existing)}
             existing_keys = {
                 _norm_key(m.get("name", ""), m.get("category", ""), m.get("unit", "")): m["id"]
-                for m in existing_materials
+                for m in working_existing
             }
 
-            analysis = await _analyze_image_with_ai(b64, existing_materials)
-            await _set_doc_status(doc_id, "saving", doc_type=analysis.get("doc_type"))
-
-            materials = analysis.get("materials") or []
             inserted = 0
             merged = 0
             skipped = 0
-            dedup_audit = []
+            dedup_audit: list[dict] = []
+            walls_all: list[dict] = []
+            doors_all: list[dict] = []
+            windows_all: list[dict] = []
+            page_summaries: list[dict] = []
+            first_doc_type: str | None = None
+            first_summary: str | None = None
+            all_rooms: list[dict] = []
+            all_notes: list[str] = []
 
-            for mat in materials:
-                if not isinstance(mat, dict) or not mat.get("name"):
-                    continue
-                cat = mat.get("category") or "Other"
-                if cat not in VALID_CATEGORIES:
-                    cat = "Other"
-                try:
-                    price = float(mat.get("unit_price_usd") or 0)
-                except (TypeError, ValueError):
-                    price = 0.0
-                qty = float(mat.get("quantity") or 0)
-                unit = str(mat.get("unit") or "ea")[:24]
-                name = str(mat.get("name"))[:120]
-
-                dedup = str(mat.get("dedup") or "new").lower()
-                ref = mat.get("ref")
-                target_id = ref_to_id.get(int(ref)) if isinstance(ref, (int, float)) else None
-
-                # If the AI marked new but a fuzzy key match already exists, demote to merge.
-                if dedup == "new":
-                    fuzzy_id = existing_keys.get(_norm_key(name, cat, unit))
-                    if fuzzy_id:
-                        dedup = "merge"
-                        target_id = fuzzy_id
-
-                if dedup == "skip" and target_id:
-                    skipped += 1
-                    dedup_audit.append({
-                        "name": name, "decision": "skip",
-                        "merged_into": target_id,
-                        "rationale": str(mat.get("rationale") or "")[:200],
-                    })
-                    continue
-
-                if dedup == "merge" and target_id:
-                    await db.materials.update_one(
-                        {"id": target_id},
-                        {
-                            "$inc": {"quantity": qty},
-                            "$set": {"updated_at": now_iso()},
-                            "$addToSet": {"source_documents": doc_id},
-                        },
-                    )
-                    merged += 1
-                    dedup_audit.append({
-                        "name": name, "decision": "merge",
-                        "merged_into": target_id, "added_quantity": qty,
-                        "rationale": str(mat.get("rationale") or "")[:200],
-                    })
-                    continue
-
-                # "new" path
-                new_id = str(uuid.uuid4())
-                await db.materials.insert_one({
-                    "id": new_id,
-                    "project_id": project_id,
-                    "document_id": doc_id,
-                    "source_documents": [doc_id],
-                    "name": name,
-                    "category": cat,
-                    "quantity": qty,
-                    "unit": unit,
-                    "unit_price": round(max(price, 0.0), 2),
-                    "currency": "USD",
-                    "ai_extracted": True,
-                    "created_at": now_iso(),
+            for page_idx, b64 in enumerate(pages_b64):
+                await _set_doc_status(
+                    doc_id, "analyzing",
+                    pages_total=total_pages, pages_done=page_idx,
+                    current_page=page_idx + 1,
+                )
+                analysis = await _analyze_image_with_ai(b64, working_existing)
+                doc_type = analysis.get("doc_type")
+                if first_doc_type is None:
+                    first_doc_type = doc_type
+                    first_summary = analysis.get("summary")
+                for r in analysis.get("rooms") or []:
+                    if isinstance(r, dict):
+                        all_rooms.append(r)
+                for n in analysis.get("structural_notes") or []:
+                    all_notes.append(str(n)[:240])
+                page_summaries.append({
+                    "page": page_idx + 1,
+                    "doc_type": doc_type,
+                    "summary": str(analysis.get("summary") or "")[:400],
                 })
-                # Add the just-inserted item so subsequent items in the same response
-                # don't double-count against itself.
-                existing_keys[_norm_key(name, cat, unit)] = new_id
-                inserted += 1
-                dedup_audit.append({"name": name, "decision": "new"})
+
+                for mat in analysis.get("materials") or []:
+                    if not isinstance(mat, dict) or not mat.get("name"):
+                        continue
+                    cat = mat.get("category") or "Other"
+                    if cat not in VALID_CATEGORIES:
+                        cat = "Other"
+                    try:
+                        price = float(mat.get("unit_price_usd") or 0)
+                    except (TypeError, ValueError):
+                        price = 0.0
+                    qty = float(mat.get("quantity") or 0)
+                    unit = str(mat.get("unit") or "ea")[:24]
+                    name = str(mat.get("name"))[:120]
+
+                    dedup = str(mat.get("dedup") or "new").lower()
+                    ref = mat.get("ref")
+                    try:
+                        target_id = ref_to_id.get(int(ref)) if ref is not None else None
+                    except (TypeError, ValueError):
+                        target_id = None
+
+                    if dedup == "new":
+                        fuzzy_id = existing_keys.get(_norm_key(name, cat, unit))
+                        if fuzzy_id:
+                            dedup = "merge"
+                            target_id = fuzzy_id
+
+                    if dedup == "skip" and target_id:
+                        skipped += 1
+                        dedup_audit.append({
+                            "name": name, "decision": "skip", "page": page_idx + 1,
+                            "merged_into": target_id,
+                            "rationale": str(mat.get("rationale") or "")[:200],
+                        })
+                        continue
+
+                    if dedup == "merge" and target_id:
+                        await db.materials.update_one(
+                            {"id": target_id},
+                            {
+                                "$inc": {"quantity": qty},
+                                "$set": {"updated_at": now_iso()},
+                                "$addToSet": {"source_documents": doc_id},
+                            },
+                        )
+                        merged += 1
+                        dedup_audit.append({
+                            "name": name, "decision": "merge", "page": page_idx + 1,
+                            "merged_into": target_id, "added_quantity": qty,
+                            "rationale": str(mat.get("rationale") or "")[:200],
+                        })
+                        # also reflect updated qty in working_existing for next page's prompt
+                        for m in working_existing:
+                            if m["id"] == target_id:
+                                m["quantity"] = float(m.get("quantity") or 0) + qty
+                                break
+                        continue
+
+                    new_id = str(uuid.uuid4())
+                    await db.materials.insert_one({
+                        "id": new_id,
+                        "project_id": project_id,
+                        "document_id": doc_id,
+                        "source_documents": [doc_id],
+                        "name": name,
+                        "category": cat,
+                        "quantity": qty,
+                        "unit": unit,
+                        "unit_price": round(max(price, 0.0), 2),
+                        "currency": "USD",
+                        "ai_extracted": True,
+                        "source_page": page_idx + 1,
+                        "created_at": now_iso(),
+                    })
+                    existing_keys[_norm_key(name, cat, unit)] = new_id
+                    new_record = {"id": new_id, "name": name, "category": cat, "quantity": qty, "unit": unit}
+                    working_existing.append(new_record)
+                    ref_to_id[len(working_existing)] = new_id
+                    inserted += 1
+                    dedup_audit.append({"name": name, "decision": "new", "page": page_idx + 1})
+
+                # Accumulate floorplan geometry from each page
+                if doc_type in {"floor_plan", "blueprint", "site_plan"}:
+                    for w in analysis.get("walls") or []:
+                        s, e = _coord(w.get("start")), _coord(w.get("end"))
+                        if s and e:
+                            walls_all.append({
+                                "id": str(uuid.uuid4()), "start": s, "end": e,
+                                "thickness": float(w.get("thickness") or 0.2),
+                            })
+                    for d_item in analysis.get("doors") or []:
+                        pos = _coord(d_item.get("position"))
+                        if pos:
+                            doors_all.append({
+                                "id": str(uuid.uuid4()), "position": pos,
+                                "width": float(d_item.get("width") or 3.0),
+                                "wall_index": int(d_item.get("wall_index") or 0),
+                            })
+                    for w_item in analysis.get("windows") or []:
+                        pos = _coord(w_item.get("position"))
+                        if pos:
+                            windows_all.append({
+                                "id": str(uuid.uuid4()), "position": pos,
+                                "width": float(w_item.get("width") or 4.0),
+                                "wall_index": int(w_item.get("wall_index") or 0),
+                            })
+
+            await _set_doc_status(
+                doc_id, "saving",
+                pages_total=total_pages, pages_done=total_pages,
+                doc_type=first_doc_type,
+            )
 
             synced = False
-            doc_type = analysis.get("doc_type")
-            if doc_type in {"floor_plan", "blueprint", "site_plan"}:
-                await _set_doc_status(doc_id, "syncing", doc_type=doc_type, materials_count=inserted)
-                walls, doors, windows = [], [], []
-                for w in analysis.get("walls") or []:
-                    s, e = _coord(w.get("start")), _coord(w.get("end"))
-                    if s and e:
-                        walls.append({
-                            "id": str(uuid.uuid4()), "start": s, "end": e,
-                            "thickness": float(w.get("thickness") or 0.2),
-                        })
-                for d_item in analysis.get("doors") or []:
-                    pos = _coord(d_item.get("position"))
-                    if pos:
-                        doors.append({
-                            "id": str(uuid.uuid4()), "position": pos,
-                            "width": float(d_item.get("width") or 3.0),
-                            "wall_index": int(d_item.get("wall_index") or 0),
-                        })
-                for w_item in analysis.get("windows") or []:
-                    pos = _coord(w_item.get("position"))
-                    if pos:
-                        windows.append({
-                            "id": str(uuid.uuid4()), "position": pos,
-                            "width": float(w_item.get("width") or 4.0),
-                            "wall_index": int(w_item.get("wall_index") or 0),
-                        })
-                if walls or doors or windows:
-                    existing = await get_or_create_blueprint(db, project_id)
-                    merged_walls = (existing.get("walls") or []) + walls if existing.get("walls") else walls
-                    merged_doors = (existing.get("doors") or []) + doors if existing.get("doors") else doors
-                    merged_windows = (existing.get("windows") or []) + windows if existing.get("windows") else windows
-                    await db.blueprints.update_one(
-                        {"project_id": project_id},
-                        {"$set": {
-                            "walls": merged_walls,
-                            "doors": merged_doors,
-                            "windows": merged_windows,
-                            "updated_at": now_iso(),
-                            "last_source_document_id": doc_id,
-                        }},
-                        upsert=True,
-                    )
-                    synced = True
+            if walls_all or doors_all or windows_all:
+                await _set_doc_status(doc_id, "syncing", doc_type=first_doc_type, materials_count=inserted)
+                existing = await get_or_create_blueprint(db, project_id)
+                merged_walls = (existing.get("walls") or []) + walls_all
+                merged_doors = (existing.get("doors") or []) + doors_all
+                merged_windows = (existing.get("windows") or []) + windows_all
+                await db.blueprints.update_one(
+                    {"project_id": project_id},
+                    {"$set": {
+                        "walls": merged_walls,
+                        "doors": merged_doors,
+                        "windows": merged_windows,
+                        "updated_at": now_iso(),
+                        "last_source_document_id": doc_id,
+                    }},
+                    upsert=True,
+                )
+                synced = True
 
             await _set_doc_status(
                 doc_id, "done",
                 analysis={
-                    "doc_type": analysis.get("doc_type"),
-                    "summary": analysis.get("summary"),
-                    "rooms": analysis.get("rooms") or [],
-                    "structural_notes": analysis.get("structural_notes") or [],
+                    "doc_type": first_doc_type,
+                    "summary": first_summary,
+                    "rooms": all_rooms,
+                    "structural_notes": all_notes,
+                    "page_summaries": page_summaries,
                 },
-                doc_type=doc_type,
+                doc_type=first_doc_type,
                 materials_count=inserted,
                 materials_merged=merged,
                 materials_skipped=skipped,
                 dedup_audit=dedup_audit,
                 synced_3d=synced,
+                pages_total=total_pages,
+                pages_done=total_pages,
             )
             logger.info(
-                f"Pipeline done for {doc_id}: type={doc_type} "
+                f"Pipeline done for {doc_id}: pages={total_pages} type={first_doc_type} "
                 f"materials new={inserted} merged={merged} skipped={skipped} synced={synced}"
             )
         except Exception as exc:
@@ -357,10 +424,29 @@ def build_documents_router(db, get_current_user) -> APIRouter:
             raise HTTPException(402, reason)
 
         content = await file.read()
-        if len(content) > 8 * 1024 * 1024:
-            raise HTTPException(400, "File too large (max 8MB)")
+        if len(content) > 16 * 1024 * 1024:
+            raise HTTPException(400, "File too large (max 16MB)")
         mime = file.content_type or "application/octet-stream"
-        b64 = base64.b64encode(content).decode("utf-8")
+
+        is_pdf = mime == "application/pdf" or (file.filename or "").lower().endswith(".pdf")
+        is_image = mime.startswith("image/")
+        if not (is_pdf or is_image):
+            raise HTTPException(400, "Unsupported file type. Upload an image (PNG/JPG) or a PDF.")
+
+        pages_b64: list[str] = []
+        if is_pdf:
+            try:
+                pages_b64 = _rasterize_pdf_pages(content)
+            except Exception as exc:
+                logger.exception("PDF rasterize failed")
+                raise HTTPException(400, f"Could not read PDF: {exc}") from exc
+            if not pages_b64:
+                raise HTTPException(400, "PDF has no pages.")
+        else:
+            pages_b64 = [base64.b64encode(content).decode("utf-8")]
+
+        # First-page b64 used as the doc thumbnail
+        thumb_b64 = pages_b64[0] if pages_b64 else None
 
         doc_id = str(uuid.uuid4())
         document = {
@@ -369,19 +455,23 @@ def build_documents_router(db, get_current_user) -> APIRouter:
             "filename": file.filename,
             "mime_type": mime,
             "size": len(content),
-            "image_base64": b64 if mime.startswith("image/") else None,
+            "image_base64": thumb_b64,
             "status": "uploaded",
             "analysis": None,
             "materials_count": 0,
+            "materials_merged": 0,
+            "materials_skipped": 0,
             "synced_3d": False,
             "doc_type": None,
+            "pages_total": len(pages_b64),
+            "pages_done": 0,
+            "is_pdf": is_pdf,
             "created_at": now_iso(),
         }
         await db.documents.insert_one(document)
 
-        if mime.startswith("image/"):
-            await billing_mod.consume_upload_credit(db, user)
-            asyncio.create_task(run_pipeline(doc_id, project_id, b64, mime))
+        await billing_mod.consume_upload_credit(db, user)
+        asyncio.create_task(run_pipeline(doc_id, project_id, pages_b64, mime))
 
         out = {k: v for k, v in document.items() if k != "image_base64"}
         return clean(out)
