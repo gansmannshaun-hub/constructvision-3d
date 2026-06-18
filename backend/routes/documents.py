@@ -25,7 +25,7 @@ def _llm_key() -> str:
     return os.environ.get("EMERGENT_LLM_KEY", "")
 
 
-ANALYSIS_PROMPT = """You are an expert architectural and construction AI assistant.
+ANALYSIS_PROMPT_HEADER = """You are an expert architectural and construction AI assistant.
 Analyze the provided image (which may be a blueprint, floor plan, site plan, construction photo, or other document) and return a STRICT JSON response — no prose, no markdown, only valid JSON — with this exact schema:
 
 {
@@ -34,8 +34,8 @@ Analyze the provided image (which may be a blueprint, floor plan, site plan, con
   "rooms": [{"name": "Living Room", "approx_area_sqft": 320}],
   "structural_notes": ["..."],
   "materials": [
-    {"name": "2x4 Lumber", "category": "Framing", "quantity": 50, "unit": "pcs", "unit_price_usd": 8.5},
-    {"name": "Concrete", "category": "Structural", "quantity": 12, "unit": "cu yd", "unit_price_usd": 165.0}
+    {"name": "2x4 Lumber", "category": "Framing", "quantity": 50, "unit": "pcs", "unit_price_usd": 8.5, "dedup": "new"},
+    {"name": "Concrete (slab)", "category": "Structural", "quantity": 4, "unit": "cu yd", "unit_price_usd": 165.0, "dedup": "merge", "ref": 2, "rationale": "Additional wing of the same slab seen in doc #2"}
   ],
   "walls": [{"start": [x, y], "end": [x, y], "thickness": 0.2}],
   "doors": [{"position": [x, y], "width": 3, "wall_index": 0}],
@@ -50,8 +50,42 @@ Coordinate rules:
 - If you cannot identify materials with confidence, still return at least 3-6 plausible inferred materials based on the building type.
 - unit_price_usd MUST be a realistic 2026 US construction trade rate (e.g. 2x4x8 lumber ~$6-9/pc, concrete ~$160-180/cu yd, drywall ~$15/sheet, copper wire ~$1.50/ft, PEX pipe ~$0.50/ft). Always include a non-zero estimate.
 
-Return ONLY the JSON object, no surrounding text.
+DEDUPLICATION RULES (read carefully — this is critical):
+You will be given a list of materials ALREADY counted in this project from prior documents. The current image may show the SAME structures from a different angle, elevation, or detail view. You MUST avoid double-counting.
+
+For every material in the current image, set the "dedup" field to one of:
+  - "new"   = This is a genuinely new material not represented in the existing list. (Default.)
+  - "skip"  = This material is the SAME physical item already in the list (e.g. the same concrete slab, the same roof truss system, the same exterior wall) seen from a different vantage. Also set "ref" to the [index] of the existing item it matches. Quantity will be ignored.
+  - "merge" = This material is an ADDITIONAL amount of an existing item (e.g. the new view reveals more rooms, another wing, a second floor of the same framing). Set "ref" to the [index] of the existing item, and set "quantity" to ONLY the DELTA quantity to add. Do not restate the existing quantity.
+
+When in doubt between "skip" and "new", prefer "skip" — it is better to under-count than to double-count. The estimator can manually adjust later.
 """
+
+EXISTING_MATERIALS_TEMPLATE_NONE = "EXISTING MATERIALS IN THIS PROJECT: (none — this is the first document)"
+
+ANALYSIS_PROMPT_FOOTER = "\n\nReturn ONLY the JSON object, no surrounding text.\n"
+
+
+def _format_existing_materials_for_prompt(existing: list[dict]) -> str:
+    if not existing:
+        return EXISTING_MATERIALS_TEMPLATE_NONE
+    lines = [
+        "EXISTING MATERIALS IN THIS PROJECT (already counted from prior documents — do NOT double-count):"
+    ]
+    for i, m in enumerate(existing, start=1):
+        lines.append(
+            f"  [{i}] {m.get('name', '')} · {m.get('category', '')} · "
+            f"{m.get('quantity', 0)} {m.get('unit', '')}"
+        )
+    return "\n".join(lines)
+
+
+def _norm_key(name: str, category: str, unit: str) -> str:
+    """Normalised key for fuzzy fallback dedup: lowercase, strip punctuation."""
+    norm_name = re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+    norm_cat = (category or "").lower()
+    norm_unit = re.sub(r"[^a-z0-9]+", "", (unit or "").lower())
+    return f"{norm_cat}|{norm_name}|{norm_unit}"
 
 VALID_CATEGORIES = {
     "Structural", "Framing", "Electrical", "Plumbing", "Finishes",
@@ -67,13 +101,19 @@ def _strip_code_fence(text: str) -> str:
     return text.strip()
 
 
-async def _analyze_image_with_ai(b64: str) -> dict:
+async def _analyze_image_with_ai(b64: str, existing_materials: list[dict]) -> dict:
     chat = LlmChat(
         api_key=_llm_key(),
         session_id=f"analyze-{uuid.uuid4()}",
         system_message="You are a construction blueprint analysis expert. You output only valid JSON.",
     ).with_model("openai", "gpt-4o")
-    message = UserMessage(text=ANALYSIS_PROMPT, file_contents=[ImageContent(image_base64=b64)])
+    prompt = (
+        ANALYSIS_PROMPT_HEADER
+        + "\n\n"
+        + _format_existing_materials_for_prompt(existing_materials)
+        + ANALYSIS_PROMPT_FOOTER
+    )
+    message = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=b64)])
     response = await chat.send_message(message)
     raw = response if isinstance(response, str) else str(response)
     cleaned = _strip_code_fence(raw)
@@ -106,11 +146,27 @@ def _build_pipeline(db):
             if not _llm_key():
                 await _set_doc_status(doc_id, "error", error="EMERGENT_LLM_KEY missing")
                 return
-            analysis = await _analyze_image_with_ai(b64)
+
+            existing_materials = await db.materials.find(
+                {"project_id": project_id},
+                {"_id": 0, "id": 1, "name": 1, "category": 1, "quantity": 1, "unit": 1},
+            ).sort("created_at", 1).to_list(500)
+            # ref index in the prompt is 1-based; map back to actual id
+            ref_to_id = {i + 1: m["id"] for i, m in enumerate(existing_materials)}
+            existing_keys = {
+                _norm_key(m.get("name", ""), m.get("category", ""), m.get("unit", "")): m["id"]
+                for m in existing_materials
+            }
+
+            analysis = await _analyze_image_with_ai(b64, existing_materials)
             await _set_doc_status(doc_id, "saving", doc_type=analysis.get("doc_type"))
 
             materials = analysis.get("materials") or []
             inserted = 0
+            merged = 0
+            skipped = 0
+            dedup_audit = []
+
             for mat in materials:
                 if not isinstance(mat, dict) or not mat.get("name"):
                     continue
@@ -121,20 +177,68 @@ def _build_pipeline(db):
                     price = float(mat.get("unit_price_usd") or 0)
                 except (TypeError, ValueError):
                     price = 0.0
+                qty = float(mat.get("quantity") or 0)
+                unit = str(mat.get("unit") or "ea")[:24]
+                name = str(mat.get("name"))[:120]
+
+                dedup = str(mat.get("dedup") or "new").lower()
+                ref = mat.get("ref")
+                target_id = ref_to_id.get(int(ref)) if isinstance(ref, (int, float)) else None
+
+                # If the AI marked new but a fuzzy key match already exists, demote to merge.
+                if dedup == "new":
+                    fuzzy_id = existing_keys.get(_norm_key(name, cat, unit))
+                    if fuzzy_id:
+                        dedup = "merge"
+                        target_id = fuzzy_id
+
+                if dedup == "skip" and target_id:
+                    skipped += 1
+                    dedup_audit.append({
+                        "name": name, "decision": "skip",
+                        "merged_into": target_id,
+                        "rationale": str(mat.get("rationale") or "")[:200],
+                    })
+                    continue
+
+                if dedup == "merge" and target_id:
+                    await db.materials.update_one(
+                        {"id": target_id},
+                        {
+                            "$inc": {"quantity": qty},
+                            "$set": {"updated_at": now_iso()},
+                            "$addToSet": {"source_documents": doc_id},
+                        },
+                    )
+                    merged += 1
+                    dedup_audit.append({
+                        "name": name, "decision": "merge",
+                        "merged_into": target_id, "added_quantity": qty,
+                        "rationale": str(mat.get("rationale") or "")[:200],
+                    })
+                    continue
+
+                # "new" path
+                new_id = str(uuid.uuid4())
                 await db.materials.insert_one({
-                    "id": str(uuid.uuid4()),
+                    "id": new_id,
                     "project_id": project_id,
                     "document_id": doc_id,
-                    "name": str(mat.get("name"))[:120],
+                    "source_documents": [doc_id],
+                    "name": name,
                     "category": cat,
-                    "quantity": float(mat.get("quantity") or 0),
-                    "unit": str(mat.get("unit") or "ea")[:24],
+                    "quantity": qty,
+                    "unit": unit,
                     "unit_price": round(max(price, 0.0), 2),
                     "currency": "USD",
                     "ai_extracted": True,
                     "created_at": now_iso(),
                 })
+                # Add the just-inserted item so subsequent items in the same response
+                # don't double-count against itself.
+                existing_keys[_norm_key(name, cat, unit)] = new_id
                 inserted += 1
+                dedup_audit.append({"name": name, "decision": "new"})
 
             synced = False
             doc_type = analysis.get("doc_type")
@@ -192,9 +296,15 @@ def _build_pipeline(db):
                 },
                 doc_type=doc_type,
                 materials_count=inserted,
+                materials_merged=merged,
+                materials_skipped=skipped,
+                dedup_audit=dedup_audit,
                 synced_3d=synced,
             )
-            logger.info(f"Pipeline done for {doc_id}: type={doc_type} materials={inserted} synced={synced}")
+            logger.info(
+                f"Pipeline done for {doc_id}: type={doc_type} "
+                f"materials new={inserted} merged={merged} skipped={skipped} synced={synced}"
+            )
         except Exception as exc:
             logger.exception(f"Pipeline failed for {doc_id}")
             await _set_doc_status(doc_id, "error", error=str(exc)[:300])

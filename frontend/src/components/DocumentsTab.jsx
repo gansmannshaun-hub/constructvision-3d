@@ -260,9 +260,36 @@ function DocCard({ doc }) {
         {done && (
           <div className="flex flex-wrap gap-1 mt-3">
             <Badge>✓ Analyzed</Badge>
-            <Badge>{doc.materials_count || 0} materials</Badge>
+            <Badge>{doc.materials_count || 0} new</Badge>
+            {(doc.materials_merged || 0) > 0 && (
+              <Badge variant="orange" title="Merged into existing materials">
+                +{doc.materials_merged} merged
+              </Badge>
+            )}
+            {(doc.materials_skipped || 0) > 0 && (
+              <Badge variant="gray" title="Skipped — same as existing materials">
+                {doc.materials_skipped} skipped
+              </Badge>
+            )}
             {doc.synced_3d && <Badge variant="blue">🏗 3D synced</Badge>}
           </div>
+        )}
+        {done && doc.dedup_audit?.some?.((a) => a.decision !== "new") && (
+          <details className="mt-2">
+            <summary className="text-xs font-mono text-neutral-500 cursor-pointer hover:text-neutral-300">
+              dedup details
+            </summary>
+            <ul className="mt-2 space-y-1 text-xs font-mono text-neutral-400">
+              {doc.dedup_audit.filter((a) => a.decision !== "new").map((a, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className={a.decision === "merge" ? "text-[#FF6600]" : "text-neutral-500"}>
+                    {a.decision === "merge" ? `+${a.added_quantity ?? 0}` : "skip"}
+                  </span>
+                  <span className="truncate">{a.name}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
         {error && doc.error && (
           <div className="text-[#FF6666] text-xs mt-2 font-mono">{doc.error}</div>
@@ -272,12 +299,16 @@ function DocCard({ doc }) {
   );
 }
 
-function Badge({ children, variant }) {
+function Badge({ children, variant, title }) {
   const cls =
     variant === "blue"
       ? "bg-[#0055FF]/15 text-[#5588FF] border-[#0055FF]/40"
+      : variant === "orange"
+      ? "bg-[#FF6600]/15 text-[#FF8844] border-[#FF6600]/40"
+      : variant === "gray"
+      ? "bg-neutral-500/10 text-neutral-400 border-neutral-500/30"
       : "bg-white/5 text-neutral-300 border-white/10";
   return (
-    <span className={`label-mono px-2 py-1 border ${cls}`}>{children}</span>
+    <span className={`label-mono px-2 py-1 border ${cls}`} title={title}>{children}</span>
   );
 }
