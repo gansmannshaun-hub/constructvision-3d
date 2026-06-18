@@ -565,8 +565,8 @@ export function createSceneEngine(mount) {
   const w = mount.clientWidth || 800;
   const h = mount.clientHeight || 600;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0a0a);
-  scene.fog = new THREE.Fog(0x0a0a0a, 30, 80);
+  scene.background = new THREE.Color(0xf5f5f5);
+  scene.fog = new THREE.Fog(0xf5f5f5, 35, 90);
 
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 300);
   camera.position.set(12, 10, 14);
@@ -580,27 +580,27 @@ export function createSceneEngine(mount) {
   renderer.toneMappingExposure = 1.0;
   mount.appendChild(renderer.domElement);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-  const dir = new THREE.DirectionalLight(0xffffff, 1.3);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
   dir.position.set(8, 14, 6);
   dir.castShadow = true;
   dir.shadow.mapSize.set(1024, 1024);
   Object.assign(dir.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12 });
   scene.add(dir);
-  const fill = new THREE.DirectionalLight(0x99bbff, 0.35);
+  const fill = new THREE.DirectionalLight(0xbfd2ff, 0.35);
   fill.position.set(-6, 8, -4);
   scene.add(fill);
 
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(40, 64),
-    new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 1 })
+    new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 1 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -FOOTING_DEPTH * 1.2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  const grid = new THREE.GridHelper(40, 40, 0x0055ff, 0x1f1f1f);
+  const grid = new THREE.GridHelper(40, 40, 0x0055ff, 0xcccccc);
   grid.position.y = -FOOTING_DEPTH * 1.2 + 0.001;
   scene.add(grid);
 

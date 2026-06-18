@@ -99,7 +99,7 @@ export default function RendererTab() {
             </div>
           </div>
         )}
-        <div ref={mountRef} data-testid="renderer-canvas-mount" className="w-full h-full bg-[#0a0a0a]" />
+        <div ref={mountRef} data-testid="renderer-canvas-mount" className="w-full h-full bg-[#f5f5f5]" />
 
         <div className="absolute bottom-3 left-3 right-3 z-10 bg-black/80 border border-white/10 backdrop-blur-sm p-3">
           <div className="flex items-center justify-between mb-2">
