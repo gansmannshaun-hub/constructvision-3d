@@ -190,6 +190,8 @@ export default function DocumentsTab() {
 
 function DocCard({ doc }) {
   const [imgUrl, setImgUrl] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const { refreshDocuments, refreshMaterials, refreshBlueprint } = useStore();
 
   React.useEffect(() => {
     let alive = true;
@@ -205,13 +207,28 @@ function DocCard({ doc }) {
     };
   }, [doc.id, doc.mime_type]);
 
+  const onDelete = async () => {
+    const warn = (doc.materials_merged || 0) > 0
+      ? `Delete "${doc.filename}"?\n\nThis removes ${doc.materials_count || 0} material item(s) extracted from this document. The ${doc.materials_merged} item(s) that were merged into existing materials will keep their accumulated quantities (those can't be reversed automatically — adjust them manually in the Materials tab if needed).\n\nThis cannot be undone.`
+      : `Delete "${doc.filename}"?\n\nThis will remove the document and any ${doc.materials_count || 0} materials extracted from it. This cannot be undone.`;
+    if (!window.confirm(warn)) return;
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/documents/${doc.id}`);
+      await Promise.all([refreshDocuments(), refreshMaterials(), refreshBlueprint()]);
+    } catch (e) {
+      alert(e.response?.data?.detail || e.message || "Failed to delete document");
+      setDeleting(false);
+    }
+  };
+
   const done = doc.status === "done";
   const error = doc.status === "error";
 
   return (
     <article
       data-testid={`document-card-${doc.id}`}
-      className="border border-white/10 bg-[#141414] hover:bg-[#1A1A1A] transition-all duration-150 fade-up"
+      className="border border-white/10 bg-[#141414] hover:bg-[#1A1A1A] transition-all duration-150 fade-up group"
     >
       <div className="aspect-video bg-black border-b border-white/10 relative overflow-hidden">
         {imgUrl ? (
@@ -226,6 +243,21 @@ function DocCard({ doc }) {
             {doc.doc_type}
           </div>
         )}
+        <button
+          data-testid={`document-delete-${doc.id}`}
+          onClick={onDelete}
+          disabled={deleting}
+          title="Delete this document"
+          className="absolute top-2 right-2 bg-black/80 border border-[#FF3333]/40 text-[#FF6666] hover:bg-[#FF3333] hover:text-white disabled:opacity-50 w-8 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          {deleting ? (
+            <span className="font-mono text-xs">…</span>
+          ) : (
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6" />
+            </svg>
+          )}
+        </button>
       </div>
 
       <ProgressBar status={doc.status} />

@@ -383,6 +383,32 @@ def build_documents_router(db, get_current_user) -> APIRouter:
     router = APIRouter(prefix="/api")
     run_pipeline = _build_pipeline(db)
 
+    @router.delete("/documents/{doc_id}")
+    async def delete_document(doc_id: str, user: dict = Depends(get_current_user)):
+        doc = await db.documents.find_one({"id": doc_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        proj = await db.projects.find_one(
+            {"id": doc["project_id"], "user_id": user["id"]},
+            {"_id": 0},
+        )
+        if not proj:
+            raise HTTPException(403, "Forbidden")
+        # Remove materials that were created solely from this document.
+        # (Materials that were merged into pre-existing rows keep their accumulated
+        #  quantity — we surface a warning in the UI for those.)
+        mat_res = await db.materials.delete_many({"document_id": doc_id})
+        # Also strip the doc id from any merged-into materials' source_documents arrays.
+        await db.materials.update_many(
+            {"source_documents": doc_id},
+            {"$pull": {"source_documents": doc_id}},
+        )
+        await db.documents.delete_one({"id": doc_id})
+        return {
+            "deleted": True,
+            "materials_removed": mat_res.deleted_count,
+        }
+
     @router.get("/projects/{project_id}/documents")
     async def list_documents(project_id: str, user: dict = Depends(get_current_user)):
         proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]})
