@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
 import { useStore } from "../store";
 import {
   createSceneEngine,
@@ -8,9 +9,12 @@ import {
   ROOF_TYPES,
   DEFAULT_CFG,
 } from "../lib/renderer/sceneBuilder";
+import SitePickerModal from "./SitePickerModal";
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 export default function RendererTab() {
-  const { blueprint, saveBlueprint } = useStore();
+  const { blueprint, saveBlueprint, currentProjectId } = useStore();
   const walls = blueprint.walls || [];
   const doors = blueprint.doors || [];
   const windows = blueprint.windows || [];
@@ -24,6 +28,8 @@ export default function RendererTab() {
   const [autoMode, setAutoMode] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [savingCfg, setSavingCfg] = useState(false);
+  const [site, setSite] = useState(null);
+  const [showSitePicker, setShowSitePicker] = useState(false);
 
   const mountRef = useRef(null);
   const engineRef = useRef(null);
@@ -52,6 +58,27 @@ export default function RendererTab() {
     engineRef.current = engine;
     return () => { engine.dispose(); engineRef.current = null; };
   }, []);
+
+  // 1b) Load the project's site (if any), keep in sync when project changes
+  useEffect(() => {
+    if (!currentProjectId) { setSite(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = localStorage.getItem("cm_token");
+        const { data } = await axios.get(`${API}/projects/${currentProjectId}/site`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!cancelled) setSite(data?.captured ? data : null);
+      } catch {/* ignore */}
+    })();
+    return () => { cancelled = true; };
+  }, [currentProjectId]);
+
+  // 1c) Push the site (or absence of it) into the engine
+  useEffect(() => {
+    engineRef.current?.setSite(site);
+  }, [site]);
 
   // 2) Build geometry whenever the blueprint changes
   useEffect(() => {
@@ -153,6 +180,50 @@ export default function RendererTab() {
       </section>
 
       <aside className="border-l border-white/10 p-5 overflow-y-auto">
+        <div className="label-mono mb-2">// SITE</div>
+        {site?.captured ? (
+          <div className="border border-white/10 mb-6 overflow-hidden">
+            <img
+              data-testid="renderer-site-thumb"
+              src={`data:image/png;base64,${site.image_base64}`}
+              alt="Site satellite view"
+              className="w-full h-32 object-cover"
+            />
+            <div className="p-3">
+              <div className="text-xs font-mono text-neutral-300 truncate">
+                {site.address || `${site.lat.toFixed(4)}, ${site.lng.toFixed(4)}`}
+              </div>
+              <div className="label-mono text-neutral-500 mt-1">
+                {Math.round((site.world_meters || 0) * 3.28084)} ft × {Math.round((site.world_meters || 0) * 3.28084)} ft
+              </div>
+              {site.analysis?.summary && (
+                <p className="text-xs text-neutral-400 leading-relaxed mt-2 line-clamp-3">
+                  {site.analysis.summary}
+                </p>
+              )}
+              {site.analysis?.lot_estimate_sqft && (
+                <div className="label-mono text-[#FFCC00] mt-2">
+                  ≈ {site.analysis.lot_estimate_sqft.toLocaleString()} sqft
+                </div>
+              )}
+              <button
+                data-testid="renderer-site-edit"
+                onClick={() => setShowSitePicker(true)}
+                className="mt-3 w-full label-mono border border-white/15 hover:bg-white/5 px-3 py-1.5"
+              >Change site</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            data-testid="renderer-site-pick"
+            onClick={() => setShowSitePicker(true)}
+            className="w-full mb-6 border border-[#5588FF]/60 bg-[#0055FF]/10 hover:bg-[#0055FF]/20 text-[#5588FF] label-mono px-3 py-3 flex items-center justify-center gap-2"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 21s-7-7.6-7-12a7 7 0 0 1 14 0c0 4.4-7 12-7 12z" /><circle cx="12" cy="9" r="2.5" /></svg>
+            PICK SITE FROM MAP
+          </button>
+        )}
+
         <div className="label-mono mb-2">// ROOF & FINISH</div>
         <div className="space-y-3 mb-6">
           <label className="block">
@@ -245,6 +316,15 @@ export default function RendererTab() {
           </p>
         </div>
       </aside>
+
+      {showSitePicker && currentProjectId && (
+        <SitePickerModal
+          projectId={currentProjectId}
+          currentSite={site}
+          onClose={() => setShowSitePicker(false)}
+          onCaptured={(s) => setSite(s?.captured ? s : null)}
+        />
+      )}
     </div>
   );
 }

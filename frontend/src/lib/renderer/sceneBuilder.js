@@ -604,6 +604,60 @@ export function createSceneEngine(mount) {
   grid.position.y = -FOOTING_DEPTH * 1.2 + 0.001;
   scene.add(grid);
 
+  // ----- Site (satellite) ground plane: hidden until a site is supplied -----
+  let siteMesh = null;
+  let siteTexture = null;
+
+  function disposeSite() {
+    if (siteMesh) {
+      scene.remove(siteMesh);
+      siteMesh.geometry.dispose();
+      siteMesh.material.dispose();
+      siteMesh = null;
+    }
+    if (siteTexture) {
+      siteTexture.dispose();
+      siteTexture = null;
+    }
+  }
+
+  function setSite(site) {
+    disposeSite();
+    if (!site || !site.image_base64 || !site.world_meters) {
+      ground.visible = true;
+      grid.visible = true;
+      camera.far = 300;
+      camera.updateProjectionMatrix();
+      scene.fog = new THREE.Fog(0xf5f5f5, 35, 90);
+      controls.maxDistance = 60;
+      return;
+    }
+    const sideM = site.world_meters;
+    const loader = new THREE.TextureLoader();
+    siteTexture = loader.load(`data:image/png;base64,${site.image_base64}`);
+    siteTexture.colorSpace = THREE.SRGBColorSpace;
+    siteTexture.anisotropy = 8;
+    const mat = new THREE.MeshStandardMaterial({
+      map: siteTexture,
+      roughness: 1.0,
+      metalness: 0.0,
+    });
+    const geo = new THREE.PlaneGeometry(sideM, sideM);
+    siteMesh = new THREE.Mesh(geo, mat);
+    siteMesh.rotation.x = -Math.PI / 2;
+    siteMesh.position.y = -FOOTING_DEPTH * 1.2 + 0.002;
+    siteMesh.receiveShadow = true;
+    scene.add(siteMesh);
+    ground.visible = false;
+    grid.visible = false;
+    // Push fog and far plane out so the big plane is visible.
+    // Keep the camera where build() placed it — let the user orbit / zoom out.
+    scene.fog = new THREE.Fog(0xf5f5f5, sideM * 0.5, sideM * 2);
+    camera.far = Math.max(300, sideM * 4);
+    camera.updateProjectionMatrix();
+    controls.maxDistance = sideM * 1.5;
+  }
+
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.minDistance = 3;
@@ -687,6 +741,7 @@ export function createSceneEngine(mount) {
     window.removeEventListener("resize", onResize);
     ro.disconnect();
     controls.dispose();
+    disposeSite();
     renderer.dispose();
     if (renderer.domElement?.parentNode === mount) mount.removeChild(renderer.domElement);
     scene.traverse((o) => {
@@ -698,5 +753,5 @@ export function createSceneEngine(mount) {
     });
   }
 
-  return { build, setVisibility, dispose };
+  return { build, setVisibility, setSite, dispose };
 }

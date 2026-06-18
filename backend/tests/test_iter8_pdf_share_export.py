@@ -147,7 +147,7 @@ class TestExports:
         # Utilities present
         assert ("Septic" in text or "EMT" in text or "Water main" in text.lower() or "water main" in text.lower())
         # Last non-empty row should be GRAND TOTAL
-        non_empty = [l for l in text.splitlines() if l.strip()]
+        non_empty = [line for line in text.splitlines() if line.strip()]
         assert "GRAND TOTAL" in non_empty[-1]
 
     def test_xlsx_export_format(self, base_url, project_with_blueprint):
