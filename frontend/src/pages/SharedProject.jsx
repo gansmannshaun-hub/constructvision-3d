@@ -22,7 +22,7 @@ export default function SharedProject() {
   useEffect(() => {
     axios.get(`${API}/share/${token}`)
       .then((r) => setData(r.data))
-      .catch((e) => setError(e.response?.data?.detail || "This link is invalid or has been revoked."));
+      .catch(() => setError("This link is invalid or has been revoked."));
   }, [token]);
 
   if (error) {

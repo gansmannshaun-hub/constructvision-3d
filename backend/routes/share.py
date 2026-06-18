@@ -85,7 +85,7 @@ def build_share_router(db, get_current_user) -> APIRouter:
         # Owner contact (first name only) for branding
         owner = await db.users.find_one(
             {"id": proj["user_id"]},
-            {"_id": 0, "name": 1, "email": 1, "entitlements": 1},
+            {"_id": 0, "name": 1, "email": 1},
         ) or {}
         bp = await get_or_create_blueprint(db, proj["id"])
         mats = await _build_combined_materials(db, proj["id"])
