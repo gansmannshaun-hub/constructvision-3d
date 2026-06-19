@@ -736,6 +736,115 @@ export function createSceneEngine(mount) {
     }
   }
 
+  /** Render a high-resolution PNG of the current scene + camera and return a Blob. */
+  async function captureHiRes(width = 3840, height = 2160) {
+    const target = new THREE.WebGLRenderTarget(width, height, {
+      samples: 4,
+      colorSpace: THREE.SRGBColorSpace,
+    });
+    const prevPR = renderer.getPixelRatio();
+    const prevSize = new THREE.Vector2();
+    renderer.getSize(prevSize);
+    const prevAspect = camera.aspect;
+
+    // Snapshot golden-hour lighting for prettier output.
+    const dirOrig = dir.intensity;
+    const fillOrig = fill.intensity;
+    dir.intensity = 1.6;
+    fill.intensity = 0.5;
+
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(1);
+    renderer.setSize(width, height, false);
+    renderer.setRenderTarget(target);
+    renderer.render(scene, camera);
+
+    // read pixels
+    const pixels = new Uint8Array(width * height * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);
+
+    // restore
+    renderer.setRenderTarget(null);
+    renderer.setPixelRatio(prevPR);
+    renderer.setSize(prevSize.x, prevSize.y, false);
+    camera.aspect = prevAspect;
+    camera.updateProjectionMatrix();
+    dir.intensity = dirOrig;
+    fill.intensity = fillOrig;
+    target.dispose();
+
+    // Convert to PNG via offscreen canvas (Y-flip — WebGL is bottom-up).
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    const imgData = ctx.createImageData(width, height);
+    for (let y = 0; y < height; y++) {
+      const src = (height - y - 1) * width * 4;
+      const dst = y * width * 4;
+      imgData.data.set(pixels.subarray(src, src + width * 4), dst);
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  }
+
+  /** Camera-dolly animation. Provides a frame callback to update phase, etc. */
+  function startDolly({ durationSec = 12, onProgress = null }) {
+    const start = performance.now();
+    const aabb = (() => {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      scene.traverse((o) => {
+        if (!o.visible || !o.geometry) return;
+        const b = new THREE.Box3().setFromObject(o);
+        if (Number.isFinite(b.min.x)) {
+          minX = Math.min(minX, b.min.x);
+          maxX = Math.max(maxX, b.max.x);
+          minZ = Math.min(minZ, b.min.z);
+          maxZ = Math.max(maxZ, b.max.z);
+        }
+      });
+      if (!Number.isFinite(minX)) return { cx: 0, cz: 0, size: 8 };
+      return {
+        cx: (minX + maxX) / 2,
+        cz: (minZ + maxZ) / 2,
+        size: Math.max(maxX - minX, maxZ - minZ, 4),
+      };
+    })();
+
+    const radius = aabb.size * 1.5 + 6;
+    controls.enabled = false;
+
+    return new Promise((resolve) => {
+      const tick = () => {
+        const t = (performance.now() - start) / 1000;
+        const u = Math.min(1, t / durationSec);
+        // Slow ease in/out
+        const eased = 0.5 - 0.5 * Math.cos(u * Math.PI);
+        // Orbit around the building
+        const angle = eased * Math.PI * 1.6 - Math.PI / 4;
+        const height = radius * (0.55 + Math.sin(eased * Math.PI) * 0.25);
+        camera.position.set(
+          aabb.cx + Math.cos(angle) * radius,
+          height,
+          aabb.cz + Math.sin(angle) * radius,
+        );
+        camera.lookAt(aabb.cx, WALL_HEIGHT * 0.5, aabb.cz);
+        if (onProgress) onProgress(u);
+        if (u < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          controls.enabled = true;
+          resolve();
+        }
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  /** Direct accessors for capture/video features. */
+  function getDomElement() { return renderer.domElement; }
+
   function dispose() {
     cancelAnimationFrame(animHandle);
     window.removeEventListener("resize", onResize);
@@ -753,5 +862,5 @@ export function createSceneEngine(mount) {
     });
   }
 
-  return { build, setVisibility, setSite, dispose };
+  return { build, setVisibility, setSite, captureHiRes, startDolly, getDomElement, dispose };
 }

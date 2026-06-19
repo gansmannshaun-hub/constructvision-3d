@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { formatFeetInches, wallsAabb } from "../lib/dim";
+import CadAIPanel from "./CadAIPanel";
 
 /** SketchUp-inspired 2D CAD editor.
  *  - Tools: Select / Line / Rectangle / Circle / Door / Window / Eraser /
@@ -77,7 +78,7 @@ const TOOL_ICON = ({ id, className = "" }) => {
 };
 
 export default function CadEditorTab() {
-  const { blueprint, saveBlueprint } = useStore();
+  const { blueprint, saveBlueprint, currentProjectId, refreshBlueprint } = useStore();
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [tool, setTool] = useState("select");
@@ -913,6 +914,13 @@ export default function CadEditorTab() {
               className="bg-white border-2 border-[#FFCC00] px-2 py-1 text-sm font-mono text-black shadow-md w-44"
             />
           </form>
+        )}
+
+        {currentProjectId && (
+          <CadAIPanel
+            projectId={currentProjectId}
+            onPlanLoaded={async () => { await refreshBlueprint(); }}
+          />
         )}
       </div>
 

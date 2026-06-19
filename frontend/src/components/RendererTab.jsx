@@ -109,6 +109,77 @@ export default function RendererTab() {
     return () => clearInterval(t);
   }, [playing]);
 
+  // 5) Studio Render (4K still PNG)
+  const [rendering, setRendering] = useState(false);
+  const renderStudio = useCallback(async () => {
+    if (!engineRef.current) return;
+    setRendering(true);
+    try {
+      const blob = await engineRef.current.captureHiRes(3840, 2160);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `studio_render_${Date.now()}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("Render failed: " + (e?.message || e));
+    } finally {
+      setRendering(false);
+    }
+  }, []);
+
+  // 6) Walkthrough video export (webm)
+  const [recording, setRecording] = useState(false);
+  const [recProgress, setRecProgress] = useState(0);
+  const recordWalkthrough = useCallback(async () => {
+    if (!engineRef.current) return;
+    const canvas = engineRef.current.getDomElement();
+    if (!canvas?.captureStream) {
+      alert("Your browser doesn't support canvas.captureStream — try Chrome/Edge/Firefox.");
+      return;
+    }
+    setRecording(true);
+    setRecProgress(0);
+    const stream = canvas.captureStream(30);
+    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+      ? "video/webm;codecs=vp9"
+      : "video/webm";
+    const chunks = [];
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    const stopped = new Promise((res) => { rec.onstop = res; });
+    rec.start(250);
+
+    // Animate phases + camera dolly together
+    setAutoMode(true);
+    setPhase(0);
+    const total = 16; // seconds
+    const phaseTick = setInterval(() => {
+      setPhase((p) => (p < MAX_PHASE ? p + 1 : p));
+    }, (total * 1000) / (MAX_PHASE + 1));
+
+    try {
+      await engineRef.current.startDolly({
+        durationSec: total,
+        onProgress: (u) => setRecProgress(u),
+      });
+    } finally {
+      clearInterval(phaseTick);
+      rec.stop();
+      await stopped;
+    }
+    const blob = new Blob(chunks, { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `walkthrough_${Date.now()}.webm`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    setRecording(false);
+    setRecProgress(0);
+  }, []);
+
   const empty = walls.length === 0;
 
   return (
@@ -118,6 +189,30 @@ export default function RendererTab() {
           <div className="label-mono">// CONSTRUCTION PHASE</div>
           <div className="font-display text-lg tracking-tighter">{PHASES[phase].label}</div>
         </div>
+
+        <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 items-end">
+          <button
+            data-testid="renderer-studio-render"
+            onClick={renderStudio}
+            disabled={rendering || empty}
+            className="label-mono px-3 py-2 bg-black/80 border border-[#FFCC00]/60 text-[#FFCC00] hover:bg-[#FFCC00] hover:text-black disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            title="Render high-resolution 4K still"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="6" width="18" height="14" rx="2" /><circle cx="12" cy="13" r="3.5" /><path d="M8 6V4h8v2" /></svg>
+            {rendering ? "RENDERING…" : "STUDIO RENDER (4K)"}
+          </button>
+          <button
+            data-testid="renderer-walkthrough"
+            onClick={recordWalkthrough}
+            disabled={recording || empty}
+            className="label-mono px-3 py-2 bg-black/80 border border-[#FF3333]/60 text-[#FF6666] hover:bg-[#FF3333] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            title="Record 16s walkthrough video (webm)"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.5" fill="currentColor" /><rect x="3" y="6" width="18" height="14" rx="2" /></svg>
+            {recording ? `REC ${(recProgress * 100).toFixed(0)}%` : "WALKTHROUGH VIDEO"}
+          </button>
+        </div>
+
         {empty && (
           <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
             <div className="text-center bg-black/60 px-6 py-4 border border-white/10">

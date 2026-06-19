@@ -21,6 +21,7 @@ from starlette.middleware.cors import CORSMiddleware
 import admin as admin_mod
 import billing as billing_mod
 from routes.auth import build_auth_router
+from routes.ai_tools import build_ai_tools_router
 from routes.collab import build_collab_router
 from routes.documents import build_documents_router
 from routes.field import build_field_router
@@ -51,6 +52,7 @@ app.include_router(build_materials_router(db, get_current_user))
 app.include_router(build_pricing_router(db, get_current_user))
 app.include_router(build_documents_router(db, get_current_user))
 app.include_router(build_field_router(db, get_current_user))
+app.include_router(build_ai_tools_router(db, get_current_user))
 app.include_router(build_takeoff_router(db, get_current_user))
 app.include_router(build_share_router(db, get_current_user))
 app.include_router(build_site_router(db, get_current_user))

@@ -1,6 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiClient, useStore, API } from "../store";
 
+/** Coerce FastAPI's `detail` (string | array<{msg}>) to a single display string. */
+function errText(err, fallback = "Something went wrong") {
+  const d = err?.response?.data?.detail;
+  if (!d) return err?.message || fallback;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) return d.map((x) => x?.msg || JSON.stringify(x)).join("; ");
+  try { return JSON.stringify(d); } catch { return fallback; }
+}
+
 /**
  * Field tab — Daily Logs, Site Photos (AI progress %), Progress Summary, LiDAR.
  * Layout: left rail = sub-tabs · right = active panel.
@@ -70,7 +79,7 @@ function DailyLogsPanel({ projectId }) {
       const { data: site } = await apiClient.get(`/projects/${projectId}/site`);
       setSiteCaptured(!!site?.captured);
     } catch (e) {
-      setErr(e.response?.data?.detail || "Failed to load");
+      setErr(errText(e, "Failed to load"));
     } finally {
       setLoading(false);
     }
@@ -87,13 +96,13 @@ function DailyLogsPanel({ projectId }) {
         log_date: today,
         notes,
         crew_size: Number(crew) || 0,
-        fetch_weather: fetchWx && siteCaptured,
+        fetch_weather: Boolean(fetchWx && siteCaptured),
       });
       setNotes("");
       setCrew(0);
       await load();
     } catch (e) {
-      setErr(e.response?.data?.detail || "Failed to save log");
+      setErr(errText(e, "Failed to save log"));
     } finally {
       setCreating(false);
     }
@@ -105,7 +114,7 @@ function DailyLogsPanel({ projectId }) {
       await apiClient.delete(`/daily-logs/${id}`);
       await load();
     } catch (e) {
-      alert(e.response?.data?.detail || "Failed to delete");
+      alert(errText(e, "Failed to delete"));
     }
   };
 
@@ -263,7 +272,7 @@ function SitePhotosPanel({ projectId }) {
       setCaption("");
       await load();
     } catch (e) {
-      alert(e.response?.data?.detail || "Upload failed");
+      alert(errText(e, "Upload failed"));
     } finally {
       setUploading(false);
     }
@@ -503,7 +512,7 @@ function LidarPanel({ projectId }) {
       });
       await load();
     } catch (e) {
-      alert(e.response?.data?.detail || "Upload failed");
+      alert(errText(e, "Upload failed"));
     } finally {
       setUploading(false);
     }
