@@ -7,6 +7,7 @@ import MaterialsTab from "../components/MaterialsTab";
 import BlueprintTab from "../components/BlueprintTab";
 import CadEditorTab from "../components/CadEditorTab";
 import RendererTab from "../components/RendererTab";
+import FieldTab from "../components/FieldTab";
 
 const TABS = [
   { id: "documents", label: "Documents", hint: "01" },
@@ -14,6 +15,7 @@ const TABS = [
   { id: "blueprint", label: "Blueprint", hint: "03" },
   { id: "cad", label: "2D CAD Editor", hint: "04" },
   { id: "renderer", label: "3D Renderer", hint: "05" },
+  { id: "field", label: "Field", hint: "06" },
 ];
 
 const TIER_COLOR = { free: "#A0A0A0", pro: "#FFCC00", studio: "#5588FF" };
@@ -191,6 +193,7 @@ export default function Dashboard() {
             {tab === "blueprint" && <BlueprintTab />}
             {tab === "cad" && <CadEditorTab />}
             {tab === "renderer" && <RendererTab />}
+            {tab === "field" && <FieldTab />}
           </>
         ) : projects.length === 0 ? (
           <EmptyProjectsState />

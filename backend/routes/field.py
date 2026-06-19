@@ -59,7 +59,8 @@ def _llm_key() -> str:
 def _strip_fence(t: str) -> str:
     t = t.strip()
     if t.startswith("```"):
-        t = re.sub(r"^```[a-zA-Z]*\n?", "", t); t = re.sub(r"\n?```$", "", t)
+        t = re.sub(r"^```[a-zA-Z]*\n?", "", t)
+        t = re.sub(r"\n?```$", "", t)
     return t.strip()
 
 
@@ -146,7 +147,8 @@ def build_field_router(db, get_current_user) -> APIRouter:
             "photo_ids": [],
             "created_at": now_iso(),
         }
-        await db.daily_logs.insert_one(doc); doc.pop("_id", None)
+        await db.daily_logs.insert_one(doc)
+        doc.pop("_id", None)
         await log_activity(db, project_id, user["email"], "daily_log.created",
                            target_type="daily_log", target_id=doc["id"], target_name=payload.log_date)
         return doc

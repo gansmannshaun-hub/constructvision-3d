@@ -23,6 +23,7 @@ import billing as billing_mod
 from routes.auth import build_auth_router
 from routes.collab import build_collab_router
 from routes.documents import build_documents_router
+from routes.field import build_field_router
 from routes.materials import build_materials_router
 from routes.pricing import build_pricing_router
 from routes.projects import build_projects_router
@@ -49,6 +50,7 @@ app.include_router(build_projects_router(db, get_current_user))
 app.include_router(build_materials_router(db, get_current_user))
 app.include_router(build_pricing_router(db, get_current_user))
 app.include_router(build_documents_router(db, get_current_user))
+app.include_router(build_field_router(db, get_current_user))
 app.include_router(build_takeoff_router(db, get_current_user))
 app.include_router(build_share_router(db, get_current_user))
 app.include_router(build_site_router(db, get_current_user))
