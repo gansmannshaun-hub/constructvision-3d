@@ -30,6 +30,8 @@ def build_materials_router(db, get_current_user) -> APIRouter:
         update = {}
         if payload.unit_price is not None:
             update["unit_price"] = round(max(float(payload.unit_price), 0.0), 2)
+        if payload.labor_unit_price is not None:
+            update["labor_unit_price"] = round(max(float(payload.labor_unit_price), 0.0), 2)
         if payload.quantity is not None:
             update["quantity"] = max(float(payload.quantity), 0.0)
         if payload.name is not None and payload.name.strip():

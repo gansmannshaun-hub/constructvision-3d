@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore, apiClient, API } from "../store";
+import PricingPanel from "./PricingPanel";
 
 const CATEGORY_COLORS = {
   Structural: "#0055FF",
@@ -131,6 +132,9 @@ export default function MaterialsTab() {
           </button>
         </div>
       </div>
+
+      {/* Pricing & bid panel (regional multiplier, sliders, bid versions) */}
+      {currentProjectId && <PricingPanel projectId={currentProjectId} />}
 
       {/* Stats — now 4 cards including Project Cost */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-1 mb-8 border border-white/10">

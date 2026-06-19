@@ -14,6 +14,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 import billing as billing_mod
+from pricing import compute_bid, get_pricing_config
 from routes.projects import get_or_create_blueprint
 from utilities_takeoff import compute_utilities_takeoff
 
@@ -291,30 +292,41 @@ def build_takeoff_router(db, get_current_user) -> APIRouter:
         if not proj:
             raise HTTPException(404, "Project not found")
         mats = await _build_combined_materials(db, project_id)
+        cfg = await get_pricing_config(db, project_id)
+        result = compute_bid(mats, cfg)
+        totals = result["totals"]
         sio = StringIO()
         writer = csv.writer(sio)
         writer.writerow([
             "Category", "Material", "Quantity", "Unit",
-            "Unit Price (USD)", "Line Total (USD)", "Source",
+            "Material $/unit", "Labor $/unit", "Material Total", "Labor Total",
+            "Line Total", "Source",
         ])
-        grand_total = 0.0
-        for m in sorted(mats, key=lambda x: (x.get("category") or "", x.get("name") or "")):
-            qty = float(m.get("quantity") or 0)
-            price = float(m.get("unit_price") or 0)
-            line = qty * price
-            grand_total += line
+        for m in sorted(result["lines"], key=lambda x: (x.get("category") or "", x.get("name") or "")):
             writer.writerow([
                 m.get("category") or "Other",
                 m.get("name") or "",
-                f"{qty:g}",
+                f"{float(m.get('quantity') or 0):g}",
                 m.get("unit") or "",
-                f"{price:.2f}",
-                f"{line:.2f}",
+                f"{float(m.get('unit_price') or 0):.2f}",
+                f"{float(m.get('labor_unit_price') or 0):.2f}",
+                f"{m.get('material_total', 0):.2f}",
+                f"{m.get('labor_total', 0):.2f}",
+                f"{m.get('line_total', 0):.2f}",
                 _src_label(m),
             ])
         writer.writerow([])
-        writer.writerow(["", "", "", "", "GRAND TOTAL", f"{grand_total:.2f}", ""])
-        out = sio.getvalue().encode("utf-8-sig")  # BOM for Excel
+        loc = f"{cfg.get('city') or cfg.get('state') or ''} ({cfg.get('zip') or 'no ZIP'})".strip()
+        writer.writerow(["", f"Regional multiplier ({loc})", "", "", "", "", "", "", f"×{totals['applied_multiplier']:.3f}", ""])
+        writer.writerow(["", "Materials subtotal", "", "", "", "", "", "", f"{totals['materials_subtotal']:.2f}", ""])
+        writer.writerow(["", "Labor subtotal",     "", "", "", "", "", "", f"{totals['labor_subtotal']:.2f}", ""])
+        writer.writerow(["", "Base subtotal",      "", "", "", "", "", "", f"{totals['base_subtotal']:.2f}", ""])
+        writer.writerow(["", f"Waste ({totals['waste_pct']}%)",       "", "", "", "", "", "", f"{totals['waste_amount']:.2f}", ""])
+        writer.writerow(["", f"Overhead ({totals['overhead_pct']}%)", "", "", "", "", "", "", f"{totals['overhead_amount']:.2f}", ""])
+        writer.writerow(["", f"Profit ({totals['profit_pct']}%)",     "", "", "", "", "", "", f"{totals['profit_amount']:.2f}", ""])
+        writer.writerow(["", f"Contingency ({totals['contingency_pct']}%)", "", "", "", "", "", "", f"{totals['contingency_amount']:.2f}", ""])
+        writer.writerow(["", "GRAND TOTAL",        "", "", "", "", "", "", f"{totals['grand_total']:.2f}", ""])
+        out = sio.getvalue().encode("utf-8-sig")
         safe = _safe_name(proj["name"])
         return StreamingResponse(
             BytesIO(out),
@@ -328,19 +340,26 @@ def build_takeoff_router(db, get_current_user) -> APIRouter:
         if not proj:
             raise HTTPException(404, "Project not found")
         mats = await _build_combined_materials(db, project_id)
+        cfg = await get_pricing_config(db, project_id)
+        result = compute_bid(mats, cfg)
+        totals = result["totals"]
 
         wb = Workbook()
         ws = wb.active
         ws.title = "Takeoff"
 
-        # Title block
         ws["A1"] = f"Atlas Takeoff — {proj['name']}"
         ws["A1"].font = Font(name="Calibri", size=16, bold=True)
         ws["A2"] = f"Generated {datetime.now(timezone.utc).strftime('%b %d, %Y %H:%M UTC')}"
         ws["A2"].font = Font(name="Calibri", size=10, color="666666")
+        loc = f"{cfg.get('city') or cfg.get('state') or ''} {cfg.get('zip') or ''}".strip()
+        ws["A3"] = f"Region: {loc or 'US average'} · multiplier ×{totals['applied_multiplier']:.3f}"
+        ws["A3"].font = Font(name="Calibri", size=10, color="0055FF", bold=True)
         ws.append([])
 
-        header = ["#", "Category", "Material", "Quantity", "Unit", "Unit Price (USD)", "Line Total (USD)", "Source"]
+        header = ["#", "Category", "Material", "Quantity", "Unit",
+                  "Material $/unit", "Labor $/unit", "Material Total", "Labor Total",
+                  "Line Total", "Source"]
         ws.append(header)
         header_row = ws.max_row
         head_fill = PatternFill("solid", fgColor="0A0A0A")
@@ -351,9 +370,8 @@ def build_takeoff_router(db, get_current_user) -> APIRouter:
             c.font = head_font
             c.alignment = Alignment(horizontal="left", vertical="center")
 
-        grand_total = 0.0
         grouped: dict[str, list[dict]] = defaultdict(list)
-        for m in mats:
+        for m in result["lines"]:
             grouped[m.get("category") or "Other"].append(m)
 
         idx = 0
@@ -361,31 +379,45 @@ def build_takeoff_router(db, get_current_user) -> APIRouter:
             for m in grouped[cat]:
                 idx += 1
                 qty = float(m.get("quantity") or 0)
-                price = float(m.get("unit_price") or 0)
-                line = qty * price
-                grand_total += line
-                ws.append([idx, cat, m.get("name") or "", qty, m.get("unit") or "", price, line, _src_label(m)])
+                mat_p = float(m.get("unit_price") or 0)
+                lab_p = float(m.get("labor_unit_price") or 0)
+                ws.append([idx, cat, m.get("name") or "", qty, m.get("unit") or "",
+                           mat_p, lab_p,
+                           m.get("material_total", 0), m.get("labor_total", 0), m.get("line_total", 0),
+                           _src_label(m)])
                 row = ws.max_row
-                ws.cell(row=row, column=6).number_format = '"$"#,##0.00'
-                ws.cell(row=row, column=7).number_format = '"$"#,##0.00'
-                src_cell = ws.cell(row=row, column=8)
+                for col in (6, 7, 8, 9, 10):
+                    ws.cell(row=row, column=col).number_format = '"$"#,##0.00'
+                src_cell = ws.cell(row=row, column=11)
                 if src_cell.value == "AUTO":
                     src_cell.font = Font(bold=True, color="FF6600")
                 elif src_cell.value == "AI":
                     src_cell.font = Font(bold=True, color="0055FF")
 
         ws.append([])
-        ws.append(["", "", "", "", "", "GRAND TOTAL", grand_total, ""])
-        total_row = ws.max_row
-        ws.cell(row=total_row, column=7).number_format = '"$"#,##0.00'
-        ws.cell(row=total_row, column=6).font = Font(bold=True, size=12)
-        ws.cell(row=total_row, column=7).font = Font(bold=True, size=12, color="0055FF")
+        bold = Font(bold=True, size=11)
+        big = Font(bold=True, size=13, color="0055FF")
 
-        # Column widths
-        widths = [5, 18, 42, 12, 10, 16, 16, 10]
+        def add_summary(label, amount, big_font=False):
+            ws.append(["", "", "", "", "", "", "", "", label, amount, ""])
+            r = ws.max_row
+            ws.cell(row=r, column=9).font = big if big_font else bold
+            ws.cell(row=r, column=10).number_format = '"$"#,##0.00'
+            ws.cell(row=r, column=10).font = big if big_font else bold
+
+        add_summary("Materials subtotal", totals["materials_subtotal"])
+        add_summary("Labor subtotal",     totals["labor_subtotal"])
+        add_summary("Base subtotal",      totals["base_subtotal"])
+        add_summary(f"Waste ({totals['waste_pct']}%)",       totals["waste_amount"])
+        add_summary(f"Overhead ({totals['overhead_pct']}%)", totals["overhead_amount"])
+        add_summary(f"Profit ({totals['profit_pct']}%)",     totals["profit_amount"])
+        add_summary(f"Contingency ({totals['contingency_pct']}%)", totals["contingency_amount"])
+        add_summary("GRAND TOTAL",        totals["grand_total"], big_font=True)
+
+        widths = [5, 16, 38, 10, 8, 12, 12, 13, 13, 13, 8]
         for i, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = w
-        ws.freeze_panes = "A5"
+        ws.freeze_panes = "A6"
 
         buf = BytesIO()
         wb.save(buf)

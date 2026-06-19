@@ -39,8 +39,8 @@ Analyze the provided image (which may be a blueprint, floor plan, site plan, con
   "rooms": [{"name": "Living Room", "approx_area_sqft": 320}],
   "structural_notes": ["..."],
   "materials": [
-    {"name": "2x4 Lumber", "category": "Framing", "quantity": 50, "unit": "pcs", "unit_price_usd": 8.5, "dedup": "new"},
-    {"name": "Concrete (slab)", "category": "Structural", "quantity": 4, "unit": "cu yd", "unit_price_usd": 165.0, "dedup": "merge", "ref": 2, "rationale": "Additional wing of the same slab seen in doc #2"}
+    {"name": "2x4 Lumber", "category": "Framing", "quantity": 50, "unit": "pcs", "unit_price_usd": 8.5, "labor_unit_price_usd": 3.2, "dedup": "new"},
+    {"name": "Concrete (slab)", "category": "Structural", "quantity": 4, "unit": "cu yd", "unit_price_usd": 165.0, "labor_unit_price_usd": 60.0, "dedup": "merge", "ref": 2, "rationale": "Additional wing of the same slab seen in doc #2"}
   ],
   "walls": [{"start": [x, y], "end": [x, y], "thickness": 0.2}],
   "doors": [{"position": [x, y], "width": 3, "wall_index": 0}],
@@ -54,6 +54,7 @@ Coordinate rules:
 - Materials category MUST be one of: "Structural", "Framing", "Electrical", "Plumbing", "Finishes", "HVAC", "Insulation", "Roofing", "Doors & Windows", "Other".
 - If you cannot identify materials with confidence, still return at least 3-6 plausible inferred materials based on the building type.
 - unit_price_usd MUST be a realistic 2026 US construction trade rate (e.g. 2x4x8 lumber ~$6-9/pc, concrete ~$160-180/cu yd, drywall ~$15/sheet, copper wire ~$1.50/ft, PEX pipe ~$0.50/ft). Always include a non-zero estimate.
+- labor_unit_price_usd is the installed labor cost per unit at US average rates (e.g. drywall hang ~$0.55/sqft → ~$17/sheet, framing ~$2-4/pc, concrete pour ~$60/cu yd, wire pull ~$0.80/ft). Always include a non-zero estimate.
 
 DEDUPLICATION RULES (read carefully — this is critical):
 You will be given a list of materials ALREADY counted in this project from prior documents. The current image may show the SAME structures from a different angle, elevation, or detail view. You MUST avoid double-counting.
@@ -227,6 +228,10 @@ def _build_pipeline(db):
                         price = float(mat.get("unit_price_usd") or 0)
                     except (TypeError, ValueError):
                         price = 0.0
+                    try:
+                        labor_price = float(mat.get("labor_unit_price_usd") or 0)
+                    except (TypeError, ValueError):
+                        labor_price = 0.0
                     qty = float(mat.get("quantity") or 0)
                     unit = str(mat.get("unit") or "ea")[:24]
                     name = str(mat.get("name"))[:120]
@@ -286,6 +291,7 @@ def _build_pipeline(db):
                         "quantity": qty,
                         "unit": unit,
                         "unit_price": round(max(price, 0.0), 2),
+                        "labor_unit_price": round(max(labor_price, 0.0), 2),
                         "currency": "USD",
                         "ai_extracted": True,
                         "source_page": page_idx + 1,
