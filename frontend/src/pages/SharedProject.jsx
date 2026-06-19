@@ -47,7 +47,8 @@ export default function SharedProject() {
     );
   }
 
-  const { project, owner, blueprint, materials, grand_total } = data;
+  const { project, owner, blueprint, materials, grand_total, branding } = data;
+  const accent = branding?.accent_color || "#0055FF";
   const csvUrl = `${API}/share/${token}/takeoff.csv`;
 
   return (
@@ -55,14 +56,24 @@ export default function SharedProject() {
       {/* Header */}
       <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between gap-6 flex-wrap">
         <div className="flex items-baseline gap-4 min-w-0">
-          <div className="font-display text-2xl tracking-tighter">ATLAS</div>
-          <div className="hidden sm:block label-mono text-neutral-500">// SHARED&nbsp;PROJECT</div>
+          {branding?.logo_data_url ? (
+            <img src={branding.logo_data_url} alt={branding?.company_name || "Logo"} className="h-9 object-contain" />
+          ) : (
+            <div className="font-display text-2xl tracking-tighter">ATLAS</div>
+          )}
+          {branding?.company_name && (
+            <div className="font-display text-lg tracking-tighter truncate" style={{ color: accent }}>
+              {branding.company_name}
+            </div>
+          )}
+          <div className="hidden md:block label-mono text-neutral-500">// SHARED&nbsp;PROJECT</div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <a
             href={csvUrl}
             data-testid="shared-download-csv"
-            className="border border-[#00CC66]/40 bg-[#00CC66]/10 text-[#00CC66] px-3 py-2 text-xs uppercase tracking-wider font-bold hover:bg-[#00CC66]/20"
+            className="border bg-opacity-10 px-3 py-2 text-xs uppercase tracking-wider font-bold"
+            style={{ borderColor: `${accent}66`, color: accent, backgroundColor: `${accent}1a` }}
           >
             Download CSV
           </a>
@@ -71,6 +82,12 @@ export default function SharedProject() {
           </span>
         </div>
       </header>
+
+      {branding?.tagline && (
+        <div className="border-b border-white/10 px-6 py-3 text-sm text-neutral-300 italic" style={{ borderLeft: `4px solid ${accent}` }}>
+          {branding.tagline}
+        </div>
+      )}
 
       {/* Project title block */}
       <section className="px-6 py-8 border-b border-white/10 grid md:grid-cols-3 gap-6 items-end">

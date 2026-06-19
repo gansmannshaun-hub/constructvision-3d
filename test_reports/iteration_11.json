@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 11 collaboration features tested end-to-end (backend pytest + UI smoke + public share render). All 23 iter11 backend tests pass. iter10 (previously un-executed) also ran: 22/24 pass + 1 skip + 1 fail (pre-existing pricing fallback bug, not iter11 scope). Frontend TEAM button, modal, 3 tabs, invite/branding/activity flows verified. Public /share/<token> page renders company name in accent color, tagline banner, logo image, and accent-colored CSV button as required.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/projects/{id}/pricing-config", "issue": "ZIP 99999 should fall back to default regional_multiplier 1.0 but returns 1.26 (iter10 carry-over, not iter11 scope)"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard header", "issues": ["TEAM button uses yellow border+text on transparent bg, not a filled yellow background — visually matches existing SHARE/NEW PROJECT button style so likely intentional, but PRD said 'yellow TEAM button' which could be read as filled yellow. Confirm with PM."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter11_collab.py",
+    "/app/backend/tests/test_iter10_pricing_bids.py",
+    "/app/test_reports/pytest/pytest_iteration11.xml"
+  ],
+  "action_items": [
+    "Optional: Investigate iter10 zip 99999 fallback returning 1.26 (likely zip-prefix lookup matches '99' or similar instead of returning default 1.0). Pre-existing, not blocking iter11.",
+    "Optional: Confirm with PM whether TEAM button should be filled yellow background vs the current yellow border/text style."
+  ],
+  "critical_code_review_comments": [
+    "collab.py POST /members allows MANAGE_ROLES; correct. invite of an existing already-invited email returns 400 'Already invited' — good.",
+    "delete_comment authorization: author OR PM/owner — matches spec. Non-author non-PM verified 403.",
+    "Branding accent_color regex ^#[0-9A-Fa-f]{6}$ enforced via Pydantic (422 not 400 as spec says — spec wrote 'others → 422' so this is correct).",
+    "Public share endpoint correctly strips project_id from branding via projection ({_id:0, project_id:0}) so the response is clean.",
+    "Activity descending order verified (sort('created_at', -1)). bid.saved logging confirmed via routes/pricing.py import.",
+    "Minor: collab.py uses `set[str]` syntax (Py3.9+ generic). Confirmed running on Py3.11. OK.",
+    "CollabModal.jsx logo size limit set to 400KB client-side but server allows up to 600KB; mismatch but conservative on client — acceptable."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter11_collab.py (created)"
+  ],
+  "success_rate": {"backend": "100% (23/23 iter11)", "frontend": "100% (all data-testids found, flows work)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*; ephemeral users created with TestPass123!",
+  "seed_data_creation": "Test runs create TEST_iter11_* projects and invite ghost_* + test_iter11_b/c_* users. Cleanup via project DELETE on fixture teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter11 collab fully green. Login response field is `token` (not `access_token`) — important. iter10 has one pre-existing failure on zip 99999 fallback that is unrelated to iter11. Public share token reused in tests was vN3O4dULZ12yGNiq8hws3FAx for the iter11_fcbbdb project (may have been recycled by other tests; create fresh in future runs).",
+  "rca of the issue": "iter10 zip 99999 failure RCA hypothesis: the zip→region lookup likely uses prefix matching that catches '99' (Pacific NW) or returns the last/closest match rather than returning default 1.0 when no match is found. Inspect routes/pricing.py zip lookup function. Not iter11 scope."
+}

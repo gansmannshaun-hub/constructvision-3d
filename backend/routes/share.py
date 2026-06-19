@@ -87,6 +87,9 @@ def build_share_router(db, get_current_user) -> APIRouter:
             {"id": proj["user_id"]},
             {"_id": 0, "name": 1, "email": 1},
         ) or {}
+        branding = await db.project_branding.find_one(
+            {"project_id": proj["id"]}, {"_id": 0, "project_id": 0},
+        ) or {}
         bp = await get_or_create_blueprint(db, proj["id"])
         mats = await _build_combined_materials(db, proj["id"])
 
@@ -114,6 +117,7 @@ def build_share_router(db, get_current_user) -> APIRouter:
                 "created_at": proj.get("created_at"),
             },
             "owner": {"name": owner.get("name") or "", "email": owner.get("email") or ""},
+            "branding": branding,
             "blueprint": {
                 "walls": bp.get("walls") or [],
                 "doors": bp.get("doors") or [],

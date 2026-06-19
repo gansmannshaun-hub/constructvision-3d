@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useStore, apiClient } from "../store";
+import CollabModal from "../components/CollabModal";
 import DocumentsTab from "../components/DocumentsTab";
 import MaterialsTab from "../components/MaterialsTab";
 import BlueprintTab from "../components/BlueprintTab";
@@ -103,6 +104,7 @@ export default function Dashboard() {
             </div>
             <NewProjectButton primary={projects.length === 0} />
             {currentProjectId && <ShareButton projectId={currentProjectId} />}
+            {currentProjectId && <TeamButton projectId={currentProjectId} />}
           </div>
 
           <div className="flex items-stretch border-l border-white/10">
@@ -560,6 +562,28 @@ function ShareButton({ projectId }) {
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+
+function TeamButton({ projectId }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        data-testid="team-button"
+        onClick={() => setOpen(true)}
+        className="ml-2 label-mono px-3 py-2 border border-[#FFCC00]/60 text-[#FFCC00] hover:bg-[#FFCC00] hover:text-black transition-colors flex items-center gap-2"
+        title="Team, activity, branding"
+      >
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="9" cy="7" r="4" /><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+          <circle cx="17" cy="7" r="3" /><path d="M21 21v-2a4 4 0 0 0-3-3.87" />
+        </svg>
+        TEAM
+      </button>
+      {open && <CollabModal projectId={projectId} onClose={() => setOpen(false)} />}
     </>
   );
 }

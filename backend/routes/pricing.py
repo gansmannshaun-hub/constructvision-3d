@@ -104,6 +104,13 @@ def build_pricing_router(db, get_current_user) -> APIRouter:
             "created_by": user.get("email"),
         }
         await db.bids.insert_one(bid_doc)
+        try:
+            from routes.collab import log_activity
+            await log_activity(db, project_id, user.get("email", ""), "bid.saved",
+                               target_type="bid", target_id=bid_doc["id"],
+                               target_name=f"V{bid_doc['version']} {bid_doc['name']}")
+        except Exception:
+            pass
         bid_doc.pop("_id", None)
         return bid_doc
 
