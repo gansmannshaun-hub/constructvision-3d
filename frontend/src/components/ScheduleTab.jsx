@@ -53,7 +53,11 @@ export default function ScheduleTab() {
       setResult(data);
     } catch (e) {
       const d = e?.response?.data?.detail;
-      setErr(typeof d === "string" ? d : (Array.isArray(d) ? d.map((x) => x.msg).join("; ") : "Failed"));
+      let msg = "Failed";
+      if (typeof d === "string") msg = d;
+      else if (Array.isArray(d)) msg = d.map((x) => x?.msg || JSON.stringify(x)).join("; ");
+      else if (d) { try { msg = JSON.stringify(d); } catch { msg = "Failed"; } }
+      setErr(msg);
     } finally {
       setBusy(false);
     }

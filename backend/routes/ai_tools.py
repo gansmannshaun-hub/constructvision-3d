@@ -142,7 +142,7 @@ def compute_schedule(sqft: float, crew_size: int) -> dict:
     for ph in reversed(phases):
         succs = successors[ph["id"]]
         if succs:
-            late[ph["id"]] = min(phases[s]["start_day"] + 0 for s in succs)  # late finish
+            late[ph["id"]] = min(phases[s]["start_day"] for s in succs)  # late finish
         # else: terminal node — stays at project_end
 
     # mark critical: slack = late_finish - early_finish ~ 0

@@ -162,7 +162,7 @@ function DailyLogsPanel({ projectId }) {
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
-              checked={fetchWx}
+              checked={fetchWx && !!siteCaptured}
               onChange={(e) => setFetchWx(e.target.checked)}
               disabled={!siteCaptured}
               data-testid="daily-log-fetch-weather"
