@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 19 (AI MATCH SATELLITE SCALE) PASSES end-to-end. Backend: 8/8 validation tests in test_iter19_ai_match.py (400 no-site, 404 unknown project, 422 negative/zero/huge dims + negative ref_feet, 401/403 unauth, 404 non-owner). LLM-gated E2E test (RUN_LLM_TESTS=1) hits real GPT-4o on Manhattan tile and returns 200 with applied=true, detection.width_ft>0, scale in [0.1,10] — 6.93s. Regression: 82 passed, 3 intentional skips across iter11/12/13/14/15/16/17 in a single bulk run; 2 iter14_digest tests flake under ordering (test_digest_preview_authed, test_digest_excludes_self_actions) — both PASS in isolation, pre-existing test-pollution issue, unrelated to iter19. Frontend (Playwright on preview URL): seeded user+project+site (40.7589,-73.9851 zoom 19)+ 4-wall 40x30 ft blueprint via API (walls in {start,end} array format — note: wallsAabb expects this format, NOT {x1,y1,x2,y2}); opened 3D RENDERER → PLACE ON MAP → AI MATCH SATELLITE SCALE → modal appears with all 6 testids (modal/label/feet/run/done/close). Clicked Detect & match (no ref): in 3s returned '✓ Applied scale 5.938× · Detected ~143×238 ft · confidence 85%' (clamped at slider max 5 but state holds 5.938; backend value is the canonical one). Re-ran with ai-match-feet=32: returned 'Applied 0.800× · Detected 32×24 ft' (math: 32/40 = 0.800 ✓ exactly matches max(det_w,det_d)/max(bp_w,bp_d) after reference_feet rescale). Done closed modal but kept placement panel open with scale=0.8 still applied. Save placement → PATCH /site/transform → GET /site echoed model_transform.scale=0.8 — persistence confirmed. X close + backdrop click both close the modal. Screenshot shows the 3D model (gable-roof house) rendered on Manhattan satellite ground plane post-AI-Match.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter19_ai_match.py",
+    "/app/test_reports/pytest/pytest_iter19_main.xml",
+    "/app/test_reports/pytest/pytest_iter19_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GOOD: AutoScaleIn uses Pydantic Field(gt=0, le=10_000) for dimensions and reference_feet — all 422 boundary cases return clean validation errors. Math layer (det_long/bp_long ratio clamped to [0.1,10]) matches spec exactly; reference_feet override scales det_w & det_d by (ref/det_long) preserving aspect ratio before computing the ratio against the blueprint.",
+    "GOOD: _detect_building_dimensions wraps GPT-4o call in asyncio.wait_for(45s) and catches asyncio.TimeoutError → 504, generic exceptions → 502. Code fence stripping + json-block regex fallback makes the JSON parse resilient to GPT-4o markdown wrap.",
+    "GOOD: Frontend runAIMatch reads wallsAabb(walls) for blueprint dimensions, sends only valid reference_feet (Number.isFinite + >0). Error path handles backend detail (string OR Pydantic 422 array) and falls back to a generic message. setTransform({...transform, scale}) + engine.setModelTransform sync the slider + the 3D engine atomically when applied=true.",
+    "GOOD: Modal close paths all work — onClick on backdrop with currentTarget guard, X button, Done button. Done correctly keeps the placement panel + the applied scale (no reset on close). Re-running with a different ref_feet smoothly overwrites the prior scale.",
+    "MINOR: The frontend slider <input type=range max=5> clamps the visible slider position to 5× but transform.scale state holds the actual >5 value (e.g. 5.938 from the no-ref detection). The user can no longer drag the slider down without losing precision because the slider snaps the value to 5 on first interaction. Consider raising slider max to 10 (matching backend clamp) for visual parity. Not blocking — wheel scaling still works past slider max as documented in iter18.",
+    "MINOR (carry-over): savePlacement still uses native alert() on failure instead of a toast (also flagged in iter17/18 review).",
+    "NOTE: 2 test_iter14_digest tests flake under bulk-run ordering — pre-existing, unrelated to iter19. Both pass in isolation. Main agent may want to look at iter14 fixture cleanup eventually."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (8/8 iter19 + 1/1 LLM E2E + 82/82 regression in scope; 2 iter14 flakes pre-existing, 3 intentional skips)", "frontend": "100% (modal open + 2 input fields + detect + re-run with ref + scale auto-apply + Done + X close + backdrop close + Save persistence all verified)"},
+  "test_credentials": "Ephemeral iter19e_<hex>@example.com / TestPass123! via /api/auth/register. Admin admin@atlas.app not exercised.",
+  "seed_data_creation": "Playwright in-page seed via fetch(): register + start-trial + project + POST /site (NYC 40.7589,-73.9851 zoom 19) + PUT /blueprint with 4-wall 40x30ft rectangle. IMPORTANT for next testers: walls MUST use {start:[x,y], end:[x,y]} array format — wallsAabb() in /app/frontend/src/lib/dim.js only reads w.start/w.end, NOT w.x1/y1. Using x1/y1/x2/y2 will make AI Match fail with the local 'Need a blueprint with walls' error even when 4 walls are present in the API.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "AI Match endpoint is /api/projects/{id}/site/auto-scale, takes {blueprint_width_ft, blueprint_depth_ft, reference_label?, reference_feet?}. LLM tests gated behind RUN_LLM_TESTS=1 — real GPT-4o vision call takes ~7s. The wall format gotcha (above) cost ~10 min in iteration; lock it down by serving walls from /api/projects/{id}/blueprint GET first then PUT the exact same shape back. Slider max=5 vs state going up to 5.938 is a known visual mismatch noted in code review — not a bug, but the slider thumb pegs at 5 if user touches it after a high-scale AI result. Backdrop click works via the e.target===e.currentTarget guard so any click inside the modal content does NOT close the modal — keep that contract.",
+  "rca of the issue": "N/A — iter19 feature works end-to-end. The 2 test_iter14_digest failures during the bulk regression run are pre-existing test-ordering flakes (state pollution from a prior test in the same file) — both pass cleanly when run alone, so they are not iter19 regressions and do not need immediate action."
+}

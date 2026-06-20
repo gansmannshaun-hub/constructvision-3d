@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { useStore } from "../store";
+import { wallsAabb } from "../lib/dim";
 import {
   createSceneEngine,
   PHASES,
@@ -36,6 +37,14 @@ export default function RendererTab() {
   const [transform, setTransform] = useState({ x: 0, z: 0, rotation_deg: 0, scale: 1 });
   const [savingTransform, setSavingTransform] = useState(false);
   const transformBackupRef = useRef(null);
+
+  // ---------- AI Match dialog state ----------
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+  const [aiError, setAiError] = useState("");
+  const [aiRefLabel, setAiRefLabel] = useState("");
+  const [aiRefFeet, setAiRefFeet] = useState("");
 
   const mountRef = useRef(null);
   const engineRef = useRef(null);
@@ -239,6 +248,43 @@ export default function RendererTab() {
     engineRef.current.setModelTransform(zero);
   }, []);
 
+  const runAIMatch = useCallback(async () => {
+    if (!engineRef.current || !currentProjectId) return;
+    const aabb = wallsAabb(walls);
+    if (!aabb || aabb.w < 0.5 || aabb.h < 0.5) {
+      setAiError("Need a blueprint with walls before AI Match can run.");
+      return;
+    }
+    setAiBusy(true);
+    setAiError("");
+    setAiResult(null);
+    try {
+      const token = localStorage.getItem("cm_token");
+      const refFeet = Number(aiRefFeet);
+      const { data } = await axios.post(
+        `${API}/projects/${currentProjectId}/site/auto-scale`,
+        {
+          blueprint_width_ft: aabb.w,
+          blueprint_depth_ft: aabb.h,
+          reference_label: aiRefLabel.trim() || null,
+          reference_feet: Number.isFinite(refFeet) && refFeet > 0 ? refFeet : null,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setAiResult(data);
+      if (data.applied) {
+        const next = { ...transform, scale: data.scale };
+        setTransform(next);
+        engineRef.current.setModelTransform(next);
+      }
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      setAiError(typeof d === "string" ? d : (Array.isArray(d) ? d.map(x => x.msg).join("; ") : "AI Match failed"));
+    } finally {
+      setAiBusy(false);
+    }
+  }, [currentProjectId, walls, aiRefLabel, aiRefFeet, transform]);
+
   const savePlacement = useCallback(async () => {
     if (!engineRef.current || !currentProjectId) return;
     setSavingTransform(true);
@@ -337,6 +383,16 @@ export default function RendererTab() {
               </button>
             </div>
 
+            <button
+              data-testid="renderer-ai-match-open"
+              onClick={() => { setAiOpen(true); setAiResult(null); setAiError(""); }}
+              className="w-full mb-3 label-mono px-3 py-2 bg-gradient-to-r from-[#FFCC00]/20 to-[#5588FF]/20 border border-[#FFCC00]/60 text-[#FFCC00] hover:from-[#FFCC00] hover:to-[#5588FF] hover:text-black transition-all flex items-center justify-center gap-2"
+              title="Use GPT-4o vision to size your model to the building visible in the satellite image"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3 7h7l-5.5 4 2 8L12 16l-6.5 5 2-8L2 9h7z"/></svg>
+              ✦ AI MATCH SATELLITE SCALE
+            </button>
+
             <div className="space-y-3 text-xs font-mono">
               <div className="flex items-center justify-between gap-3 text-[11px] text-neutral-400">
                 <span>x: <span className="text-[#FFCC00]">{transform.x.toFixed(1)} ft</span></span>
@@ -399,6 +455,122 @@ export default function RendererTab() {
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        )}
+
+        {aiOpen && (
+          <div
+            data-testid="ai-match-modal"
+            className="fixed inset-0 z-30 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+            onClick={(e) => { if (e.target === e.currentTarget) setAiOpen(false); }}
+          >
+            <div className="bg-[#0a0a0a] border border-white/10 max-w-md w-full">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-black">
+                <div>
+                  <div className="label-mono text-[#FFCC00]">// AI MATCH · GPT-4o VISION</div>
+                  <div className="font-display text-lg tracking-tighter mt-1">Match satellite scale</div>
+                </div>
+                <button
+                  data-testid="ai-match-close"
+                  onClick={() => setAiOpen(false)}
+                  className="text-neutral-500 hover:text-white text-2xl leading-none"
+                >✕</button>
+              </div>
+              <div className="p-5 space-y-4">
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  GPT-4o will detect the building in your satellite tile and size your 3D model
+                  to match. Optionally hint a known reference dimension to lock the scale exactly.
+                </p>
+
+                <div className="space-y-3">
+                  <label className="block">
+                    <div className="label-mono mb-1.5 text-neutral-500">Building hint (optional)</div>
+                    <input
+                      data-testid="ai-match-label"
+                      type="text"
+                      value={aiRefLabel}
+                      onChange={(e) => setAiRefLabel(e.target.value)}
+                      placeholder="e.g. 'the white house with gable roof'"
+                      maxLength={80}
+                      className="w-full bg-black border border-white/15 px-3 py-2 font-mono text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <div className="label-mono mb-1.5 text-neutral-500">
+                      Known dimension (optional) — feet
+                    </div>
+                    <input
+                      data-testid="ai-match-feet"
+                      type="number"
+                      min="1"
+                      max="10000"
+                      value={aiRefFeet}
+                      onChange={(e) => setAiRefFeet(e.target.value)}
+                      placeholder='e.g. 32 (front wall length)'
+                      className="w-full bg-black border border-white/15 px-3 py-2 font-mono text-sm"
+                    />
+                    <div className="text-[10px] text-neutral-600 font-mono mt-1">
+                      Locks AI&apos;s estimate to your known size — most accurate.
+                    </div>
+                  </label>
+                </div>
+
+                {aiError && (
+                  <div data-testid="ai-match-error" className="border border-[#FF3333]/40 bg-[#FF3333]/10 text-[#FF6666] text-xs font-mono px-3 py-2">
+                    {aiError}
+                  </div>
+                )}
+
+                {aiResult && (
+                  <div data-testid="ai-match-result"
+                       className={`border px-3 py-3 text-xs font-mono space-y-1 ${
+                         aiResult.applied
+                           ? "border-[#00CC66]/50 bg-[#00CC66]/10"
+                           : "border-[#FF8866]/40 bg-[#FF8866]/10"
+                       }`}>
+                    <div className={`font-bold ${aiResult.applied ? "text-[#88EEAA]" : "text-[#FFB8A0]"}`}>
+                      {aiResult.applied
+                        ? `✓ Applied scale ${aiResult.scale.toFixed(3)}×`
+                        : `✗ No building detected`}
+                    </div>
+                    {aiResult.detection?.found && (
+                      <>
+                        <div className="text-neutral-300">
+                          Detected: ~{Math.round(aiResult.detection.width_ft)} × {Math.round(aiResult.detection.depth_ft)} ft
+                          <span className="text-neutral-500 ml-2">
+                            (confidence {(aiResult.detection.confidence * 100).toFixed(0)}%)
+                          </span>
+                        </div>
+                        {aiResult.detection.rationale && (
+                          <div className="text-neutral-500 italic">&ldquo;{aiResult.detection.rationale}&rdquo;</div>
+                        )}
+                      </>
+                    )}
+                    {aiResult.message && !aiResult.detection?.rationale && (
+                      <div className="text-neutral-400">{aiResult.message}</div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    data-testid="ai-match-run"
+                    onClick={runAIMatch}
+                    disabled={aiBusy}
+                    className="flex-1 bg-[#FFCC00] hover:bg-[#E6B800] disabled:opacity-40 text-black font-bold py-2.5 text-xs uppercase tracking-wider"
+                  >
+                    {aiBusy ? "Analyzing…" : (aiResult ? "Re-run" : "Detect & match")}
+                  </button>
+                  <button
+                    data-testid="ai-match-done"
+                    onClick={() => setAiOpen(false)}
+                    className="px-4 py-2.5 text-xs uppercase tracking-wider border border-white/15 text-neutral-300 hover:bg-white/5"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

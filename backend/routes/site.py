@@ -147,6 +147,87 @@ class ModelTransformIn(BaseModel):
     scale: float = Field(default=1.0, ge=0.1, le=10.0)
 
 
+class AutoScaleIn(BaseModel):
+    blueprint_width_ft: float = Field(gt=0, le=10_000)
+    blueprint_depth_ft: float = Field(gt=0, le=10_000)
+    reference_label: str | None = Field(default=None, max_length=80)
+    reference_feet: float | None = Field(default=None, gt=0, le=10_000)
+
+
+AUTOSCALE_PROMPT = """You are analyzing a satellite image to detect a building footprint and
+estimate its real-world size, so the user can match a 3D model to it.
+
+CONTEXT:
+- The image is square and covers approximately {world_m:.1f} meters per side (≈{world_ft:.0f} feet).
+- Image origin is top-left; x increases right, y increases down. Normalised coordinates are 0..1.
+{ref_block}
+
+TASK:
+Find the user-intended building. If they specified a label or reference, prioritise that;
+otherwise pick the most prominent / centered building footprint. If the image has multiple buildings,
+pick the LARGEST visible rectangle.
+
+Estimate:
+  - the building's bounding box in normalised image coords (x0,y0,x1,y1)
+  - its actual real-world dimensions in FEET (width and depth in feet)
+  - a confidence score 0..1 (0.7+ means you're sure, < 0.4 means very uncertain)
+
+Output STRICT JSON:
+{{
+  "found": true | false,
+  "bbox_norm": [x0, y0, x1, y1],
+  "width_ft": <feet>,
+  "depth_ft": <feet>,
+  "confidence": <0..1>,
+  "rationale": "1 sentence why"
+}}
+
+Rules:
+- If no building is visible, return {{"found": false, "bbox_norm":[0,0,0,0], "width_ft":0, "depth_ft":0, "confidence":0, "rationale":"no building visible"}}.
+- Use the field-of-view (≈{world_ft:.0f} ft per side) to estimate feet; a building spanning 10% of the image
+  width is about {ten_pct_ft:.0f} ft wide.
+- If the user gave a reference dimension, scale your estimate to that hint.
+- Output JSON only, no markdown, no commentary."""
+
+
+async def _detect_building_dimensions(b64: str, world_m: float,
+                                      reference_label: str | None,
+                                      reference_feet: float | None) -> dict:
+    if not _llm_key():
+        raise HTTPException(503, "AI not configured on server")
+    world_ft = world_m * 3.28083989501
+    ref_block = ""
+    if reference_label or reference_feet:
+        bits = []
+        if reference_label:
+            bits.append(f"target building/feature: '{reference_label}'")
+        if reference_feet:
+            bits.append(f"known reference dimension: {reference_feet:.1f} ft (e.g. front wall length)")
+        ref_block = "USER HINTS:\n- " + "\n- ".join(bits)
+    prompt = AUTOSCALE_PROMPT.format(
+        world_m=world_m, world_ft=world_ft,
+        ten_pct_ft=world_ft * 0.1,
+        ref_block=ref_block,
+    )
+    chat = LlmChat(
+        api_key=_llm_key(),
+        session_id=f"autoscale-{uuid.uuid4()}",
+        system_message="You measure buildings from satellite imagery and output strict JSON.",
+    ).with_model("openai", "gpt-4o")
+    msg = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=b64)])
+    raw = await asyncio.wait_for(chat.send_message(msg), timeout=45)
+    text = raw if isinstance(raw, str) else str(raw)
+    cleaned = _strip_code_fence(text)
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        m = re.search(r"\{[\s\S]*\}", cleaned)
+        if not m:
+            raise HTTPException(502, "AI returned no usable JSON")
+        data = json.loads(m.group(0))
+    return data
+
+
 def build_site_router(db, get_current_user) -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -230,5 +311,76 @@ def build_site_router(db, get_current_user) -> APIRouter:
         return {"ok": True, "model_transform": {
             "x": payload.x, "z": payload.z, "rotation_deg": rot, "scale": scale,
         }}
+
+    @router.post("/projects/{project_id}/site/auto-scale")
+    async def auto_scale(project_id: str, payload: AutoScaleIn,
+                         user: dict = Depends(get_current_user)):
+        """Use GPT-4o vision to estimate the satellite-image building's real-world dimensions,
+        then compute a display-scale ratio that maps the user's blueprint AABB onto it."""
+        proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]}, {"_id": 0})
+        if not proj:
+            raise HTTPException(404, "Project not found")
+        site = await db.sites.find_one({"project_id": project_id}, {"_id": 0})
+        if not site or not site.get("image_base64") or not site.get("world_meters"):
+            raise HTTPException(400, "Capture a satellite site first (Pick Site From Map)")
+        try:
+            detection = await _detect_building_dimensions(
+                site["image_base64"],
+                float(site["world_meters"]),
+                payload.reference_label,
+                payload.reference_feet,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(504, "AI took too long — try again")
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("auto_scale failed")
+            raise HTTPException(502, f"AI error: {str(exc)[:200]}")
+
+        if not detection.get("found"):
+            return {
+                "applied": False,
+                "scale": 1.0,
+                "detection": detection,
+                "message": detection.get("rationale", "No building detected"),
+            }
+
+        # If the user gave a known reference, override AI's feet estimate to that exact value.
+        det_w = float(detection.get("width_ft") or 0)
+        det_d = float(detection.get("depth_ft") or 0)
+        if payload.reference_feet and det_w > 0:
+            # User says "the longest side is N ft" — rescale AI estimate to that ratio.
+            det_long = max(det_w, det_d)
+            if det_long > 0:
+                factor = payload.reference_feet / det_long
+                det_w *= factor
+                det_d *= factor
+
+        # Compute scale ratio against blueprint long side.
+        ai_long = max(det_w, det_d)
+        bp_long = max(payload.blueprint_width_ft, payload.blueprint_depth_ft)
+        if ai_long <= 0 or bp_long <= 0:
+            raise HTTPException(422, "Detection or blueprint dimensions invalid")
+        ratio = ai_long / bp_long
+        ratio = max(0.1, min(10.0, ratio))
+
+        return {
+            "applied": True,
+            "scale": ratio,
+            "detection": {
+                "found": True,
+                "bbox_norm": detection.get("bbox_norm", []),
+                "width_ft": round(det_w, 1),
+                "depth_ft": round(det_d, 1),
+                "confidence": float(detection.get("confidence") or 0),
+                "rationale": detection.get("rationale", ""),
+            },
+            "blueprint": {
+                "width_ft": payload.blueprint_width_ft,
+                "depth_ft": payload.blueprint_depth_ft,
+            },
+            "message": f"Sized to AI-detected building (~{round(det_w,0)} × {round(det_d,0)} ft).",
+        }
 
     return router
