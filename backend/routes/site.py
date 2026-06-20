@@ -140,6 +140,12 @@ class SiteCaptureIn(BaseModel):
     address: str | None = None
 
 
+class ModelTransformIn(BaseModel):
+    x: float = 0.0
+    z: float = 0.0
+    rotation_deg: float = 0.0
+
+
 def build_site_router(db, get_current_user) -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -200,5 +206,26 @@ def build_site_router(db, get_current_user) -> APIRouter:
             raise HTTPException(404, "Project not found")
         await db.sites.delete_one({"project_id": project_id})
         return {"ok": True}
+
+    @router.patch("/projects/{project_id}/site/transform")
+    async def set_model_transform(project_id: str, payload: ModelTransformIn,
+                                  user: dict = Depends(get_current_user)):
+        proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]}, {"_id": 0})
+        if not proj:
+            raise HTTPException(404, "Project not found")
+        # Clamp rotation to [0, 360)
+        rot = payload.rotation_deg % 360
+        await db.sites.update_one(
+            {"project_id": project_id},
+            {"$set": {"model_transform": {
+                "x": payload.x,
+                "z": payload.z,
+                "rotation_deg": rot,
+            }}},
+            upsert=True,
+        )
+        return {"ok": True, "model_transform": {
+            "x": payload.x, "z": payload.z, "rotation_deg": rot,
+        }}
 
     return router

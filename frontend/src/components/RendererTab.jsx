@@ -31,6 +31,12 @@ export default function RendererTab() {
   const [site, setSite] = useState(null);
   const [showSitePicker, setShowSitePicker] = useState(false);
 
+  // ---------- Model placement state ----------
+  const [placing, setPlacing] = useState(false);
+  const [transform, setTransform] = useState({ x: 0, z: 0, rotation_deg: 0 });
+  const [savingTransform, setSavingTransform] = useState(false);
+  const transformBackupRef = useRef(null);
+
   const mountRef = useRef(null);
   const engineRef = useRef(null);
 
@@ -78,6 +84,18 @@ export default function RendererTab() {
   // 1c) Push the site (or absence of it) into the engine
   useEffect(() => {
     engineRef.current?.setSite(site);
+    // Also apply any saved model transform.
+    if (site?.model_transform) {
+      engineRef.current?.setModelTransform(site.model_transform);
+      setTransform({
+        x: site.model_transform.x || 0,
+        z: site.model_transform.z || 0,
+        rotation_deg: site.model_transform.rotation_deg || 0,
+      });
+    } else {
+      engineRef.current?.setModelTransform({ x: 0, z: 0, rotation_deg: 0 });
+      setTransform({ x: 0, z: 0, rotation_deg: 0 });
+    }
   }, [site]);
 
   // 2) Build geometry whenever the blueprint changes
@@ -180,6 +198,60 @@ export default function RendererTab() {
     setRecProgress(0);
   }, []);
 
+  // 7) Placement mode handlers
+  const startPlacement = useCallback(() => {
+    if (!engineRef.current || !site) return;
+    transformBackupRef.current = engineRef.current.getModelTransform();
+    setPlacing(true);
+    engineRef.current.enablePlacement(true, (t) => setTransform(t));
+    setTransform(engineRef.current.getModelTransform());
+  }, [site]);
+
+  const cancelPlacement = useCallback(() => {
+    if (!engineRef.current) return;
+    engineRef.current.enablePlacement(false);
+    if (transformBackupRef.current) {
+      engineRef.current.setModelTransform(transformBackupRef.current);
+      setTransform(transformBackupRef.current);
+    }
+    setPlacing(false);
+  }, []);
+
+  const onRotationChange = useCallback((deg) => {
+    if (!engineRef.current) return;
+    const next = { ...transform, rotation_deg: Number(deg) || 0 };
+    setTransform(next);
+    engineRef.current.setModelTransform(next);
+  }, [transform]);
+
+  const resetTransform = useCallback(() => {
+    if (!engineRef.current) return;
+    const zero = { x: 0, z: 0, rotation_deg: 0 };
+    setTransform(zero);
+    engineRef.current.setModelTransform(zero);
+  }, []);
+
+  const savePlacement = useCallback(async () => {
+    if (!engineRef.current || !currentProjectId) return;
+    setSavingTransform(true);
+    try {
+      const t = engineRef.current.getModelTransform();
+      const token = localStorage.getItem("cm_token");
+      await axios.patch(
+        `${API}/projects/${currentProjectId}/site/transform`,
+        t, { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setSite((s) => s ? { ...s, model_transform: t } : s);
+      transformBackupRef.current = t;
+      engineRef.current.enablePlacement(false);
+      setPlacing(false);
+    } catch (e) {
+      alert("Failed to save placement: " + (e?.response?.data?.detail || e?.message));
+    } finally {
+      setSavingTransform(false);
+    }
+  }, [currentProjectId]);
+
   const empty = walls.length === 0;
 
   return (
@@ -211,6 +283,18 @@ export default function RendererTab() {
             <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.5" fill="currentColor" /><rect x="3" y="6" width="18" height="14" rx="2" /></svg>
             {recording ? `REC ${(recProgress * 100).toFixed(0)}%` : "WALKTHROUGH VIDEO"}
           </button>
+          {site && !placing && (
+            <button
+              data-testid="renderer-place-model"
+              onClick={startPlacement}
+              disabled={empty}
+              className="label-mono px-3 py-2 bg-black/80 border border-[#5588FF]/60 text-[#88AAFF] hover:bg-[#5588FF] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              title="Move + rotate the model on the satellite plane"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3"/><rect x="9" y="9" width="6" height="6"/></svg>
+              PLACE ON MAP
+            </button>
+          )}
         </div>
 
         {empty && (
@@ -222,6 +306,73 @@ export default function RendererTab() {
           </div>
         )}
         <div ref={mountRef} data-testid="renderer-canvas-mount" className="w-full h-full bg-[#f5f5f5]" />
+
+        {placing && (
+          <div
+            data-testid="renderer-placement-panel"
+            className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 bg-black/90 border border-[#5588FF]/40 backdrop-blur-sm px-5 py-4 w-[440px] max-w-[95%]"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="label-mono text-[#88AAFF]">// PLACE MODEL ON SATELLITE</div>
+                <div className="text-xs text-neutral-400 font-mono mt-1">
+                  Drag the model on the map. Use the slider to rotate. North is up.
+                </div>
+              </div>
+              <button
+                data-testid="renderer-place-reset"
+                onClick={resetTransform}
+                className="label-mono text-neutral-500 hover:text-white px-2 py-1 border border-white/10 hover:border-white/30"
+                title="Reset to (0, 0, 0°)"
+              >
+                ↺ reset
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs font-mono">
+              <div className="flex items-center justify-between gap-3 text-[11px] text-neutral-400">
+                <span>x: <span className="text-[#FFCC00]">{transform.x.toFixed(1)} ft</span></span>
+                <span>z: <span className="text-[#FFCC00]">{transform.z.toFixed(1)} ft</span></span>
+                <span>rotation: <span className="text-[#FFCC00]">{transform.rotation_deg.toFixed(0)}°</span></span>
+              </div>
+
+              <div>
+                <div className="label-mono mb-1.5 text-neutral-500">ROTATION (Y axis)</div>
+                <input
+                  data-testid="renderer-place-rotation"
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="1"
+                  value={transform.rotation_deg}
+                  onChange={(e) => onRotationChange(e.target.value)}
+                  className="w-full accent-[#5588FF]"
+                />
+                <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                  <span>0°</span><span>90°</span><span>180°</span><span>270°</span><span>360°</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 mt-4">
+              <button
+                data-testid="renderer-place-save"
+                onClick={savePlacement}
+                disabled={savingTransform}
+                className="flex-1 bg-[#FFCC00] hover:bg-[#E6B800] disabled:opacity-40 text-black font-bold py-2 text-xs uppercase tracking-wider"
+              >
+                {savingTransform ? "Saving…" : "Save placement"}
+              </button>
+              <button
+                data-testid="renderer-place-cancel"
+                onClick={cancelPlacement}
+                className="px-4 py-2 text-xs uppercase tracking-wider border border-white/15 text-neutral-300 hover:bg-white/5"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="absolute bottom-3 left-3 right-3 z-10 bg-black/80 border border-white/10 backdrop-blur-sm p-3">
           <div className="flex items-center justify-between mb-2">

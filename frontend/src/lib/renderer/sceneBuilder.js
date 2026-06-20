@@ -607,6 +607,9 @@ export function createSceneEngine(mount) {
   // ----- Site (satellite) ground plane: hidden until a site is supplied -----
   let siteMesh = null;
   let siteTexture = null;
+  // The satellite image is in real-world meters; the building geometry is in
+  // feet (1 unit = 1 ft). Convert so 1 scene unit = 1 ft everywhere.
+  const M_TO_FT = 3.28083989501;
 
   function disposeSite() {
     if (siteMesh) {
@@ -632,7 +635,8 @@ export function createSceneEngine(mount) {
       controls.maxDistance = 60;
       return;
     }
-    const sideM = site.world_meters;
+    // Convert meters -> feet so the satellite plane matches building scale.
+    const sideFt = site.world_meters * M_TO_FT;
     const loader = new THREE.TextureLoader();
     siteTexture = loader.load(`data:image/png;base64,${site.image_base64}`);
     siteTexture.colorSpace = THREE.SRGBColorSpace;
@@ -642,20 +646,20 @@ export function createSceneEngine(mount) {
       roughness: 1.0,
       metalness: 0.0,
     });
-    const geo = new THREE.PlaneGeometry(sideM, sideM);
+    const geo = new THREE.PlaneGeometry(sideFt, sideFt);
     siteMesh = new THREE.Mesh(geo, mat);
     siteMesh.rotation.x = -Math.PI / 2;
     siteMesh.position.y = -FOOTING_DEPTH * 1.2 + 0.002;
     siteMesh.receiveShadow = true;
+    siteMesh.name = "siteGroundPlane";
     scene.add(siteMesh);
     ground.visible = false;
     grid.visible = false;
     // Push fog and far plane out so the big plane is visible.
-    // Keep the camera where build() placed it — let the user orbit / zoom out.
-    scene.fog = new THREE.Fog(0xf5f5f5, sideM * 0.5, sideM * 2);
-    camera.far = Math.max(300, sideM * 4);
+    scene.fog = new THREE.Fog(0xf5f5f5, sideFt * 0.5, sideFt * 2);
+    camera.far = Math.max(300, sideFt * 4);
     camera.updateProjectionMatrix();
-    controls.maxDistance = sideM * 1.5;
+    controls.maxDistance = sideFt * 1.5;
   }
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -664,6 +668,11 @@ export function createSceneEngine(mount) {
   controls.maxDistance = 60;
   controls.maxPolarAngle = Math.PI / 2 - 0.05;
   controls.target.set(0, 1.5, 0);
+
+  // ---------- Model root (so the building can be moved / rotated as one) ----------
+  const modelRoot = new THREE.Group();
+  modelRoot.name = "modelRoot";
+  scene.add(modelRoot);
 
   let groups = {};
   let animHandle = null;
@@ -709,7 +718,7 @@ export function createSceneEngine(mount) {
     };
     // dispose previous
     for (const id of Object.keys(groups)) {
-      scene.remove(groups[id]);
+      modelRoot.remove(groups[id]);
       disposeObject(groups[id]);
     }
     groups = {};
@@ -717,15 +726,17 @@ export function createSceneEngine(mount) {
     for (const layer of ALL_LAYERS) {
       const g = BUILDERS[layer.id](aabb, walls, doors, windows);
       g.name = layer.id;
-      scene.add(g);
+      modelRoot.add(g);
       groups[layer.id] = g;
     }
-    // Auto-fit camera
+    // Auto-fit camera (uses world-space center of model after current transform)
     if (aabb) {
       const size = Math.max(aabb.w, aabb.d, 4);
       const dist = size * 1.6 + 6;
-      camera.position.set(aabb.cx + dist * 0.65, dist * 0.7, aabb.cz + dist * 0.85);
-      controls.target.set(aabb.cx, WALL_HEIGHT * 0.5, aabb.cz);
+      const cx = aabb.cx + modelRoot.position.x;
+      const cz = aabb.cz + modelRoot.position.z;
+      camera.position.set(cx + dist * 0.65, dist * 0.7, cz + dist * 0.85);
+      controls.target.set(cx, WALL_HEIGHT * 0.5, cz);
       controls.update();
     }
   }
@@ -733,6 +744,86 @@ export function createSceneEngine(mount) {
   function setVisibility(map) {
     for (const id of Object.keys(groups)) {
       groups[id].visible = !!map[id];
+    }
+  }
+
+  // ---------- Model transform: position + rotation, applied to modelRoot ----------
+  function getModelTransform() {
+    return {
+      x: modelRoot.position.x,
+      z: modelRoot.position.z,
+      rotation_deg: THREE.MathUtils.radToDeg(modelRoot.rotation.y),
+    };
+  }
+
+  function setModelTransform({ x = 0, z = 0, rotation_deg = 0 } = {}) {
+    modelRoot.position.set(Number(x) || 0, 0, Number(z) || 0);
+    modelRoot.rotation.y = THREE.MathUtils.degToRad(Number(rotation_deg) || 0);
+  }
+
+  // ---------- Placement mode: drag the model on the satellite plane ----------
+  let placementActive = false;
+  let dragging = false;
+  let dragStartXZ = null;
+  let dragStartModelXZ = null;
+  let placementCallback = null;
+  const raycaster = new THREE.Raycaster();
+  const ptr = new THREE.Vector2();
+  const placePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0),
+                                     FOOTING_DEPTH * 1.2 - 0.002); // matches site Y
+
+  function _worldFromPointer(evt) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ptr.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+    ptr.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(ptr, camera);
+    const hit = new THREE.Vector3();
+    raycaster.ray.intersectPlane(placePlane, hit);
+    return hit;
+  }
+
+  function _onPointerDown(evt) {
+    if (!placementActive || evt.button !== 0) return;
+    const hit = _worldFromPointer(evt);
+    if (!Number.isFinite(hit.x)) return;
+    dragging = true;
+    dragStartXZ = { x: hit.x, z: hit.z };
+    dragStartModelXZ = { x: modelRoot.position.x, z: modelRoot.position.z };
+    renderer.domElement.style.cursor = "grabbing";
+    evt.preventDefault();
+  }
+
+  function _onPointerMove(evt) {
+    if (!placementActive || !dragging) return;
+    const hit = _worldFromPointer(evt);
+    if (!Number.isFinite(hit.x)) return;
+    const dx = hit.x - dragStartXZ.x;
+    const dz = hit.z - dragStartXZ.z;
+    modelRoot.position.x = dragStartModelXZ.x + dx;
+    modelRoot.position.z = dragStartModelXZ.z + dz;
+    if (placementCallback) placementCallback(getModelTransform());
+  }
+
+  function _onPointerUp() {
+    if (!placementActive) return;
+    dragging = false;
+    renderer.domElement.style.cursor = "grab";
+  }
+
+  function enablePlacement(on, onChange) {
+    placementActive = !!on;
+    placementCallback = onChange || null;
+    controls.enabled = !on;
+    renderer.domElement.style.cursor = on ? "grab" : "auto";
+    if (on) {
+      renderer.domElement.addEventListener("pointerdown", _onPointerDown);
+      window.addEventListener("pointermove", _onPointerMove);
+      window.addEventListener("pointerup", _onPointerUp);
+    } else {
+      renderer.domElement.removeEventListener("pointerdown", _onPointerDown);
+      window.removeEventListener("pointermove", _onPointerMove);
+      window.removeEventListener("pointerup", _onPointerUp);
+      dragging = false;
     }
   }
 
@@ -862,5 +953,7 @@ export function createSceneEngine(mount) {
     });
   }
 
-  return { build, setVisibility, setSite, captureHiRes, startDolly, getDomElement, dispose };
+  return { build, setVisibility, setSite,
+           setModelTransform, getModelTransform, enablePlacement,
+           captureHiRes, startDolly, getDomElement, dispose };
 }
