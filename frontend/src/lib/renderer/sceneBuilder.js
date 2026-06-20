@@ -747,18 +747,26 @@ export function createSceneEngine(mount) {
     }
   }
 
-  // ---------- Model transform: position + rotation, applied to modelRoot ----------
+  // ---------- Model transform: position + rotation + display scale ----------
+  // Display scale is a visual-only multiplier applied while placing the model
+  // on the satellite image. It does NOT change the underlying blueprint.
+  const MIN_SCALE = 0.1;
+  const MAX_SCALE = 10.0;
+
   function getModelTransform() {
     return {
       x: modelRoot.position.x,
       z: modelRoot.position.z,
       rotation_deg: THREE.MathUtils.radToDeg(modelRoot.rotation.y),
+      scale: modelRoot.scale.x,  // uniform scale; x/y/z always equal
     };
   }
 
-  function setModelTransform({ x = 0, z = 0, rotation_deg = 0 } = {}) {
+  function setModelTransform({ x = 0, z = 0, rotation_deg = 0, scale = 1 } = {}) {
     modelRoot.position.set(Number(x) || 0, 0, Number(z) || 0);
     modelRoot.rotation.y = THREE.MathUtils.degToRad(Number(rotation_deg) || 0);
+    const s = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Number(scale) || 1));
+    modelRoot.scale.set(s, s, s);
   }
 
   // ---------- Placement mode: drag the model on the satellite plane ----------
@@ -810,6 +818,16 @@ export function createSceneEngine(mount) {
     renderer.domElement.style.cursor = "grab";
   }
 
+  function _onWheel(evt) {
+    if (!placementActive) return;
+    evt.preventDefault();
+    // 5% per wheel tick, exponential for natural feel.
+    const factor = evt.deltaY < 0 ? 1.05 : (1 / 1.05);
+    const next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, modelRoot.scale.x * factor));
+    modelRoot.scale.set(next, next, next);
+    if (placementCallback) placementCallback(getModelTransform());
+  }
+
   function enablePlacement(on, onChange) {
     placementActive = !!on;
     placementCallback = onChange || null;
@@ -817,10 +835,12 @@ export function createSceneEngine(mount) {
     renderer.domElement.style.cursor = on ? "grab" : "auto";
     if (on) {
       renderer.domElement.addEventListener("pointerdown", _onPointerDown);
+      renderer.domElement.addEventListener("wheel", _onWheel, { passive: false });
       window.addEventListener("pointermove", _onPointerMove);
       window.addEventListener("pointerup", _onPointerUp);
     } else {
       renderer.domElement.removeEventListener("pointerdown", _onPointerDown);
+      renderer.domElement.removeEventListener("wheel", _onWheel);
       window.removeEventListener("pointermove", _onPointerMove);
       window.removeEventListener("pointerup", _onPointerUp);
       dragging = false;

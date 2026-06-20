@@ -33,7 +33,7 @@ export default function RendererTab() {
 
   // ---------- Model placement state ----------
   const [placing, setPlacing] = useState(false);
-  const [transform, setTransform] = useState({ x: 0, z: 0, rotation_deg: 0 });
+  const [transform, setTransform] = useState({ x: 0, z: 0, rotation_deg: 0, scale: 1 });
   const [savingTransform, setSavingTransform] = useState(false);
   const transformBackupRef = useRef(null);
 
@@ -91,10 +91,11 @@ export default function RendererTab() {
         x: site.model_transform.x || 0,
         z: site.model_transform.z || 0,
         rotation_deg: site.model_transform.rotation_deg || 0,
+        scale: site.model_transform.scale || 1,
       });
     } else {
-      engineRef.current?.setModelTransform({ x: 0, z: 0, rotation_deg: 0 });
-      setTransform({ x: 0, z: 0, rotation_deg: 0 });
+      engineRef.current?.setModelTransform({ x: 0, z: 0, rotation_deg: 0, scale: 1 });
+      setTransform({ x: 0, z: 0, rotation_deg: 0, scale: 1 });
     }
   }, [site]);
 
@@ -224,9 +225,16 @@ export default function RendererTab() {
     engineRef.current.setModelTransform(next);
   }, [transform]);
 
+  const onScaleChange = useCallback((s) => {
+    if (!engineRef.current) return;
+    const next = { ...transform, scale: Math.max(0.1, Math.min(10, Number(s) || 1)) };
+    setTransform(next);
+    engineRef.current.setModelTransform(next);
+  }, [transform]);
+
   const resetTransform = useCallback(() => {
     if (!engineRef.current) return;
-    const zero = { x: 0, z: 0, rotation_deg: 0 };
+    const zero = { x: 0, z: 0, rotation_deg: 0, scale: 1 };
     setTransform(zero);
     engineRef.current.setModelTransform(zero);
   }, []);
@@ -316,7 +324,7 @@ export default function RendererTab() {
               <div>
                 <div className="label-mono text-[#88AAFF]">// PLACE MODEL ON SATELLITE</div>
                 <div className="text-xs text-neutral-400 font-mono mt-1">
-                  Drag the model on the map. Use the slider to rotate. North is up.
+                  Drag to move · scroll wheel to scale · slider to rotate. Visual scale doesn&apos;t change blueprint dimensions.
                 </div>
               </div>
               <button
@@ -334,6 +342,7 @@ export default function RendererTab() {
                 <span>x: <span className="text-[#FFCC00]">{transform.x.toFixed(1)} ft</span></span>
                 <span>z: <span className="text-[#FFCC00]">{transform.z.toFixed(1)} ft</span></span>
                 <span>rotation: <span className="text-[#FFCC00]">{transform.rotation_deg.toFixed(0)}°</span></span>
+                <span>scale: <span className="text-[#FFCC00]">{transform.scale.toFixed(2)}×</span></span>
               </div>
 
               <div>
@@ -350,6 +359,26 @@ export default function RendererTab() {
                 />
                 <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
                   <span>0°</span><span>90°</span><span>180°</span><span>270°</span><span>360°</span>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="label-mono text-neutral-500">DISPLAY SCALE</div>
+                  <span className="label-mono text-neutral-600">scroll wheel · visual only</span>
+                </div>
+                <input
+                  data-testid="renderer-place-scale"
+                  type="range"
+                  min="0.1"
+                  max="5"
+                  step="0.01"
+                  value={transform.scale}
+                  onChange={(e) => onScaleChange(e.target.value)}
+                  className="w-full accent-[#FFCC00]"
+                />
+                <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                  <span>0.1×</span><span>1×</span><span>2×</span><span>3×</span><span>5×</span>
                 </div>
               </div>
             </div>

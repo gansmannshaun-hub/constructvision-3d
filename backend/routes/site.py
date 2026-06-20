@@ -144,6 +144,7 @@ class ModelTransformIn(BaseModel):
     x: float = 0.0
     z: float = 0.0
     rotation_deg: float = 0.0
+    scale: float = Field(default=1.0, ge=0.1, le=10.0)
 
 
 def build_site_router(db, get_current_user) -> APIRouter:
@@ -215,17 +216,19 @@ def build_site_router(db, get_current_user) -> APIRouter:
             raise HTTPException(404, "Project not found")
         # Clamp rotation to [0, 360)
         rot = payload.rotation_deg % 360
+        scale = max(0.1, min(10.0, payload.scale))
         await db.sites.update_one(
             {"project_id": project_id},
             {"$set": {"model_transform": {
                 "x": payload.x,
                 "z": payload.z,
                 "rotation_deg": rot,
+                "scale": scale,
             }}},
             upsert=True,
         )
         return {"ok": True, "model_transform": {
-            "x": payload.x, "z": payload.z, "rotation_deg": rot,
+            "x": payload.x, "z": payload.z, "rotation_deg": rot, "scale": scale,
         }}
 
     return router
