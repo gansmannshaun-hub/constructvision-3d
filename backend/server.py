@@ -26,6 +26,12 @@ from routes.collab import build_collab_router
 from routes.documents import build_documents_router
 from routes.field import build_field_router
 from routes.materials import build_materials_router
+from routes.notifications import (
+    build_notifications_router,
+    start_digest_scheduler,
+    stop_digest_scheduler,
+)
+from routes.pay_apps import build_pay_apps_router
 from routes.pricing import build_pricing_router
 from routes.projects import build_projects_router
 from routes.share import build_share_router
@@ -54,6 +60,8 @@ app.include_router(build_documents_router(db, get_current_user))
 app.include_router(build_field_router(db, get_current_user))
 app.include_router(build_ai_tools_router(db, get_current_user))
 app.include_router(build_takeoff_router(db, get_current_user))
+app.include_router(build_notifications_router(db, get_current_user))
+app.include_router(build_pay_apps_router(db, get_current_user))
 app.include_router(build_share_router(db, get_current_user))
 app.include_router(build_site_router(db, get_current_user))
 app.include_router(billing_mod.build_router(db, get_current_user))
@@ -87,8 +95,10 @@ async def _on_startup():
         await admin_mod.seed_admin(db)
     except Exception as e:
         logger.exception(f"seed_admin failed: {e}")
+    start_digest_scheduler(db)
 
 
 @app.on_event("shutdown")
 async def _shutdown():
+    stop_digest_scheduler()
     client.close()

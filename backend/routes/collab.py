@@ -272,4 +272,49 @@ def build_collab_router(db, get_current_user) -> APIRouter:
         await log_activity(db, project_id, user["email"], "branding.updated")
         return await db.project_branding.find_one({"project_id": project_id}, {"_id": 0})
 
+    # ============ INVITE LANDING ============
+
+    @router.get("/invites/{token}")
+    async def get_invite(token: str):
+        """Public preview of an invite — used by /invite/{token} landing page."""
+        member = await db.project_members.find_one({"id": token}, {"_id": 0})
+        if not member:
+            raise HTTPException(404, "Invite not found or expired")
+        proj = await db.projects.find_one({"id": member["project_id"]}, {"_id": 0, "name": 1})
+        inviter = await db.users.find_one(
+            {"email": member.get("invited_by")},
+            {"_id": 0, "name": 1, "email": 1},
+        ) or {}
+        existing_user = await db.users.find_one(
+            {"email": member["user_email"]}, {"_id": 0, "id": 1},
+        )
+        return {
+            "token": token,
+            "email": member["user_email"],
+            "role": member["role"],
+            "project_name": (proj or {}).get("name", "(unknown project)"),
+            "invited_by_name": inviter.get("name") or inviter.get("email") or "A teammate",
+            "accepted": member.get("accepted", False),
+            "needs_signup": existing_user is None,
+        }
+
+    @router.post("/invites/{token}/accept")
+    async def accept_invite(token: str, user: dict = Depends(get_current_user)):
+        """Authenticated user accepts. Must match the invite's email."""
+        member = await db.project_members.find_one({"id": token}, {"_id": 0})
+        if not member:
+            raise HTTPException(404, "Invite not found")
+        if member["user_email"].lower() != user["email"].lower():
+            raise HTTPException(403, "This invite was sent to a different email")
+        if member.get("accepted"):
+            return {"ok": True, "already_accepted": True, "project_id": member["project_id"]}
+        await db.project_members.update_one(
+            {"id": token},
+            {"$set": {"accepted": True, "accepted_at": now_iso()}},
+        )
+        await log_activity(db, member["project_id"], user["email"], "member.accepted",
+                           target_type="member", target_id=user["email"],
+                           target_name=f"{user['email']} as {member['role']}")
+        return {"ok": True, "already_accepted": False, "project_id": member["project_id"]}
+
     return router

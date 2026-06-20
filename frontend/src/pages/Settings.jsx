@@ -189,6 +189,7 @@ function NotificationsTab() {
     ["email_low_credits", "Low upload credits", "When you have fewer than 5 uploads left this month."],
     ["email_payment_receipts", "Payment receipts", "After every successful charge."],
     ["email_product_updates", "Product updates", "New features, occasional newsletter (you can opt out anytime)."],
+    ["email_daily_digest", "Daily activity digest", "8:00 AM UTC summary of every event on the projects you own or manage."],
   ];
   const save = async () => {
     try {
@@ -199,12 +200,36 @@ function NotificationsTab() {
       setMsg({ kind: "error", text: e.response?.data?.detail || "Save failed" });
     }
   };
+  const sendTest = async () => {
+    setMsg(null);
+    try {
+      const { data } = await apiClient.post("/notifications/test-digest", {});
+      if (data.sent) {
+        setMsg({ kind: "success", text: `Digest sent · ${data.total_events || 0} events` });
+      } else {
+        setMsg({ kind: "error", text: data.error || "Failed to send" });
+      }
+    } catch (e) {
+      setMsg({ kind: "error", text: e.response?.data?.detail || "Email service not configured" });
+    }
+  };
+  const previewDigest = async () => {
+    setMsg(null);
+    try {
+      const { data } = await apiClient.get("/notifications/digest-preview");
+      // Open the HTML in a new tab
+      const w = window.open("", "_blank");
+      if (w) { w.document.write(data.html); w.document.close(); }
+    } catch (e) {
+      setMsg({ kind: "error", text: e.response?.data?.detail || "Preview failed" });
+    }
+  };
   return (
     <div className="space-y-6 max-w-2xl">
       <Notice msg={msg} />
       <div className="label-mono">// EMAILS</div>
       <h2 className="font-display text-2xl tracking-tighter">Notifications</h2>
-      <p className="text-xs text-neutral-500 font-mono">Email delivery is wired through SendGrid in a future release. Toggles are saved now.</p>
+      <p className="text-xs text-neutral-500 font-mono">Daily digests delivered via Resend at 08:00 UTC.</p>
       <div className="border border-white/10 divide-y divide-white/10">
         {toggles.map(([key, label, desc]) => (
           <label key={key} className="flex items-center justify-between p-4 cursor-pointer hover:bg-white/[0.02]" data-testid={`notif-${key}`}>
@@ -221,7 +246,11 @@ function NotificationsTab() {
           </label>
         ))}
       </div>
-      <button data-testid="notif-save" onClick={save} className="bg-[#FFCC00] text-black font-bold px-5 py-2.5 text-xs uppercase tracking-wider">Save</button>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button data-testid="notif-save" onClick={save} className="bg-[#FFCC00] text-black font-bold px-5 py-2.5 text-xs uppercase tracking-wider">Save</button>
+        <button data-testid="notif-preview-digest" onClick={previewDigest} className="border border-white/20 text-white px-5 py-2.5 text-xs uppercase tracking-wider hover:bg-white/5">Preview digest</button>
+        <button data-testid="notif-test-digest" onClick={sendTest} className="border border-[#FFCC00]/60 text-[#FFCC00] px-5 py-2.5 text-xs uppercase tracking-wider hover:bg-[#FFCC00] hover:text-black">Send test now</button>
+      </div>
     </div>
   );
 }

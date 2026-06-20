@@ -9,6 +9,7 @@ import CadEditorTab from "../components/CadEditorTab";
 import RendererTab from "../components/RendererTab";
 import FieldTab from "../components/FieldTab";
 import ScheduleTab from "../components/ScheduleTab";
+import PayAppsTab from "../components/PayAppsTab";
 
 const TABS = [
   { id: "documents", label: "Documents", hint: "01" },
@@ -18,6 +19,7 @@ const TABS = [
   { id: "renderer", label: "3D Renderer", hint: "05" },
   { id: "field", label: "Field", hint: "06" },
   { id: "schedule", label: "Schedule", hint: "07" },
+  { id: "payapps", label: "Pay Apps", hint: "08" },
 ];
 
 const TIER_COLOR = { free: "#A0A0A0", pro: "#FFCC00", studio: "#5588FF" };
@@ -197,6 +199,7 @@ export default function Dashboard() {
             {tab === "renderer" && <RendererTab />}
             {tab === "field" && <FieldTab />}
             {tab === "schedule" && <ScheduleTab />}
+            {tab === "payapps" && <PayAppsTab />}
           </>
         ) : projects.length === 0 ? (
           <EmptyProjectsState />

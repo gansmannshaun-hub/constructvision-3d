@@ -141,7 +141,7 @@ class TestExports:
         assert body[:3] == b"\xef\xbb\xbf"
         text = body.decode("utf-8-sig")
         first_line = text.splitlines()[0]
-        assert first_line.startswith("Category,Material,Quantity,Unit,Unit Price (USD),Line Total (USD),Source")
+        assert first_line.startswith("Category,Material,Quantity,Unit,Material $/unit,Labor $/unit,Material Total,Labor Total,Line Total,Source")
         # Source labels present (AUTO since utilities are auto-computed)
         assert "AUTO" in text
         # Utilities present

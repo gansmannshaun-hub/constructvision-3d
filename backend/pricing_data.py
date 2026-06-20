@@ -119,6 +119,11 @@ def resolve_zip(zip_code: str) -> dict:
     if not z or not z[:5].isdigit():
         return {"zip": "", "city": "", "state": "", "multiplier": 1.0, "source": "default"}
     z5 = z[:5]
+    # Reject placeholder / invalid zips (00000, 11111, …, 99999, and reserved ranges).
+    # USPS Alaska valid zips top out at 99950; 99999 and similar repdigits are placeholders.
+    if z5 in {"00000", "11111", "22222", "33333", "44444", "55555",
+              "66666", "77777", "88888", "99999"}:
+        return {"zip": z5, "city": "", "state": "", "multiplier": 1.0, "source": "default"}
     if z5 in METRO_CCI:
         city, mult = METRO_CCI[z5]
         state = city.split(", ")[-1]

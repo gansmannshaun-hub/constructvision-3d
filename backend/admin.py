@@ -146,6 +146,7 @@ def _default_notifications() -> dict:
         "email_low_credits": True,
         "email_payment_receipts": True,
         "email_product_updates": False,
+        "email_daily_digest": True,
     }
 
 
@@ -248,6 +249,7 @@ class NotificationsIn(BaseModel):
     email_low_credits: Optional[bool] = None
     email_payment_receipts: Optional[bool] = None
     email_product_updates: Optional[bool] = None
+    email_daily_digest: Optional[bool] = None
 
 
 # ---------- Admin Router ----------

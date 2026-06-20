@@ -6,6 +6,7 @@ import Billing from "@/pages/Billing";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
 import SharedProject from "@/pages/SharedProject";
+import AcceptInvite from "@/pages/AcceptInvite";
 import { useStore, apiClient } from "@/store";
 import "@/index.css";
 
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/settings" element={<Protected><Settings /></Protected>} />
         <Route path="/admin" element={<Protected><Admin /></Protected>} />
         <Route path="/share/:token" element={<SharedProject />} />
+        <Route path="/invite/:token" element={<AcceptInvite />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
