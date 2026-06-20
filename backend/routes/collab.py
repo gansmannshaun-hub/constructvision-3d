@@ -171,9 +171,16 @@ def build_collab_router(db, get_current_user) -> APIRouter:
         rows = await db.project_members.find(
             {"user_email": user["email"], "accepted": True}, {"_id": 0},
         ).to_list(100)
+        if not rows:
+            return []
+        project_ids = [r["project_id"] for r in rows]
+        projects = await db.projects.find(
+            {"id": {"$in": project_ids}}, {"_id": 0},
+        ).to_list(len(project_ids))
+        pmap = {p["id"]: p for p in projects}
         out = []
         for r in rows:
-            p = await db.projects.find_one({"id": r["project_id"]}, {"_id": 0})
+            p = pmap.get(r["project_id"])
             if p:
                 out.append({**p, "role": r["role"]})
         return out
