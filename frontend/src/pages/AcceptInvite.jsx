@@ -160,7 +160,7 @@ export default function AcceptInvite() {
           {preview.accepted && sessionToken && (
             <button
               data-testid="invite-go-to-project"
-              onClick={() => navigate(`/app?projectId=${token /* not actually needed */}`)}
+              onClick={() => navigate(`/app?projectId=${preview.project_id}`)}
               className="w-full bg-[#FFCC00] hover:bg-[#E6B800] text-black font-bold py-3 text-xs uppercase tracking-wider"
             >
               You&apos;ve already accepted · Go to dashboard

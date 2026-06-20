@@ -292,6 +292,7 @@ def build_collab_router(db, get_current_user) -> APIRouter:
             "token": token,
             "email": member["user_email"],
             "role": member["role"],
+            "project_id": member["project_id"],
             "project_name": (proj or {}).get("name", "(unknown project)"),
             "invited_by_name": inviter.get("name") or inviter.get("email") or "A teammate",
             "accepted": member.get("accepted", False),
