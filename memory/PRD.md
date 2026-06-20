@@ -1,135 +1,137 @@
-# PRD — Atlas Construction Management & 3D Visualization App
+# Construction Management & 3D Visualization Platform — PRD
 
-## Original Problem Statement
-> "Construction Management and 3D Visualization App. When a user uploads an image, after AI analyzes it the result should be used in all tabs — the renderer, the 2D CAD editor and blueprints."
+## Original problem statement
+Build a Construction Management + 3D Visualization SaaS from scratch with:
+- Auto-pipeline: upload docs → GPT-4 Vision analyzes blueprints/materials.
+- Real-time extraction of materials to DB.
+- Cross-tab live state (Documents / Materials / 2D CAD / 3D Renderer) — no refresh.
+Evolved into: PDF takeoffs, Stripe SaaS, Admin dashboard, SketchUp-style 2D CAD,
+procedurally generated 3D layers with phase animation, multi-page PDF, CSV/XLSX
+exports, client portals, Google Maps real-world site integration, regional
+pricing with labor/O&P, B2B team collaboration, and Field Execution.
 
-The auto-pipeline (no clicks needed):
-1. **Upload** — file goes to storage, card appears in Documents tab with real-time progress bar (Uploading → Analyzing → Saving → Syncing 3D)
-2. **AI Analyzes** — GPT-4o Vision runs automatically on any image, reading materials, rooms, structural notes
-3. **Materials extracted** — auto-inserted into Materials tab, grouped by category with "AI extracted" badge
-4. **Blueprint sync** — if doc is floor_plan / blueprint / site_plan, walls/doors/windows are merged into the live blueprint, and the 3D viewer + CAD editor update immediately (no tab switching)
-
-## User Personas
-- **Construction PM / Architect**: Uploads scanned floor plans, gets instant 3D + material take-off
-- **Estimator**: Uses auto-extracted material list grouped by category for quick BOM
-- **Field Foreman**: Reviews live blueprint and 3D model on-site
-
-## Tech Stack
-- **Backend**: FastAPI · MongoDB (motor async) · JWT auth (PyJWT + bcrypt) · `emergentintegrations.LlmChat` → GPT-4o vision
-- **Frontend**: React 19 · React Router · Zustand state · Tailwind CSS · `@react-three/fiber` + `@react-three/drei` for 3D · IBM Plex / Chivo fonts
-- **Pipeline**: `asyncio.create_task` background analysis, frontend polls Documents endpoint every 1.5s while any doc is in-flight
-
-## Implemented Features (v1.6 — Feb 2026)
-| Feature | Status |
-| --- | --- |
-| **Takeoff PDF — Utilities/MEP auto-BOM** (septic tank, leach field, water/gas/sewer mains, plumbing rough-in, electrical conduit/outlets/wire, all derived procedurally from blueprint footprint and marked "AUTO" in Src column) | ✅ Done (v1.6) |
-| **Backend refactor** (server.py 873 → 80 lines; modular `/app/backend/models/` + `/app/backend/routes/auth,projects,materials,documents,takeoff` + `/app/backend/utils.py`) | ✅ Done (v1.6) |
-| **Renderer refactor** (RendererTab.jsx 900 → 230 lines + pure Three.js engine at `/app/frontend/src/lib/renderer/sceneBuilder.js`) | ✅ Done (v1.6) |
-| **Bug fix** — `BlueprintIn` Pydantic model was missing labels/roof_type/roof_pitch_deg/wall_color/roof_color → all roof+color saves were silently 422-ing | ✅ Done (v1.6) |
-| **Bug fix** — admin.py referenced undefined `_seed_default_project` | ✅ Done (v1.6) |
-
-## Implemented Features (v1.5 — Feb 2026)
-| Feature | Status |
-| --- | --- |
-| **Renderer — MEP + Site Utilities** (Underground Utilities, Septic/Drain Field, Plumbing, Electrical as toggleable peelable layers + new phases) | ✅ Done (v1.5) |
-| **Renderer — Roof config controls** (gable/shed/flat/hip + pitch slider + wall/roof color pickers) | ✅ Done (v1.5) |
-| **Renderer — Animate phases play button** (auto-scrubs phase slider on a timer) | ✅ Done (v1.5) |
-| **CAD Editor — SketchUp-style** (cream canvas, icon toolbar, snap inference, pan/zoom, VCB length input) | ✅ Done (v1.4) |
-| **DIM toggle** — auto-render dimension annotations next to every wall | ✅ Done (v1.4) |
-| **Text Label tool** (X key) — click + inline editor + persistent labels | ✅ Done (v1.4) |
-| **Offset tool** (O key) — pick wall + click side OR type distance | ✅ Done (v1.4) |
-| **Linear Array** — select wall + count + spacing prompt → N parallel copies | ✅ Done (v1.4) |
-| **Mirror** — select wall = axis → mirrors all other walls across it | ✅ Done (v1.4) |
-| Blueprint persists `labels` array alongside walls/doors/windows | ✅ Done (v1.4) |
-| All prior v1.0-v1.3 features | ✅ Done |
-
-## Backlog (P1)
-| Feature | Status |
-| --- | --- |
-| Email + password auth (register/login/me) — login response now includes `is_admin` | ✅ Done |
-| Suspended account login is blocked (403) | ✅ Done (v1.3) |
-| Default project auto-created on signup | ✅ Done |
-| Multi-project switching (Pro/Studio unlimited) | ✅ Done |
-| AI Pipeline (Upload → GPT-4o → materials + walls) | ✅ Done |
-| Materials with editable pricing + grand total | ✅ Done |
-| One-click branded PDF takeoff | ✅ Done |
-| Live 2D Blueprint + interactive CAD editor | ✅ Done |
-| Three.js 3D renderer with auto-fit isometric camera | ✅ Done |
-| 3 subscription tiers + 7-day Pro trial + 3 add-ons | ✅ Done |
-| Stripe Checkout (test mode) with idempotent entitlements | ✅ Done |
-| **Seeded admin account (`ADMIN_EMAIL` env, auto-generated password)** | ✅ Done (v1.3) |
-| **`/admin` dashboard (sidebar nav with 7 sections)** | ✅ Done (v1.3) |
-| **Admin Overview — users/projects/docs/revenue KPIs** | ✅ Done (v1.3) |
-| **Admin Users — list, search, edit plan/credits/admin/suspend, delete with cascade** | ✅ Done (v1.3) |
-| **Admin Projects — all projects with owner email + doc/material counts** | ✅ Done (v1.3) |
-| **Admin Billing — MRR / trial-conversion / transactions list** | ✅ Done (v1.3) |
-| **Admin System — JSON-editable catalog & plan-limits overrides** | ✅ Done (v1.3) |
-| **Admin AI Engine — switch GPT-4o / GPT-5.2 / Gemini / Claude + custom system prompt** | ✅ Done (v1.3) |
-| **Admin Audit Log — `audit()` helper writes events on every admin write** | ✅ Done (v1.3) |
-| **User `/settings` page (5 tabs)** | ✅ Done (v1.3) |
-| **Settings → Profile (name/email + password change)** | ✅ Done (v1.3) |
-| **Settings → Preferences (currency, units, date format, theme)** | ✅ Done (v1.3) |
-| **Settings → Notifications (4 email toggles, stored)** | ✅ Done (v1.3) |
-| **Settings → Sessions (revoke-all stub)** | ✅ Done (v1.3) |
-| **Settings → Danger Zone (JSON data export, account self-delete)** | ✅ Done (v1.3) |
-| 96/96 backend pytest suite green (37 new + 59 regression) | ✅ Done |
-
-## Backlog (P1)
-| Feature | Status |
-| --- | --- |
-| Email + password auth (register/login/me) | ✅ Done |
-| Default project auto-created on signup | ✅ Done |
-| Multi-project switching (Pro/Studio unlimited) | ✅ Done |
-| Image upload (PNG/JPG/WEBP, 8MB cap) | ✅ Done |
-| Async AI pipeline: uploaded → analyzing → saving → syncing → done | ✅ Done |
-| Progress bar + status badge per document card | ✅ Done |
-| Materials auto-insertion grouped by category | ✅ Done |
-| AI-estimated unit prices + editable | ✅ Done |
-| Live line totals + category subtotals + grand total bar | ✅ Done |
-| One-click branded PDF takeoff report (reportlab) | ✅ Done |
-| Live 2D Blueprint view (SVG) | ✅ Done |
-| Interactive 2D CAD Editor (wall/door/window tools, select, delete, save) | ✅ Done |
-| 3D Renderer (vanilla three.js) with shaded / wireframe toggle, orbit controls, grid | ✅ Done |
-| Cross-tab live sync (Zustand + polling) | ✅ Done |
-| **3 subscription tiers: Free / Pro $49 / Studio $149** | ✅ Done (v1.2) |
-| **7-day Pro free trial (one-shot per user)** | ✅ Done (v1.2) |
-| **3 a-la-carte add-ons: $9 / $19 / $4 (uploads / pdf branding / rush)** | ✅ Done (v1.2) |
-| **Plan-gated upload + project + PDF endpoints (402 on quota)** | ✅ Done (v1.2) |
-| **Monthly usage counters + bonus credits** | ✅ Done (v1.2) |
-| **Stripe Checkout (test mode `sk_test_emergent`) wired up** | ✅ Done (v1.2) |
-| **Idempotent entitlement application (status poll + webhook)** | ✅ Done (v1.2) |
-| **Premium PDF branding flag (header with user name/email)** | ✅ Done (v1.2) |
-| **/billing page with plan/usage/add-ons + Stripe redirect handling** | ✅ Done (v1.2) |
-| 59/59 backend pytest suite green | ✅ Done |
-
-## Backlog (P1)
-- Persist user-edited walls when a new image is uploaded (currently appended, may want replace mode toggle)
-- Export 3D model to GLB / OBJ
-- Material cost rollup (price per unit → project total)
-- Multi-user project collaboration (invite teammates)
-- Document image hover-zoom & inline annotation
-- PDF blueprint support (currently images only)
-
-## Backlog (P2)
-- Construction phase tracking / Gantt
-- Mobile field app (PWA)
-- Versioning of blueprint revisions
-- Email reports
-- Stripe billing for paid tiers
-
-## Architecture Highlights
+## Architecture (production-ready)
 ```
-React (Zustand) ─┐
-                 ├─► /api (JWT) ──► FastAPI ──► MongoDB
-                 │                       │
-                 │                       └─► emergentintegrations → GPT-4o Vision
-                 │
-                 └─► three.js + react-three-fiber (3D renderer rebuilt from store)
+/app
+├── backend/                         FastAPI · Motor (async Mongo)
+│   ├── server.py                    slim entry — registers all routers
+│   ├── admin.py                     admin dashboard + audit + user mgmt
+│   ├── pricing.py / pricing_data.py RSMeans-style multipliers + cascade math
+│   ├── models/                      Pydantic models per domain
+│   ├── routes/
+│   │   ├── auth.py                  JWT login / register
+│   │   ├── projects.py              projects CRUD + blueprint
+│   │   ├── documents.py             PDF/IMG upload + AI material extraction
+│   │   ├── materials.py             CRUD + cross-doc dedupe
+│   │   ├── takeoff.py               CSV / XLSX / PDF exports
+│   │   ├── pricing.py               region, labor, markup, bids+diffs
+│   │   ├── site.py                  Google Maps lat/lng + AI terrain
+│   │   ├── collab.py                roles, members, activities (now batched)
+│   │   ├── share.py                 white-label /share/{token} portal
+│   │   ├── billing.py               Stripe subscriptions
+│   │   ├── field.py                 daily logs (NOAA), AI photos, LiDAR  ✨
+│   │   └── ai_tools.py              text→floorplan + schedule/Gantt      ✨
+│   └── tests/                       pytest — 100+ tests, all green
+└── frontend/                        React + Tailwind + Zustand + Three.js
+    ├── src/App.js                   router shell
+    ├── src/store.js                 zustand global state + apiClient
+    ├── src/lib/
+    │   ├── dim.js                   ft-in formatting + AABB
+    │   ├── compliance.js            ✨ IBC/IRC live code-compliance engine
+    │   └── renderer/sceneBuilder.js Three.js engine + captureHiRes + dolly
+    ├── src/components/
+    │   ├── DocumentsTab.jsx
+    │   ├── MaterialsTab.jsx
+    │   ├── BlueprintTab.jsx
+    │   ├── CadEditorTab.jsx         + CadAIPanel.jsx overlay
+    │   ├── CadAIPanel.jsx           ✨ AI prompt + compliance overlay
+    │   ├── RendererTab.jsx          + Studio Render + Walkthrough Video  ✨
+    │   ├── FieldTab.jsx             ✨ Daily logs + Photos + Progress + LiDAR
+    │   ├── ScheduleTab.jsx          ✨ Critical-path Gantt SVG
+    │   ├── CollabModal.jsx
+    │   ├── SitePickerModal.jsx
+    │   └── PricingPanel.jsx
+    └── src/pages/                   Dashboard, SharedProject, Auth
 ```
 
-The single source of truth for cross-tab sync is the `blueprint` field in the Zustand store, populated from `/api/projects/{id}/blueprint`. The AI pipeline writes to it; the 2D CAD Editor reads & writes; the 3D Renderer reads it.
+## What ships now (as of Feb 2026)
+### Construction estimating core
+- JWT auth + admin + Stripe billing.
+- Multi-page PDF AI extraction with cross-doc material dedupe.
+- SketchUp-style 2D CAD editor with dynamic ft-in dimension chains.
+- Procedural 3D renderer with **15 phases** (incl. MEP/Utilities — septic,
+  plumbing, electrical, underground).
+- CSV / XLSX / PDF takeoff exports.
+- Google Maps interactive site picker + AI terrain analysis + 3D ground plane.
+- Regional pricing (RSMeans-style), labor lines, O&P sliders, bid versioning
+  and diffs.
+- B2B Collaboration: roles (owner / pm / estimator / viewer), activity feed,
+  white-labeled `/share/{token}` portal.
 
-## Next Action Items
-1. (Optional) Replace blueprint-append logic with replace-on-new-upload toggle
-2. (Optional) Add P1 features above per user priority
-3. Consider rolling out to invite-only beta users
+### New this session (iter12 + iter13)  ✨
+- **Field Execution**:
+  - Daily logs with NOAA-API auto-weather, crew size, notes.
+  - Site photos with AI progress % per phase (GPT-4o vision).
+  - LiDAR / USDZ / OBJ / GLB scan upload + download.
+  - Aggregated Construction-Progress dashboard.
+- **AI text-to-floorplan**: GPT-4o sketches walls/doors/windows/labels from a
+  one-line brief, written into the blueprint.
+- **Live code-compliance**: IBC + IRC checks for corridor width, egress door
+  widths, room minimums, ceiling, egress windows, perimeter — runs live in CAD.
+- **Schedule / Gantt**: forward + backward pass critical-path solver across the
+  15 phases, scaled by sqft + crew; SVG Gantt with red critical bars.
+- **Studio Render**: one-click 4K PNG ray-look still via Three.js hi-res
+  off-screen render target.
+- **Walkthrough Video**: 16s webm export via MediaRecorder on canvas
+  captureStream, with phase animation + automated camera dolly.
+
+### Field bug fixed (iter12 carryover)
+- FieldTab daily-log submit no longer 422s when site is uncaptured; React no
+  longer crashes on FastAPI's array `detail` (errText helper coerces).
+
+### Deployment health (Feb 2026)
+- **deployment_agent: PASS** — no hardcoded secrets, env vars correct, CORS
+  open, supervisor config valid, no N+1 queries (3 fixed this session: admin
+  list_users, admin list_all_projects, collab projects-shared-with-me).
+
+## Test coverage
+| Suite                          | Status |
+| ------------------------------ | ------ |
+| test_iter13_ai_tools.py        | 11/11 + 1 LLM-gated  |
+| test_iter12_field.py           | 17/17                |
+| test_iter11_collab.py          | 23/23                |
+| test_iter10_pricing_bids.py    | 22/23 (1 pre-existing zip-fallback) |
+| test_admin_user_settings.py    | 37/37                |
+| Older iters (5-9)              | all green            |
+| Frontend e2e (iter13 report)   | 9/9                  |
+
+## Priority backlog (P0 → P2)
+### P0 — Field & moats polish
+- Phase wall-extraction pipeline for uploaded LiDAR USDZ (currently store+dl only).
+- Stub iOS-Quick-Look AR button on mobile (USDZ → ARKit).
+
+### P1 — Money workflow
+- AIA G702/G703 payment app generator.
+- Change-order tracking + retainage % computed against bid snapshot.
+- Email digest for Collab activity feed (Resend integration — needs API key).
+- `/invite/{token}` landing page for non-customer teammates.
+
+### P2 — Field & ops polish
+- Photo-tagged geotag map view (overlay site photos on the Google Maps site).
+- Daily-log PDF export (per day or per week, branded).
+- Schedule export to MS-Project / Primavera XML.
+- True path-traced render (three-gpu-pathtracer) — defer until UX requires it.
+
+### Pre-existing minor
+- Pricing edge-case: zip 99999 returns AK multiplier instead of 1.0 default.
+  Out of scope; documented for future sprint.
+
+## Integrations in use
+- **Emergent LLM Key** — GPT-4o vision (PDF + photo) + text (floorplan).
+- **Stripe** — test key from system env (subscription tier + price IDs).
+- **Google Maps JS API** — user-provided key in `frontend/.env`; raster basemap
+  (DEMO_MAP_ID) to avoid WebGL clash with Three.js.
+- **NOAA public API** — no key; daily-log weather.
+
+## Credentials
+Admin: `admin@atlas.app` / `Open0says3me#*03#*` (see `/app/memory/test_credentials.md`).
