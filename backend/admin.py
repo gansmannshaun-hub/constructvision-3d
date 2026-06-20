@@ -298,9 +298,16 @@ def build_admin_router(db, get_current_user) -> APIRouter:
                 {"name": {"$regex": q, "$options": "i"}},
             ]}
         users = await db.users.find(flt, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(limit)
-        # Augment each with project/usage counts
-        for u in users:
-            u["project_count"] = await db.projects.count_documents({"user_id": u["id"]})
+        # Augment each with project counts — batched via aggregation (O(1) round-trips).
+        if users:
+            user_ids = [u["id"] for u in users]
+            counts = await db.projects.aggregate([
+                {"$match": {"user_id": {"$in": user_ids}}},
+                {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
+            ]).to_list(None)
+            count_map = {c["_id"]: c["count"] for c in counts}
+            for u in users:
+                u["project_count"] = count_map.get(u["id"], 0)
         return users
 
     @api.get("/users/{user_id}")
@@ -379,16 +386,30 @@ def build_admin_router(db, get_current_user) -> APIRouter:
     @api.get("/projects")
     async def list_all_projects(limit: int = 200, admin: dict = Depends(require_admin)):
         projs = await db.projects.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+        if not projs:
+            return projs
         # Join user email
         user_ids = list({p["user_id"] for p in projs})
         users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "email": 1, "name": 1}).to_list(len(user_ids))
         umap = {u["id"]: u for u in users}
+        # Batched per-project counts via aggregation — avoids N+1.
+        pids = [p["id"] for p in projs]
+        doc_counts = await db.documents.aggregate([
+            {"$match": {"project_id": {"$in": pids}}},
+            {"$group": {"_id": "$project_id", "count": {"$sum": 1}}},
+        ]).to_list(None)
+        mat_counts = await db.materials.aggregate([
+            {"$match": {"project_id": {"$in": pids}}},
+            {"$group": {"_id": "$project_id", "count": {"$sum": 1}}},
+        ]).to_list(None)
+        doc_map = {d["_id"]: d["count"] for d in doc_counts}
+        mat_map = {m["_id"]: m["count"] for m in mat_counts}
         for p in projs:
             u = umap.get(p["user_id"]) or {}
             p["user_email"] = u.get("email")
             p["user_name"] = u.get("name")
-            p["doc_count"] = await db.documents.count_documents({"project_id": p["id"]})
-            p["material_count"] = await db.materials.count_documents({"project_id": p["id"]})
+            p["doc_count"] = doc_map.get(p["id"], 0)
+            p["material_count"] = mat_map.get(p["id"], 0)
         return projs
 
     @api.get("/billing/summary")
