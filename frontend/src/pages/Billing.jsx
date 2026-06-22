@@ -46,10 +46,21 @@ export default function Billing() {
   // Handle return from Stripe checkout
   useEffect(() => {
     const sid = params.get("session_id");
-    const canceled = params.get("canceled");
+    const status = params.get("status");
+    const canceled = params.get("canceled") || status === "cancelled";
     if (canceled) {
       setMsg({ kind: "info", text: "Checkout canceled. No charges were made." });
       params.delete("canceled");
+      params.delete("status");
+      setParams(params, { replace: true });
+      return;
+    }
+    if (status === "success" && sid) {
+      // Subscription checkout return — webhook updates the user record.
+      // Poll our own /subscriptions/me up to 6 times so the UI lands on the new tier.
+      pollSubscriptionRefresh();
+      params.delete("session_id");
+      params.delete("status");
       setParams(params, { replace: true });
       return;
     }
@@ -57,6 +68,25 @@ export default function Billing() {
     pollStatus(sid);
     // eslint-disable-next-line
   }, []);
+
+  const pollSubscriptionRefresh = async (attempt = 0) => {
+    if (attempt === 0) setMsg({ kind: "info", text: "Confirming subscription…" });
+    try {
+      const { data } = await apiClient.get("/subscriptions/me");
+      const status = data?.subscription?.status;
+      if (status === "active" || status === "trialing") {
+        setMsg({ kind: "success", text: `Subscription ${status === "trialing" ? "trial started" : "activated"} — welcome!` });
+        await refresh();
+        return;
+      }
+    } catch { /* try again */ }
+    if (attempt >= 6) {
+      setMsg({ kind: "info", text: "Still processing — refresh in a moment." });
+      await refresh();
+      return;
+    }
+    setTimeout(() => pollSubscriptionRefresh(attempt + 1), 2000);
+  };
 
   const pollStatus = async (sessionId, attempt = 0) => {
     if (attempt >= 6) {
@@ -117,6 +147,47 @@ export default function Billing() {
       }
     } catch (e) {
       setMsg({ kind: "error", text: e.response?.data?.detail || "Checkout failed" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Real Stripe recurring subscription checkout.
+  const subscribe = async (planKey) => {
+    setBusy(planKey);
+    setMsg(null);
+    try {
+      const { data } = await apiClient.post("/subscriptions/checkout", {
+        plan_key: planKey,
+        origin_url: window.location.origin,
+      });
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setMsg({ kind: "error", text: "No checkout URL received." });
+      }
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      setMsg({ kind: "error", text: typeof d === "string" ? d : "Checkout failed" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Open Stripe Customer Portal for cancel / update card / view invoices.
+  const openPortal = async () => {
+    setBusy("portal");
+    setMsg(null);
+    try {
+      const { data } = await apiClient.post("/subscriptions/portal", {
+        origin_url: window.location.origin,
+      });
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      setMsg({ kind: "error", text: typeof d === "string" ? d : "Could not open portal" });
     } finally {
       setBusy(null);
     }
@@ -222,6 +293,17 @@ export default function Billing() {
                     {busy === "trial" ? "Activating…" : "Start 7-Day Trial →"}
                   </button>
                 )}
+                {(sub.status === "active" || sub.status === "trialing") && (
+                  <button
+                    data-testid="manage-subscription"
+                    onClick={openPortal}
+                    disabled={busy === "portal"}
+                    className="border border-white/20 hover:border-[#FFCC00] hover:text-[#FFCC00] text-white font-bold px-6 py-3 uppercase tracking-wider text-sm disabled:opacity-60 self-center"
+                    title="Cancel, update card, view invoices"
+                  >
+                    {busy === "portal" ? "Opening…" : "Manage subscription"}
+                  </button>
+                )}
               </div>
 
               {/* Usage bars */}
@@ -290,7 +372,7 @@ export default function Billing() {
                 ctaLabel={plan === "pro" ? (sub.status === "trialing" ? "Convert to Paid" : "Renew Pro") : "Upgrade to Pro"}
                 ctaTestId="checkout-pro"
                 busy={busy === "pro_monthly"}
-                onClick={() => checkout("pro_monthly")}
+                onClick={() => subscribe("pro_monthly")}
               />
               <PlanCard
                 tier="studio"
@@ -310,7 +392,7 @@ export default function Billing() {
                 ctaLabel={plan === "studio" ? "Renew Studio" : "Upgrade to Studio"}
                 ctaTestId="checkout-studio"
                 busy={busy === "studio_monthly"}
-                onClick={() => checkout("studio_monthly")}
+                onClick={() => subscribe("studio_monthly")}
               />
             </section>
 
