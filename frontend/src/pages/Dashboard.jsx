@@ -10,6 +10,7 @@ import RendererTab from "../components/RendererTab";
 import FieldTab from "../components/FieldTab";
 import ScheduleTab from "../components/ScheduleTab";
 import PayAppsTab from "../components/PayAppsTab";
+import ManualTab from "../components/ManualTab";
 
 const TABS = [
   { id: "documents", label: "Documents", hint: "01" },
@@ -20,6 +21,7 @@ const TABS = [
   { id: "field", label: "Field", hint: "06" },
   { id: "schedule", label: "Schedule", hint: "07" },
   { id: "payapps", label: "Pay Apps", hint: "08" },
+  { id: "manual", label: "Manual", hint: "09" },
 ];
 
 const TIER_COLOR = { free: "#A0A0A0", pro: "#FFCC00", studio: "#5588FF" };
@@ -40,6 +42,18 @@ export default function Dashboard() {
     loadProjects();
     refreshBilling();
     // eslint-disable-next-line
+  }, []);
+
+  // Global "?" shortcut to jump to the user manual.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "?" && !/INPUT|TEXTAREA|SELECT/.test(e.target?.tagName || "")) {
+        e.preventDefault();
+        setTab("manual");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // Poll documents while any are in-flight; trigger materials/blueprint refresh when any flips to done
@@ -200,6 +214,7 @@ export default function Dashboard() {
             {tab === "field" && <FieldTab />}
             {tab === "schedule" && <ScheduleTab />}
             {tab === "payapps" && <PayAppsTab />}
+            {tab === "manual" && <ManualTab />}
           </>
         ) : projects.length === 0 ? (
           <EmptyProjectsState />
