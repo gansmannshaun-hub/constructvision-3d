@@ -85,11 +85,16 @@ def build_share_router(db, get_current_user) -> APIRouter:
         # Owner contact (first name only) for branding
         owner = await db.users.find_one(
             {"id": proj["user_id"]},
-            {"_id": 0, "name": 1, "email": 1},
+            {"_id": 0, "name": 1, "email": 1, "entitlements": 1, "subscription": 1},
         ) or {}
         branding = await db.project_branding.find_one(
             {"project_id": proj["id"]}, {"_id": 0, "project_id": 0},
         ) or {}
+        # Enforce client_branding entitlement: free/pro users get the standard footer;
+        # studio plan or unlocked add-on lifts the limit.
+        owner_tier = (owner.get("subscription") or {}).get("tier") or "free"
+        unlocked = bool((owner.get("entitlements") or {}).get("client_branding_unlocked"))
+        branding["custom_branding_enabled"] = owner_tier == "studio" or unlocked
         bp = await get_or_create_blueprint(db, proj["id"])
         mats = await _build_combined_materials(db, proj["id"])
 

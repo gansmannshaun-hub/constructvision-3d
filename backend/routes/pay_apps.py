@@ -42,6 +42,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from routes.collab import log_activity, require_role
+from billing import consume_addon_credit, ensure_user_subscription, PLAN_FREE
 from utils import now_iso
 
 logger = logging.getLogger("pay-apps")
@@ -430,6 +431,17 @@ def build_pay_apps_router(db, get_current_user) -> APIRouter:
     @router.get("/pay-apps/{app_id}/pdf")
     async def pay_app_pdf(app_id: str, user: dict = Depends(get_current_user)):
         doc = await _get_app(app_id, user)
+        # Enforce add-on credit for Free/Pro users; Studio bypasses.
+        full_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+        full_user = await ensure_user_subscription(db, full_user)
+        sub_tier = (full_user.get("subscription") or {}).get("tier") or PLAN_FREE
+        if sub_tier != "studio":
+            ok = await consume_addon_credit(db, full_user, "payapp_pdf_credits")
+            if not ok:
+                raise HTTPException(402, {
+                    "code": "payapp_credit_required",
+                    "message": "Out of Pay-App PDF credits. Buy the 10-pack on the Billing page.",
+                })
         proj = await db.projects.find_one({"id": doc["project_id"]}, {"_id": 0, "name": 1})
         pdf = _render_pdf(doc, (proj or {}).get("name", "Project"))
         return StreamingResponse(

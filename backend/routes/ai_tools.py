@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from routes.collab import log_activity, require_role
+from billing import consume_addon_credit, ensure_user_subscription
 from utils import now_iso
 
 logger = logging.getLogger("ai-tools")
@@ -274,6 +275,17 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
     @router.post("/projects/{project_id}/ai/floorplan")
     async def ai_floorplan(project_id: str, payload: FloorplanPromptIn, user: dict = Depends(get_current_user)):
         await require_role(db, project_id, user, {"owner", "pm", "estimator"})
+        # Enforce add-on credit for Free/Pro users; Studio bypasses.
+        full_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+        full_user = await ensure_user_subscription(db, full_user)
+        sub_tier = (full_user.get("subscription") or {}).get("tier")
+        if sub_tier != "studio":
+            ok = await consume_addon_credit(db, full_user, "ai_floorplan_credits")
+            if not ok:
+                raise HTTPException(402, {
+                    "code": "floorplan_credit_required",
+                    "message": "Out of AI Floorplan credits. Buy the 25-pack on the Billing page (or upgrade to Studio for unlimited).",
+                })
         try:
             raw = await _gen_floorplan(payload.prompt)
         except asyncio.TimeoutError:

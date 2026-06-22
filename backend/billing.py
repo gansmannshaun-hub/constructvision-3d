@@ -101,6 +101,54 @@ CATALOG = {
         "label": "Rush Priority Re-analysis",
         "effect": {"rush_credits": 1},
     },
+    "addon_renders_5": {
+        "kind": "addon",
+        "amount": 19.00,
+        "currency": "usd",
+        "label": "Studio Render Pack · 5× 4K",
+        "description": "Five high-resolution 4K renders to share with clients.",
+        "effect": {"studio_render_credits": 5},
+    },
+    "addon_video_1": {
+        "kind": "addon",
+        "amount": 29.00,
+        "currency": "usd",
+        "label": "Walkthrough Video · 1080p MP4",
+        "description": "One 60-second walkthrough video, render-quality MP4.",
+        "effect": {"walkthrough_video_credits": 1},
+    },
+    "addon_videos_5": {
+        "kind": "addon",
+        "amount": 99.00,
+        "currency": "usd",
+        "label": "Walkthrough Video Pack · 5× 1080p (save ~32%)",
+        "description": "Bundle: 5 walkthrough videos.",
+        "effect": {"walkthrough_video_credits": 5},
+    },
+    "addon_payapps_10": {
+        "kind": "addon",
+        "amount": 39.00,
+        "currency": "usd",
+        "label": "AIA Pay App PDFs · 10-pack",
+        "description": "Generate 10 G702/G703 payment-app PDFs.",
+        "effect": {"payapp_pdf_credits": 10},
+    },
+    "addon_client_branding": {
+        "kind": "addon",
+        "amount": 25.00,
+        "currency": "usd",
+        "label": "Client Portal Branding",
+        "description": "Custom logo + brand color + remove 'Powered by Atlas' footer on shared portals.",
+        "effect": {"client_branding_unlocked": True},
+    },
+    "addon_floorplans_25": {
+        "kind": "addon",
+        "amount": 29.00,
+        "currency": "usd",
+        "label": "AI Floorplan Boost · 25 generations",
+        "description": "25 GPT-4o text-to-floorplan generations on top of your plan limit.",
+        "effect": {"ai_floorplan_credits": 25},
+    },
 }
 
 TRIAL_DAYS = 7
@@ -138,6 +186,11 @@ def default_entitlements() -> dict:
         "pdf_premium_branding": False,
         "lifetime_uploads": 0,
         "lifetime_pdfs": 0,
+        "studio_render_credits": 0,
+        "walkthrough_video_credits": 0,
+        "payapp_pdf_credits": 0,
+        "ai_floorplan_credits": 0,
+        "client_branding_unlocked": False,
     }
 
 
@@ -229,6 +282,26 @@ async def incr_usage(db, user_id: str, field: str, by: int = 1) -> None:
         },
         upsert=True,
     )
+
+
+async def consume_addon_credit(db, user: dict, key: str) -> bool:
+    """Decrement an addon credit counter by 1 if available. Returns True if consumed.
+
+    Studio (and any tier with `<key>_unlimited` flag set in PLAN_LIMITS) bypasses
+    the counter entirely.
+    """
+    ents = user.get("entitlements") or {}
+    # Studio bypasses payapp/ai-floorplan credits
+    tier = (user.get("subscription") or {}).get("tier") or PLAN_FREE
+    if tier == PLAN_STUDIO:
+        return True
+    if int(ents.get(key) or 0) <= 0:
+        return False
+    res = await db.users.update_one(
+        {"id": user["id"], f"entitlements.{key}": {"$gt": 0}},
+        {"$inc": {f"entitlements.{key}": -1}},
+    )
+    return res.modified_count > 0
 
 
 async def can_upload(db, user: dict) -> tuple[bool, str]:

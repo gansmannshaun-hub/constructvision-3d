@@ -428,6 +428,65 @@ export default function Billing() {
                 busy={busy === "addon_rush"}
                 onClick={() => checkout("addon_rush")}
               />
+              <AddonCard
+                title="Studio Render Pack"
+                price={19}
+                description="5× 4K studio renders for client presentations. Save ~30% vs. one-off."
+                accent="#5588FF"
+                badge={ent.studio_render_credits > 0 ? `${ent.studio_render_credits} CREDITS` : null}
+                ctaTestId="checkout-renders-5"
+                busy={busy === "addon_renders_5"}
+                onClick={() => checkout("addon_renders_5")}
+              />
+              <AddonCard
+                title="Walkthrough Video · 1080p"
+                price={29}
+                description="One 60-second cinematic MP4 walkthrough — perfect for client texts."
+                ctaTestId="checkout-video-1"
+                busy={busy === "addon_video_1"}
+                onClick={() => checkout("addon_video_1")}
+              />
+              <AddonCard
+                title="Walkthrough Pack · 5 Videos"
+                price={99}
+                description="Five walkthrough MP4s. ~32% savings vs. one-off. Best for portfolio reels."
+                accent="#FFCC00"
+                badge={ent.walkthrough_video_credits > 0 ? `${ent.walkthrough_video_credits} VIDEOS` : null}
+                ctaTestId="checkout-videos-5"
+                busy={busy === "addon_videos_5"}
+                onClick={() => checkout("addon_videos_5")}
+              />
+              <AddonCard
+                title="AIA Pay App PDFs · 10-pack"
+                price={39}
+                description="Generate 10 G702/G703 payment-app PDFs. Studio includes unlimited."
+                accent="#88EEAA"
+                badge={ent.payapp_pdf_credits > 0 ? `${ent.payapp_pdf_credits} LEFT` : null}
+                ctaTestId="checkout-payapps-10"
+                busy={busy === "addon_payapps_10"}
+                onClick={() => checkout("addon_payapps_10")}
+              />
+              <AddonCard
+                title="Client Portal Branding"
+                price={25}
+                description="Logo + brand color + removes 'Powered by Atlas' footer on your shared portals."
+                accent="#FFCC00"
+                badge={ent.client_branding_unlocked ? "✓ UNLOCKED" : null}
+                ctaTestId="checkout-client-branding"
+                busy={busy === "addon_client_branding"}
+                onClick={() => checkout("addon_client_branding")}
+                disabled={!!ent.client_branding_unlocked}
+              />
+              <AddonCard
+                title="AI Floorplan Boost · 25"
+                price={29}
+                description="25 text-to-floorplan generations. Studio includes unlimited."
+                accent="#88AAFF"
+                badge={ent.ai_floorplan_credits > 0 ? `${ent.ai_floorplan_credits} CREDITS` : null}
+                ctaTestId="checkout-floorplans-25"
+                busy={busy === "addon_floorplans_25"}
+                onClick={() => checkout("addon_floorplans_25")}
+              />
             </section>
 
             <p className="text-xs text-neutral-500 font-mono mt-12">
