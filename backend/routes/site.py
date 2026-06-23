@@ -37,6 +37,12 @@ def _maps_key() -> str:
     return os.environ.get("GOOGLE_MAPS_API_KEY", "")
 
 
+def _maps_server_key() -> str:
+    """Optional server-side Maps key (no referer restrictions). Falls back
+    to GOOGLE_MAPS_API_KEY for backwards compat."""
+    return os.environ.get("GOOGLE_MAPS_SERVER_KEY") or _maps_key()
+
+
 def meters_per_pixel(lat_deg: float, zoom: int) -> float:
     return EARTH_PIXEL_BASE * math.cos(math.radians(lat_deg)) / (2 ** zoom)
 
@@ -246,8 +252,9 @@ async def _detect_building_dimensions(b64: str, world_m: float,
 async def _fetch_elevations(lat: float, lng: float, world_m: float,
                             grid_n: int = 32) -> list[list[float]]:
     """Sample a (world_m × world_m) area around (lat, lng) into a grid_n×grid_n
-    elevation grid (meters above sea level). Uses Google Maps Elevation API."""
-    key = _maps_key()
+    elevation grid (meters above sea level). Uses Google Maps Elevation API.
+    Batches are fired in parallel to stay well under any edge proxy timeout."""
+    key = _maps_server_key()
     if not key:
         raise HTTPException(503, "Google Maps API key missing on server")
     # Convert meters → degrees. lat is roughly constant; lng scales by cos(lat).
@@ -263,35 +270,56 @@ async def _fetch_elevations(lat: float, lng: float, world_m: float,
             coords.append((la, ln))
 
     batch_size = 256   # Elevation API allows 512, but URL gets long
+    batches = [coords[s: s + batch_size]
+               for s in range(0, len(coords), batch_size)]
     grid = [[0.0] * grid_n for _ in range(grid_n)]
-    async with httpx.AsyncClient(timeout=30) as client:
-        for b_start in range(0, len(coords), batch_size):
-            batch = coords[b_start: b_start + batch_size]
-            loc_str = "|".join(f"{la:.6f},{ln:.6f}" for la, ln in batch)
-            r = await client.get(
-                "https://maps.googleapis.com/maps/api/elevation/json",
-                params={"locations": loc_str, "key": key},
-            )
-            try:
-                data = r.json()
-            except Exception:  # noqa: BLE001
-                raise HTTPException(502, f"Elevation API: bad JSON (HTTP {r.status_code})")
-            status = data.get("status")
-            if status != "OK":
-                err = data.get("error_message", "")
-                if status == "REQUEST_DENIED":
+
+    async def _fetch_one(client: httpx.AsyncClient, start_idx: int, batch):
+        loc_str = "|".join(f"{la:.6f},{ln:.6f}" for la, ln in batch)
+        r = await client.get(
+            "https://maps.googleapis.com/maps/api/elevation/json",
+            params={"locations": loc_str, "key": key},
+        )
+        try:
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            raise HTTPException(502, f"Elevation API: bad JSON (HTTP {r.status_code})")
+        status = data.get("status")
+        if status != "OK":
+            err = data.get("error_message", "")
+            if status == "REQUEST_DENIED":
+                if "referer restrictions" in err.lower():
                     raise HTTPException(
                         502,
-                        "Google Elevation API denied — enable the Elevation API in your "
-                        "Google Cloud project (APIs & Services → Library → 'Maps Elevation API') "
-                        f"and ensure the key has access. Detail: {err}",
+                        "Your Google Maps API key has HTTP referer restrictions, which "
+                        "block server-side calls (Elevation API runs from the backend, "
+                        "not the browser). Fix: create a SECOND Google Maps API key with "
+                        "IP-address restriction (or no restriction) and put it in the "
+                        "GOOGLE_MAPS_SERVER_KEY env var, OR temporarily relax the existing "
+                        "key's restrictions in Cloud Console → Credentials. "
+                        f"Detail: {err}",
                     )
-                raise HTTPException(502, f"Elevation API: {status} — {err}")
-            for k, res in enumerate(data["results"]):
-                gi = b_start + k
-                j = gi // grid_n
-                i = gi % grid_n
-                grid[j][i] = float(res.get("elevation", 0.0))
+                raise HTTPException(
+                    502,
+                    "Google Elevation API denied — enable the Elevation API in your "
+                    "Google Cloud project (APIs & Services → Library → 'Maps Elevation API') "
+                    f"and ensure the key has access. Detail: {err}",
+                )
+            raise HTTPException(502, f"Elevation API: {status} — {err}")
+        return start_idx, data["results"]
+
+    async with httpx.AsyncClient(timeout=25) as client:
+        results = await asyncio.gather(
+            *[_fetch_one(client, s, batch)
+              for s, batch in zip(range(0, len(coords), batch_size), batches)]
+        )
+
+    for start_idx, batch_results in results:
+        for k, res in enumerate(batch_results):
+            gi = start_idx + k
+            j = gi // grid_n
+            i = gi % grid_n
+            grid[j][i] = float(res.get("elevation", 0.0))
     return grid
 
 
@@ -550,15 +578,25 @@ def build_site_router(db, get_current_user) -> APIRouter:
         if world_m <= 0:
             raise HTTPException(400, "Site has no world dimensions; recapture the site")
 
-        # 1) Elevation grid via Google Elevation API
-        elevation_grid = await _fetch_elevations(lat, lng, world_m, grid_n=32)
-
-        # 2) AI-estimated story counts for any building features
+        # 1) Elevation grid via Google Elevation API + 2) AI-estimated story
+        #    counts run concurrently to stay well under the edge proxy timeout.
         features = ((site.get("analysis") or {}).get("features") or [])
+        elev_task = asyncio.create_task(_fetch_elevations(lat, lng, world_m, grid_n=32))
+        story_task = asyncio.create_task(
+            _estimate_building_heights(site.get("image_base64") or "", features),
+        )
         try:
-            story_map = await _estimate_building_heights(
-                site.get("image_base64") or "", features,
-            )
+            elevation_grid = await elev_task
+        except HTTPException:
+            story_task.cancel()
+            raise
+        except Exception as exc:  # noqa: BLE001
+            story_task.cancel()
+            logger.exception("elevation fetch failed")
+            raise HTTPException(502, f"Elevation API failed: {str(exc)[:200]}")
+
+        try:
+            story_map = await story_task
         except HTTPException:
             raise
         except Exception as exc:  # noqa: BLE001
