@@ -1,0 +1,33 @@
+{
+  "summary": "Backend regression after /app/backend/.env fix (malformed `whsec_=...` line removed; `STRIPE_WEBHOOK_SECRET=whsec_...` added). Backend boots clean, Stripe is still configured, all targeted endpoints + 31 prior regression tests (iter22/iter23/iter24) pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/health", "issue": "No dedicated health route exists (404). Root /api/ returns 200 and is used as liveness. Pre-existing, not a regression of this change."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_measurements.py",
+    "/app/backend/tests/test_iter23_build_3d.py",
+    "/app/backend/tests/test_iter24_subscriptions_diagnostic.py",
+    "/app/test_reports/pytest/iter_regression_postenvfix.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    ".env hygiene confirmed: only `STRIPE_WEBHOOK_SECRET` is present; the invalid bare `whsec_=...` variable name is gone. Verified via dotenv load + os.environ check.",
+    "routes/subscriptions.py:_webhook_secret() reads os.environ.get('STRIPE_WEBHOOK_SECRET','').strip() — confirmed value loads as expected (starts with whsec_)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (31/31 regression + 6/6 smoke endpoints)", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (login 200, token issued).",
+  "seed_data_creation": "None; used existing seeded admin and pre-existing project data (34 projects on admin account).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is healthy post-.env-fix. Stripe live keys are loaded (STRIPE_API_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET). Checkout against live Stripe successfully created a session (real Stripe URLs returned during /api/subscriptions/checkout calls — note: live keys, not test keys). If a `/api/health` endpoint is desired, main agent should add one; currently `/api/` is the implicit health check.",
+  "rca of the issue": "Root cause was an invalid env-var name `whsec_` (line started with `whsec_=...`). Kubernetes/production env loaders reject names that violate POSIX env-name rules or duplicate the value prefix. Fix: removed the malformed line and added properly-named `STRIPE_WEBHOOK_SECRET=whsec_UE3VihQI301N7QdWEtCgIwOtbxeyywvl`. Backend now boots cleanly, no restart loop, and signature verification path in subscriptions._webhook_secret() reads the value correctly."
+}
