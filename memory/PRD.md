@@ -107,10 +107,20 @@ email digest with /invite landing.
 | Older iters (5-9)              | all green                      |
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
+## Recently shipped
+- **2026-02-01 · SEO discoverability** — Added comprehensive meta tags
+  (title, description, keywords, canonical), Open Graph + Twitter card,
+  JSON-LD `SoftwareApplication` & `Organization` structured data,
+  `robots.txt`, `sitemap.xml`, PWA `manifest.json`, branded `favicon.svg`
+  and 1200×630 `og-image.png`, plus a crawlable `<noscript>` marketing
+  fallback. GSC verification meta tag stubbed (`REPLACE_WITH_YOUR_GSC_VERIFICATION_CODE`).
+
 ## Priority backlog (P0 → P2)
 ### P0 — Polish
 - Resend production key configuration & domain DNS verification (when user
   is ready). Sandbox sender works for verified addresses now.
+- Replace GSC verification placeholder in `frontend/public/index.html` with
+  the user's real `google-site-verification` code, then redeploy.
 
 ### P1 — Money workflow expansion
 - Change-order tracking + retainage % computed against bid snapshot (foundation
