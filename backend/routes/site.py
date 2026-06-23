@@ -154,6 +154,19 @@ class AutoScaleIn(BaseModel):
     reference_feet: float | None = Field(default=None, gt=0, le=10_000)
 
 
+class Vec3(BaseModel):
+    x: float
+    y: float = 0.0
+    z: float
+
+
+class MeasurementIn(BaseModel):
+    start: Vec3
+    end: Vec3
+    distance_ft: float = Field(ge=0, le=100_000)
+    label: str | None = Field(default=None, max_length=120)
+
+
 AUTOSCALE_PROMPT = """You are analyzing a satellite image to detect a building footprint and
 estimate its real-world size, so the user can match a 3D model to it.
 
@@ -382,5 +395,49 @@ def build_site_router(db, get_current_user) -> APIRouter:
             },
             "message": f"Sized to AI-detected building (~{round(det_w,0)} × {round(det_d,0)} ft).",
         }
+
+    # ------------------ Tape-measure persistence ------------------
+    async def _assert_project(project_id: str, user: dict):
+        proj = await db.projects.find_one(
+            {"id": project_id, "user_id": user["id"]}, {"_id": 0},
+        )
+        if not proj:
+            raise HTTPException(404, "Project not found")
+
+    @router.get("/projects/{project_id}/measurements")
+    async def list_measurements(project_id: str, user: dict = Depends(get_current_user)):
+        await _assert_project(project_id, user)
+        cur = db.measurements.find({"project_id": project_id}, {"_id": 0}).sort("created_at", 1)
+        return await cur.to_list(length=500)
+
+    @router.post("/projects/{project_id}/measurements")
+    async def create_measurement(project_id: str, payload: MeasurementIn,
+                                 user: dict = Depends(get_current_user)):
+        await _assert_project(project_id, user)
+        doc = {
+            "id": str(uuid.uuid4()),
+            "project_id": project_id,
+            "start": payload.start.model_dump(),
+            "end": payload.end.model_dump(),
+            "distance_ft": float(payload.distance_ft),
+            "label": (payload.label or None),
+            "created_by": user["id"],
+            "created_by_email": user.get("email"),
+            "created_at": now_iso(),
+        }
+        await db.measurements.insert_one(doc)
+        doc.pop("_id", None)
+        return doc
+
+    @router.delete("/projects/{project_id}/measurements/{measurement_id}")
+    async def delete_measurement(project_id: str, measurement_id: str,
+                                 user: dict = Depends(get_current_user)):
+        await _assert_project(project_id, user)
+        res = await db.measurements.delete_one(
+            {"project_id": project_id, "id": measurement_id},
+        )
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Measurement not found")
+        return {"ok": True}
 
     return router

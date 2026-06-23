@@ -851,6 +851,317 @@ export function createSceneEngine(mount) {
     }
   }
 
+  // ---------- TAPE MEASURE TOOL ----------
+  // Scene units → real-world feet conversion. The satellite plane is sized in
+  // feet (1 unit = 1 ft) when present; without a site, the scene is metric
+  // (1 unit = 1 m) so we convert.
+  const M_TO_FT_LOCAL = 3.28083989501;
+  function getFtPerUnit() { return siteMesh ? 1.0 : M_TO_FT_LOCAL; }
+
+  const measureGroup = new THREE.Group();
+  measureGroup.name = "measureGroup";
+  scene.add(measureGroup);
+
+  // Snap grid plane (1 ft spacing) — hidden until measure tool is active.
+  let snapGrid = null;
+  function _buildSnapGrid() {
+    if (snapGrid) {
+      scene.remove(snapGrid);
+      snapGrid.geometry.dispose();
+      snapGrid.material.dispose();
+      snapGrid = null;
+    }
+    // Size grid to satellite if present, else 200 ft × 200 ft.
+    const sizeFt = siteMesh
+      ? (siteMesh.geometry.parameters.width || 200)
+      : 200;
+    const divisions = Math.min(400, Math.max(40, Math.round(sizeFt)));
+    snapGrid = new THREE.GridHelper(sizeFt, divisions, 0xFFCC00, 0x335577);
+    snapGrid.material.transparent = true;
+    snapGrid.material.opacity = 0.35;
+    snapGrid.position.y = (siteMesh ? siteMesh.position.y : -FOOTING_DEPTH * 1.2) + 0.005;
+    snapGrid.visible = false;
+    scene.add(snapGrid);
+  }
+  _buildSnapGrid();
+
+  // Hover indicator (snap point)
+  const snapDotGeo = new THREE.SphereGeometry(0.18, 16, 12);
+  const snapDotMat = new THREE.MeshBasicMaterial({ color: 0xFFCC00, depthTest: false });
+  const snapDot = new THREE.Mesh(snapDotGeo, snapDotMat);
+  snapDot.name = "snapDot";
+  snapDot.visible = false;
+  snapDot.renderOrder = 999;
+  scene.add(snapDot);
+
+  // First-pick indicator (start point of pending measurement)
+  const firstDotMat = new THREE.MeshBasicMaterial({ color: 0xFF66AA, depthTest: false });
+  const firstDot = new THREE.Mesh(snapDotGeo, firstDotMat);
+  firstDot.name = "firstDot";
+  firstDot.visible = false;
+  firstDot.renderOrder = 999;
+  scene.add(firstDot);
+
+  // Per-measurement persistent meshes keyed by id
+  const measurementMeshes = new Map();
+
+  let measureActive = false;
+  let measurePending = null;       // {x,y,z} after first click
+  let measureSnapEnabled = true;
+  let measureCallback = null;      // (action, payload) => void  e.g. "created"
+  const measureRaycaster = new THREE.Raycaster();
+  const measurePtr = new THREE.Vector2();
+  const groundPlane = new THREE.Plane(
+    new THREE.Vector3(0, 1, 0),
+    FOOTING_DEPTH * 1.2 - 0.002,
+  );
+
+  function _collectSnapTargets() {
+    // Wall corners from current model
+    const corners = [];
+    const wallsGroup = groups["wallSheet"] || groups["frame"] || groups["foundation"];
+    if (wallsGroup) {
+      const box = new THREE.Box3();
+      wallsGroup.traverse((o) => {
+        if (!o.geometry) return;
+        box.setFromObject(o);
+        if (Number.isFinite(box.min.x)) {
+          const y = snapGrid ? snapGrid.position.y : 0;
+          corners.push(new THREE.Vector3(box.min.x, y, box.min.z));
+          corners.push(new THREE.Vector3(box.min.x, y, box.max.z));
+          corners.push(new THREE.Vector3(box.max.x, y, box.min.z));
+          corners.push(new THREE.Vector3(box.max.x, y, box.max.z));
+        }
+      });
+    }
+    // Previous measurement endpoints
+    const prevEnds = [];
+    measurementMeshes.forEach((m) => {
+      prevEnds.push(m.userData.start.clone());
+      prevEnds.push(m.userData.end.clone());
+    });
+    return { corners, prevEnds };
+  }
+
+  const SNAP_THRESHOLD_FT = 1.5;
+
+  function _snapPoint(hit) {
+    if (!measureSnapEnabled || !hit) return hit;
+    const fpu = getFtPerUnit();
+    const thresholdUnits = SNAP_THRESHOLD_FT / fpu;
+
+    let best = null;
+    let bestDist = thresholdUnits;
+
+    // 1) Grid intersection (1 ft spacing)
+    const stepUnits = 1.0 / fpu;
+    const gx = Math.round(hit.x / stepUnits) * stepUnits;
+    const gz = Math.round(hit.z / stepUnits) * stepUnits;
+    const gridPt = new THREE.Vector3(gx, hit.y, gz);
+    const dGrid = gridPt.distanceTo(hit);
+    if (dGrid <= bestDist) {
+      best = gridPt; bestDist = dGrid;
+    }
+
+    // 2) Wall corners + 3) previous endpoints (tighter threshold = priority)
+    const { corners, prevEnds } = _collectSnapTargets();
+    for (const c of corners.concat(prevEnds)) {
+      const d = c.distanceTo(hit);
+      // Give corners/endpoints a 2× priority over grid
+      if (d <= thresholdUnits * 2 && d < bestDist + thresholdUnits * 0.5) {
+        best = c.clone(); bestDist = d;
+      }
+    }
+
+    return best || hit;
+  }
+
+  function _worldFromMeasurePtr(evt) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    measurePtr.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+    measurePtr.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+    measureRaycaster.setFromCamera(measurePtr, camera);
+    const hit = new THREE.Vector3();
+    if (!measureRaycaster.ray.intersectPlane(groundPlane, hit)) return null;
+    return hit;
+  }
+
+  function _makeLabelSprite(text) {
+    const canvas = document.createElement("canvas");
+    const w = 256, h = 64;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "rgba(0,0,0,0.85)";
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = "#FFCC00";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
+    ctx.fillStyle = "#FFCC00";
+    ctx.font = "bold 32px Inter, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, w / 2, h / 2);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      depthTest: false,
+      transparent: true,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.renderOrder = 1000;
+    // Scale sprite to ~6 ft wide in scene
+    const widthUnits = 6.0 / getFtPerUnit();
+    sprite.scale.set(widthUnits, widthUnits * (h / w), 1);
+    return sprite;
+  }
+
+  function _renderMeasurement({ id, start, end, distance_ft, label }) {
+    if (measurementMeshes.has(id)) {
+      _removeMeasurementMesh(id);
+    }
+    const grp = new THREE.Group();
+    grp.name = `measurement-${id}`;
+    grp.userData.id = id;
+    grp.userData.start = new THREE.Vector3(start.x, start.y, start.z);
+    grp.userData.end = new THREE.Vector3(end.x, end.y, end.z);
+
+    // Line
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([
+      grp.userData.start, grp.userData.end,
+    ]);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xFFCC00, depthTest: false });
+    const line = new THREE.Line(lineGeo, lineMat);
+    line.renderOrder = 998;
+    grp.add(line);
+
+    // Endpoint dots
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0xFFCC00, depthTest: false });
+    const dotA = new THREE.Mesh(snapDotGeo, dotMat);
+    dotA.position.copy(grp.userData.start);
+    dotA.renderOrder = 998;
+    grp.add(dotA);
+    const dotB = new THREE.Mesh(snapDotGeo, dotMat);
+    dotB.position.copy(grp.userData.end);
+    dotB.renderOrder = 998;
+    grp.add(dotB);
+
+    // Label at midpoint
+    const mid = grp.userData.start.clone().add(grp.userData.end).multiplyScalar(0.5);
+    mid.y += 1.2 / getFtPerUnit();   // float ~1.2 ft above ground
+    const labelText = label || _formatFtIn(distance_ft);
+    const sprite = _makeLabelSprite(labelText);
+    sprite.position.copy(mid);
+    grp.add(sprite);
+
+    measureGroup.add(grp);
+    measurementMeshes.set(id, grp);
+  }
+
+  function _removeMeasurementMesh(id) {
+    const m = measurementMeshes.get(id);
+    if (!m) return;
+    measureGroup.remove(m);
+    m.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        if (o.material.map) o.material.map.dispose();
+        if (Array.isArray(o.material)) o.material.forEach((mm) => mm.dispose());
+        else o.material.dispose();
+      }
+    });
+    measurementMeshes.delete(id);
+  }
+
+  function _formatFtIn(ft) {
+    const sign = ft < 0 ? -1 : 1;
+    const abs = Math.abs(ft);
+    let whole = Math.floor(abs);
+    let inches = Math.round((abs - whole) * 12);
+    if (inches === 12) { whole += 1; inches = 0; }
+    return `${sign < 0 ? "-" : ""}${whole}' ${inches}"`;
+  }
+
+  function _onMeasurePointerMove(evt) {
+    if (!measureActive) return;
+    const hit = _worldFromMeasurePtr(evt);
+    if (!hit) { snapDot.visible = false; return; }
+    const snapped = _snapPoint(hit);
+    snapDot.position.copy(snapped);
+    snapDot.visible = true;
+  }
+
+  function _onMeasurePointerDown(evt) {
+    if (!measureActive || evt.button !== 0) return;
+    const hit = _worldFromMeasurePtr(evt);
+    if (!hit) return;
+    const snapped = _snapPoint(hit);
+    if (!measurePending) {
+      measurePending = snapped.clone();
+      firstDot.position.copy(measurePending);
+      firstDot.visible = true;
+      if (measureCallback) measureCallback("first-pick", measurePending);
+    } else {
+      const start = measurePending.clone();
+      const end = snapped.clone();
+      const fpu = getFtPerUnit();
+      const distance_ft = start.distanceTo(end) * fpu;
+      measurePending = null;
+      firstDot.visible = false;
+      if (measureCallback) {
+        measureCallback("measured", {
+          start: { x: start.x, y: start.y, z: start.z },
+          end: { x: end.x, y: end.y, z: end.z },
+          distance_ft,
+        });
+      }
+    }
+  }
+
+  function _onMeasureKeyDown(evt) {
+    if (!measureActive) return;
+    if (evt.key === "Escape") {
+      measurePending = null;
+      firstDot.visible = false;
+      if (measureCallback) measureCallback("cancel-pick");
+    }
+  }
+
+  function enableMeasureTool(on, callback) {
+    measureActive = !!on;
+    measureCallback = callback || null;
+    controls.enabled = !on;
+    renderer.domElement.style.cursor = on ? "crosshair" : "auto";
+    if (snapGrid) snapGrid.visible = !!on;
+    if (!on) {
+      snapDot.visible = false;
+      firstDot.visible = false;
+      measurePending = null;
+      renderer.domElement.removeEventListener("pointermove", _onMeasurePointerMove);
+      renderer.domElement.removeEventListener("pointerdown", _onMeasurePointerDown);
+      window.removeEventListener("keydown", _onMeasureKeyDown);
+    } else {
+      // Rebuild the grid in case site changed
+      _buildSnapGrid();
+      snapGrid.visible = true;
+      renderer.domElement.addEventListener("pointermove", _onMeasurePointerMove);
+      renderer.domElement.addEventListener("pointerdown", _onMeasurePointerDown);
+      window.addEventListener("keydown", _onMeasureKeyDown);
+    }
+  }
+
+  function setMeasurements(list) {
+    // Replace all
+    measurementMeshes.forEach((_, id) => _removeMeasurementMesh(id));
+    (list || []).forEach((m) => _renderMeasurement(m));
+  }
+
+  function addMeasurement(m) { _renderMeasurement(m); }
+  function removeMeasurement(id) { _removeMeasurementMesh(id); }
+  function setSnapEnabled(b) { measureSnapEnabled = !!b; }
+  function getMeasureFtPerUnit() { return getFtPerUnit(); }
+  function formatFtIn(ft) { return _formatFtIn(ft); }
+
   /** Render a high-resolution PNG of the current scene + camera and return a Blob. */
   async function captureHiRes(width = 3840, height = 2160) {
     const target = new THREE.WebGLRenderTarget(width, height, {
@@ -979,5 +1290,8 @@ export function createSceneEngine(mount) {
 
   return { build, setVisibility, setSite,
            setModelTransform, getModelTransform, enablePlacement,
-           captureHiRes, startDolly, getDomElement, dispose };
+           captureHiRes, startDolly, getDomElement, dispose,
+           enableMeasureTool, setMeasurements, addMeasurement,
+           removeMeasurement, setSnapEnabled, getMeasureFtPerUnit,
+           formatFtIn };
 }

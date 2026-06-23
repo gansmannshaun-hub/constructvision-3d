@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 22 — Tape Measure (3D renderer) PASSES end-to-end. Backend: 15/15 in test_iter22_measurements.py covering CRUD (list empty/create+GET/delete+GET 404/optional label null with default y=0), cross-user isolation (user_b cannot list/create/delete in user_a's project — all return 404 via _assert_project), no _id leak, auth required (401/403), and full Pydantic validation (distance_ft negative→422, >100000→422, missing start→422, missing end→422, label >120 chars→422, distance=0 accepted, unknown project→404). Frontend (Playwright on preview URL, admin login): seeded project + NYC satellite site + 4-wall 40×30ft blueprint + 1 measurement via API; 3D RENDERER tab → 'TAPE MEASURE' button (testid renderer-measure-start) visible top-right; click → becomes 'EXIT MEASURE' (renderer-measure-stop), measure-tool-panel renders at bottom-center, measure-snap-toggle checked=true by default. Seeded measurement renders in measurement-list as \"5' 6\\\" (5.50 ft)\" (ft-in formatter correct). TWO Playwright canvas clicks at 35%/65% width actually produced a NEW measurement (row count 1→2) — raycast against ground plane works via Playwright pointer events (contrary to the agent-to-agent note's caution). Delete via measurement-delete-0 removed it from UI AND from backend (verified via API recount). After reload, persisted measurement (label='persisted', dist=7ft via API) appears as \"9' 3\\\"\" in list and renders as in-scene yellow tape annotation in screenshot. EXIT MEASURE hides panel and restores the TAPE MEASURE button.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_measurements.py",
+    "/app/test_reports/pytest/pytest_iter22_main.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GOOD: MeasurementIn uses Pydantic Field(ge=0, le=100_000) for distance_ft and Field(max_length=120) for optional label — all 422 boundary cases clean. Vec3 nested model has y default 0.0 (correct for 2D tape on ground plane).",
+    "GOOD: _assert_project enforces ownership before list/create/delete, so cross-user isolation is automatic via the same 404 path used by all /site routes. Delete also uses {project_id, id} compound match so a measurement_id from project A cannot accidentally delete one in project B.",
+    "GOOD: list_measurements sorts by created_at ascending and caps at 500 — safe for typical usage; large projects could hit cap silently but UI shows up to that without slow scroll.",
+    "GOOD: create_measurement strips _id before returning (doc.pop('_id', None)) — no MongoDB ObjectId leak.",
+    "GOOD: Frontend uses formatFtIn(ft) producing the requested 5a format (e.g. \"5' 6\\\"\") in rows; both the list row and the in-scene 3D label show the same value. Snap default ON matches choice 2c, panel-only grid (hidden otherwise) matches that choice. Per-measurement delete UI works and stays in sync with backend after deletion.",
+    "MINOR: SNAP toggle (measure-snap-toggle) is a styled <input type=checkbox> — accessible via is_checked() in Playwright; good. No ARIA label though — consider adding aria-label='snap-to-grid' for screen readers.",
+    "NOTE: Canvas raycast DOES work through Playwright mouse.click on the WebGL canvas — measurements were created by Playwright dispatching click events on the canvas at 35%/65% width × 55% height. The agent-to-agent note suggesting it might not work is overly cautious; for future testers, the raycast against ground plane responds to standard pointer events."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter22_measurements.py"
+  ],
+  "success_rate": {"backend": "100% (15/15 iter22)", "frontend": "100% (button state transition, panel open, snap default, list render w/ ft-in, canvas-click measure creation, delete via X synced with backend, reload persistence, EXIT MEASURE state restore — all verified)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (used). Ephemeral test_a_/test_b_<hex>@example.com / TestPass123! for backend tests.",
+  "seed_data_creation": "Backend tests create ephemeral users + projects per session (auto-cleanup by fixture scope). Frontend test seeded one project 'TEST_iter22_tape' with NYC satellite + 4-wall 40x30ft blueprint via API, plus seedA + persisted measurements. Walls MUST use {start:[x,y], end:[x,y]} array format (carried over from iter19 note).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Tape measure endpoints: GET/POST /api/projects/{id}/measurements and DELETE /api/projects/{id}/measurements/{measurement_id}. MeasurementIn={start:Vec3, end:Vec3, distance_ft:[0,100000], label?(<=120ch)}. Vec3.y defaults to 0. The data-testids on the renderer match the spec exactly: renderer-measure-start/stop, measure-tool-panel, measure-snap-toggle (input checkbox, default checked), measurement-list (UL), measurement-row-{i}, measurement-delete-{i}, measure-last-result. Playwright CAN click the 3D canvas to create measurements — raycast works. The in-scene annotation renders the measurement as yellow endpoints + label e.g. \"9' 3\\\"\" plus the optional label string below. After delete, the in-scene annotation also disappears (verified via re-rendered scene). No regressions detected against iter11-19 functionality.",
+  "rca of the issue": "N/A — iter22 feature works end-to-end with no defects observed."
+}

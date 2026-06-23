@@ -46,6 +46,13 @@ export default function RendererTab() {
   const [aiRefLabel, setAiRefLabel] = useState("");
   const [aiRefFeet, setAiRefFeet] = useState("");
 
+  // ---------- Tape measure state ----------
+  const [measuring, setMeasuring] = useState(false);
+  const [measurements, setMeasurements] = useState([]);
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [pickStatus, setPickStatus] = useState("idle"); // idle | first | measured
+  const [measurePreview, setMeasurePreview] = useState(null);
+
   const mountRef = useRef(null);
   const engineRef = useRef(null);
 
@@ -306,6 +313,111 @@ export default function RendererTab() {
     }
   }, [currentProjectId]);
 
+  // ---------- Tape measure ----------
+  // Load saved measurements for this project
+  useEffect(() => {
+    if (!currentProjectId) { setMeasurements([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = localStorage.getItem("cm_token");
+        const { data } = await axios.get(
+          `${API}/projects/${currentProjectId}/measurements`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!cancelled) {
+          setMeasurements(data || []);
+          engineRef.current?.setMeasurements(data || []);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [currentProjectId]);
+
+  // Re-sync measurements into the scene when the engine remounts
+  useEffect(() => {
+    engineRef.current?.setMeasurements(measurements);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const persistMeasurement = useCallback(async ({ start, end, distance_ft }) => {
+    if (!currentProjectId) return;
+    try {
+      const token = localStorage.getItem("cm_token");
+      const { data } = await axios.post(
+        `${API}/projects/${currentProjectId}/measurements`,
+        { start, end, distance_ft },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setMeasurements((prev) => [...prev, data]);
+      engineRef.current?.addMeasurement(data);
+      return data;
+    } catch (e) {
+      alert("Failed to save measurement: " + (e?.response?.data?.detail || e?.message));
+    }
+  }, [currentProjectId]);
+
+  const deleteMeasurement = useCallback(async (id) => {
+    if (!currentProjectId) return;
+    try {
+      const token = localStorage.getItem("cm_token");
+      await axios.delete(
+        `${API}/projects/${currentProjectId}/measurements/${id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setMeasurements((prev) => prev.filter((m) => m.id !== id));
+      engineRef.current?.removeMeasurement(id);
+    } catch (e) {
+      alert("Failed to delete: " + (e?.response?.data?.detail || e?.message));
+    }
+  }, [currentProjectId]);
+
+  const startMeasure = useCallback(() => {
+    if (!engineRef.current) return;
+    setMeasuring(true);
+    setPickStatus("idle");
+    setMeasurePreview(null);
+    engineRef.current.setSnapEnabled(snapEnabled);
+    engineRef.current.enableMeasureTool(true, (action, payload) => {
+      if (action === "first-pick") {
+        setPickStatus("first");
+        setMeasurePreview(null);
+      } else if (action === "cancel-pick") {
+        setPickStatus("idle");
+      } else if (action === "measured") {
+        setPickStatus("measured");
+        setMeasurePreview(payload);
+        persistMeasurement(payload);
+        // Reset for next measurement
+        setTimeout(() => setPickStatus("idle"), 200);
+      }
+    });
+  }, [snapEnabled, persistMeasurement]);
+
+  const stopMeasure = useCallback(() => {
+    if (!engineRef.current) return;
+    engineRef.current.enableMeasureTool(false);
+    setMeasuring(false);
+    setPickStatus("idle");
+    setMeasurePreview(null);
+  }, []);
+
+  const toggleSnap = useCallback(() => {
+    setSnapEnabled((prev) => {
+      const next = !prev;
+      engineRef.current?.setSnapEnabled(next);
+      return next;
+    });
+  }, []);
+
+  const fmtFtIn = useCallback((ft) => {
+    if (engineRef.current?.formatFtIn) return engineRef.current.formatFtIn(ft);
+    // Fallback
+    const whole = Math.floor(ft);
+    const inches = Math.round((ft - whole) * 12);
+    return `${whole}' ${inches}"`;
+  }, []);
+
   const empty = walls.length === 0;
 
   return (
@@ -347,6 +459,30 @@ export default function RendererTab() {
             >
               <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3"/><rect x="9" y="9" width="6" height="6"/></svg>
               PLACE ON MAP
+            </button>
+          )}
+          {!measuring ? (
+            <button
+              data-testid="renderer-measure-start"
+              onClick={startMeasure}
+              className="label-mono px-3 py-2 bg-black/80 border border-[#FFCC00]/60 text-[#FFCC00] hover:bg-[#FFCC00] hover:text-black transition-colors flex items-center gap-2"
+              title="Tape measure — click two points to measure in feet & inches"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 7h18v6H3z"/>
+                <path d="M6 7v3M9 7v2M12 7v3M15 7v2M18 7v3"/>
+              </svg>
+              TAPE MEASURE
+            </button>
+          ) : (
+            <button
+              data-testid="renderer-measure-stop"
+              onClick={stopMeasure}
+              className="label-mono px-3 py-2 bg-[#FFCC00] text-black border border-[#FFCC00] hover:bg-[#E6B800] transition-colors flex items-center gap-2"
+              title="Exit tape measure tool"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 6l12 12M6 18L18 6"/></svg>
+              EXIT MEASURE
             </button>
           )}
         </div>
@@ -571,6 +707,81 @@ export default function RendererTab() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {measuring && (
+          <div
+            data-testid="measure-tool-panel"
+            className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 bg-black/90 border border-[#FFCC00]/40 backdrop-blur-sm px-5 py-4 w-[480px] max-w-[95%]"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="label-mono text-[#FFCC00]">// TAPE MEASURE · 1 FT = 1 FT</div>
+                <div className="text-xs text-neutral-400 font-mono mt-1">
+                  {pickStatus === "first"
+                    ? "Click the second point to measure. ESC to cancel."
+                    : "Click two points on the ground or model. Snaps to 1' grid, wall corners & previous endpoints."}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs font-mono cursor-pointer select-none" title="Toggle snap-to-grid + corners">
+                <input
+                  data-testid="measure-snap-toggle"
+                  type="checkbox"
+                  checked={snapEnabled}
+                  onChange={toggleSnap}
+                  className="accent-[#FFCC00]"
+                />
+                <span className={snapEnabled ? "text-[#FFCC00]" : "text-neutral-500"}>SNAP</span>
+              </label>
+            </div>
+
+            {measurePreview && pickStatus === "measured" && (
+              <div data-testid="measure-last-result" className="mb-3 border border-[#FFCC00]/40 bg-[#FFCC00]/10 px-3 py-2">
+                <div className="label-mono text-neutral-400">// LAST MEASUREMENT</div>
+                <div className="font-display text-2xl text-[#FFCC00] tracking-tight">
+                  {fmtFtIn(measurePreview.distance_ft)}
+                </div>
+                <div className="text-[10px] font-mono text-neutral-500">
+                  {measurePreview.distance_ft.toFixed(2)} ft ({(measurePreview.distance_ft * 0.3048).toFixed(2)} m)
+                </div>
+              </div>
+            )}
+
+            <div className="max-h-[220px] overflow-y-auto border border-white/10">
+              {measurements.length === 0 ? (
+                <div className="px-3 py-4 text-xs font-mono text-neutral-500 text-center">
+                  No measurements yet. Click two points to add one.
+                </div>
+              ) : (
+                <ul data-testid="measurement-list">
+                  {measurements.map((m, i) => (
+                    <li
+                      key={m.id}
+                      data-testid={`measurement-row-${i}`}
+                      className="flex items-center justify-between px-3 py-2 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="label-mono text-neutral-600 w-6">#{i + 1}</span>
+                        <span className="font-mono text-sm text-[#FFCC00]">{fmtFtIn(m.distance_ft)}</span>
+                        <span className="text-[10px] font-mono text-neutral-500">({m.distance_ft.toFixed(2)} ft)</span>
+                      </div>
+                      <button
+                        data-testid={`measurement-delete-${i}`}
+                        onClick={() => deleteMeasurement(m.id)}
+                        className="text-neutral-500 hover:text-[#FF6666] text-xs font-mono px-2"
+                        title="Delete measurement"
+                      >✕</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between mt-3 text-[10px] font-mono text-neutral-500">
+              <span>Total: <span className="text-[#FFCC00]">{measurements.length}</span></span>
+              <span>{measurements.length > 0 && `Sum: ${fmtFtIn(measurements.reduce((s, m) => s + m.distance_ft, 0))}`}</span>
             </div>
           </div>
         )}
