@@ -660,6 +660,215 @@ export function createSceneEngine(mount) {
     camera.far = Math.max(300, sideFt * 4);
     camera.updateProjectionMatrix();
     controls.maxDistance = sideFt * 1.5;
+
+    // Re-apply any existing 3D terrain (it depends on the satellite texture).
+    if (site.terrain_3d) setSiteTerrain(site, site.terrain_3d);
+    else clearSiteTerrain();
+  }
+
+  // ----- 3D Landscape (heightmap + AI feature objects) -----
+  let terrain3dGroup = null;
+  let terrainMesh = null;
+
+  function _disposeTerrain3D() {
+    if (terrain3dGroup) {
+      scene.remove(terrain3dGroup);
+      terrain3dGroup.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+          else o.material.dispose();
+        }
+      });
+      terrain3dGroup = null;
+      terrainMesh = null;
+    }
+  }
+
+  function clearSiteTerrain() {
+    _disposeTerrain3D();
+    if (siteMesh) siteMesh.visible = true;
+  }
+
+  function setSiteTerrain(site, terrain3d) {
+    _disposeTerrain3D();
+    if (!site || !terrain3d || !Array.isArray(terrain3d.elevation_grid)
+        || !siteTexture) {
+      if (siteMesh) siteMesh.visible = true;
+      return;
+    }
+    const sideFt = site.world_meters * M_TO_FT;
+    const elevGrid = terrain3d.elevation_grid;
+    const n = elevGrid.length;
+    if (n < 2) return;
+
+    // Baseline elevation (median) so the heightmap sits near ground level.
+    const flat = [];
+    for (const row of elevGrid) for (const v of row) flat.push(v);
+    flat.sort((a, b) => a - b);
+    const median = flat[Math.floor(flat.length / 2)];
+
+    // Heightmap mesh — PlaneGeometry is XY (z up in plane local frame). After
+    // rotation x = -PI/2 the plane lies on XZ with Y up. We displace local-Z
+    // BEFORE rotation, which becomes world-Y after rotation.
+    const geo = new THREE.PlaneGeometry(sideFt, sideFt, n - 1, n - 1);
+    const pos = geo.attributes.position;
+    for (let j = 0; j < n; j++) {
+      // PlaneGeometry vertices go LEFT→RIGHT, TOP→BOTTOM in local UV; but with
+      // a -PI/2 X rotation the +Y of the geometry becomes -Z in world. So row
+      // j=0 (top of plane) maps to world -Z (north), matching image y=0=north.
+      for (let i = 0; i < n; i++) {
+        const elev_m = elevGrid[j][i] - median;
+        const elev_ft = elev_m * M_TO_FT;
+        const vIdx = j * n + i;
+        pos.setZ(vIdx, elev_ft);
+      }
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+
+    const tmat = new THREE.MeshStandardMaterial({
+      map: siteTexture,
+      roughness: 1.0,
+      metalness: 0.0,
+    });
+    terrainMesh = new THREE.Mesh(geo, tmat);
+    terrainMesh.rotation.x = -Math.PI / 2;
+    terrainMesh.position.y = (siteMesh ? siteMesh.position.y : -FOOTING_DEPTH * 1.2) + 0.001;
+    terrainMesh.receiveShadow = true;
+    terrainMesh.name = "siteTerrain";
+
+    // Hide the flat plane behind the heightmap
+    if (siteMesh) siteMesh.visible = false;
+
+    terrain3dGroup = new THREE.Group();
+    terrain3dGroup.name = "terrain3d";
+    terrain3dGroup.add(terrainMesh);
+
+    // Sample heightmap to position features at the terrain surface.
+    const sampleY = (wx, wz) => {
+      // Convert world (x, z) → grid (i, j)
+      const u = (wx / sideFt) + 0.5;
+      const v = (wz / sideFt) + 0.5;
+      const i = Math.max(0, Math.min(n - 1, Math.round(u * (n - 1))));
+      const j = Math.max(0, Math.min(n - 1, Math.round(v * (n - 1))));
+      return ((elevGrid[j][i] - median) * M_TO_FT) + terrainMesh.position.y;
+    };
+
+    const STORY_FT = 10;
+    const features = Array.isArray(terrain3d.features_3d) ? terrain3d.features_3d : [];
+    for (const f of features) {
+      const wx = (f.x - 0.5) * sideFt;
+      const wz = (f.y - 0.5) * sideFt;
+      const rFt = Math.max(2, f.radius * sideFt);
+      const yGround = sampleY(wx, wz);
+      const obj = _buildFeatureObject(f, wx, wz, rFt, yGround, STORY_FT);
+      if (obj) {
+        obj.userData.kind = f.kind;
+        obj.userData.label = f.label || "";
+        terrain3dGroup.add(obj);
+      }
+    }
+
+    scene.add(terrain3dGroup);
+  }
+
+  function _buildFeatureObject(f, wx, wz, rFt, yGround, STORY_FT) {
+    switch ((f.kind || "").toLowerCase()) {
+      case "tree":
+      case "trees": {
+        const trunkH = Math.max(3, rFt * 0.5);
+        const foliageH = Math.max(5, rFt * 1.6);
+        const trunk = new THREE.Mesh(
+          new THREE.CylinderGeometry(Math.max(0.4, rFt * 0.12),
+                                     Math.max(0.5, rFt * 0.15),
+                                     trunkH, 8),
+          new THREE.MeshStandardMaterial({ color: 0x5C3A1E, roughness: 0.9 }),
+        );
+        trunk.position.set(wx, yGround + trunkH / 2, wz);
+        const foliage = new THREE.Mesh(
+          new THREE.ConeGeometry(rFt, foliageH, 12),
+          new THREE.MeshStandardMaterial({ color: 0x2D5C2D, roughness: 0.95 }),
+        );
+        foliage.position.set(wx, yGround + trunkH + foliageH / 2, wz);
+        const g = new THREE.Group();
+        g.add(trunk); g.add(foliage);
+        return g;
+      }
+      case "building": {
+        const stories = Math.max(1, Number(f.stories) || 1);
+        const h = stories * STORY_FT;
+        const w = Math.max(8, rFt * 1.8);
+        const d = Math.max(8, rFt * 1.8);
+        const box = new THREE.Mesh(
+          new THREE.BoxGeometry(w, h, d),
+          new THREE.MeshStandardMaterial({ color: 0xCCC8BD, roughness: 0.8 }),
+        );
+        box.position.set(wx, yGround + h / 2, wz);
+        box.castShadow = true;
+        const roof = new THREE.Mesh(
+          new THREE.BoxGeometry(w * 1.05, 0.5, d * 1.05),
+          new THREE.MeshStandardMaterial({ color: 0x4A5C6E, roughness: 0.9 }),
+        );
+        roof.position.set(wx, yGround + h + 0.25, wz);
+        const g = new THREE.Group();
+        g.add(box); g.add(roof);
+        return g;
+      }
+      case "water": {
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x3A6FA0,
+          transparent: true,
+          opacity: 0.72,
+          roughness: 0.2,
+          metalness: 0.15,
+        });
+        const plane = new THREE.Mesh(new THREE.CircleGeometry(rFt, 24), mat);
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.set(wx, yGround - 0.5, wz);
+        return plane;
+      }
+      case "road":
+      case "driveway": {
+        const mat = new THREE.MeshStandardMaterial({
+          color: f.kind === "road" ? 0x2A2A2A : 0x6B6358,
+          roughness: 0.85,
+        });
+        const plane = new THREE.Mesh(new THREE.CircleGeometry(rFt * 1.4, 24), mat);
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.set(wx, yGround + 0.05, wz);
+        return plane;
+      }
+      case "vegetation": {
+        const dome = new THREE.Mesh(
+          new THREE.SphereGeometry(rFt, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2),
+          new THREE.MeshStandardMaterial({ color: 0x4D7C4D, roughness: 0.95 }),
+        );
+        dome.position.set(wx, yGround, wz);
+        return dome;
+      }
+      case "rock": {
+        const rock = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(Math.max(1, rFt * 0.7), 0),
+          new THREE.MeshStandardMaterial({ color: 0x8A8A86, roughness: 0.9 }),
+        );
+        rock.position.set(wx, yGround + rFt * 0.35, wz);
+        rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+        return rock;
+      }
+      case "slope": {
+        // Slope already represented in the heightmap; render a faint marker
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(rFt * 0.6, rFt * 0.7, 24),
+          new THREE.MeshBasicMaterial({ color: 0xFFCC00, transparent: true, opacity: 0.4 }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(wx, yGround + 0.1, wz);
+        return ring;
+      }
+      default:
+        return null;
+    }
   }
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -1289,6 +1498,7 @@ export function createSceneEngine(mount) {
   }
 
   return { build, setVisibility, setSite,
+           setSiteTerrain, clearSiteTerrain,
            setModelTransform, getModelTransform, enablePlacement,
            captureHiRes, startDolly, getDomElement, dispose,
            enableMeasureTool, setMeasurements, addMeasurement,

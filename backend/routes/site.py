@@ -241,8 +241,146 @@ async def _detect_building_dimensions(b64: str, world_m: float,
     return data
 
 
+
+# ------------------ 3D Landscape generation ------------------
+async def _fetch_elevations(lat: float, lng: float, world_m: float,
+                            grid_n: int = 32) -> list[list[float]]:
+    """Sample a (world_m × world_m) area around (lat, lng) into a grid_n×grid_n
+    elevation grid (meters above sea level). Uses Google Maps Elevation API."""
+    key = _maps_key()
+    if not key:
+        raise HTTPException(503, "Google Maps API key missing on server")
+    # Convert meters → degrees. lat is roughly constant; lng scales by cos(lat).
+    half_lat_deg = (world_m / 2) / 111320.0
+    half_lng_deg = (world_m / 2) / max(111320.0 * math.cos(math.radians(lat)), 1e-6)
+
+    coords: list[tuple[float, float]] = []
+    for j in range(grid_n):
+        # j=0 → north edge, j=grid_n-1 → south edge (matches image y top→down)
+        la = lat + half_lat_deg - (2 * half_lat_deg) * (j / (grid_n - 1))
+        for i in range(grid_n):
+            ln = lng - half_lng_deg + (2 * half_lng_deg) * (i / (grid_n - 1))
+            coords.append((la, ln))
+
+    batch_size = 256   # Elevation API allows 512, but URL gets long
+    grid = [[0.0] * grid_n for _ in range(grid_n)]
+    async with httpx.AsyncClient(timeout=30) as client:
+        for b_start in range(0, len(coords), batch_size):
+            batch = coords[b_start: b_start + batch_size]
+            loc_str = "|".join(f"{la:.6f},{ln:.6f}" for la, ln in batch)
+            r = await client.get(
+                "https://maps.googleapis.com/maps/api/elevation/json",
+                params={"locations": loc_str, "key": key},
+            )
+            try:
+                data = r.json()
+            except Exception:  # noqa: BLE001
+                raise HTTPException(502, f"Elevation API: bad JSON (HTTP {r.status_code})")
+            status = data.get("status")
+            if status != "OK":
+                err = data.get("error_message", "")
+                if status == "REQUEST_DENIED":
+                    raise HTTPException(
+                        502,
+                        "Google Elevation API denied — enable the Elevation API in your "
+                        "Google Cloud project (APIs & Services → Library → 'Maps Elevation API') "
+                        f"and ensure the key has access. Detail: {err}",
+                    )
+                raise HTTPException(502, f"Elevation API: {status} — {err}")
+            for k, res in enumerate(data["results"]):
+                gi = b_start + k
+                j = gi // grid_n
+                i = gi % grid_n
+                grid[j][i] = float(res.get("elevation", 0.0))
+    return grid
+
+
+BUILDING_HEIGHT_PROMPT = """You are analysing a satellite image to estimate building heights.
+
+The image is a top-down satellite view. Below is a list of detected building features with
+their normalised image coordinates (0..1) and approximate radius:
+
+{buildings_json}
+
+For each building, estimate how many STORIES tall it is (1-10). Use these signals:
+- shadow length adjacent to the building (longer shadow = taller; cardinal direction depends on time of day)
+- roof shape (residential = 1-2 stories; commercial flat = 1-3; warehouse = 1-2 stories tall)
+- footprint size (very small ≈ shed/garage = 1; medium ≈ house = 1-2; large ≈ commercial = 2-5)
+
+Output STRICT JSON ARRAY only — one entry per input building, preserving order:
+[
+  {{"index": <int>, "stories": <int 1..10>, "rationale": "<≤20 words>"}}
+]
+
+If you cannot tell for a particular building, use stories=1. Output JSON only, no prose, no markdown."""
+
+
+async def _estimate_building_heights(b64: str, features: list[dict]) -> dict[int, int]:
+    """Return {feature_index → stories} for every feature with kind == 'building'.
+    Skips the AI call if there are no buildings or no LLM key configured."""
+    buildings = [(idx, f) for idx, f in enumerate(features or [])
+                 if (f or {}).get("kind") == "building"]
+    if not buildings:
+        return {}
+    if not _llm_key():
+        return {idx: 1 for idx, _ in buildings}
+
+    payload = [
+        {
+            "index": idx,
+            "x": float(f.get("x", 0.5)),
+            "y": float(f.get("y", 0.5)),
+            "radius": float(f.get("radius", 0.05)),
+            "label": (f.get("label") or "")[:40],
+        }
+        for idx, f in buildings
+    ]
+    prompt = BUILDING_HEIGHT_PROMPT.format(buildings_json=json.dumps(payload))
+    chat = LlmChat(
+        api_key=_llm_key(),
+        session_id=f"building-h-{uuid.uuid4()}",
+        system_message="You estimate building heights from satellite imagery and output strict JSON.",
+    ).with_model("openai", "gpt-4o")
+    msg = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=b64)])
+    try:
+        raw = await asyncio.wait_for(chat.send_message(msg), timeout=35)
+    except asyncio.TimeoutError:
+        logger.warning("building height AI timed out — defaulting to 1 story")
+        return {idx: 1 for idx, _ in buildings}
+    text = raw if isinstance(raw, str) else str(raw)
+    cleaned = _strip_code_fence(text)
+    try:
+        arr = json.loads(cleaned)
+    except json.JSONDecodeError:
+        m = re.search(r"\[[\s\S]*\]", cleaned)
+        if not m:
+            return {idx: 1 for idx, _ in buildings}
+        try:
+            arr = json.loads(m.group(0))
+        except Exception:  # noqa: BLE001
+            return {idx: 1 for idx, _ in buildings}
+    out: dict[int, int] = {}
+    for entry in arr if isinstance(arr, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        idx = entry.get("index")
+        stories = entry.get("stories")
+        if isinstance(idx, int) and isinstance(stories, (int, float)):
+            out[idx] = max(1, min(10, int(stories)))
+    # Fill in any missing
+    for idx, _ in buildings:
+        out.setdefault(idx, 1)
+    return out
+
 def build_site_router(db, get_current_user) -> APIRouter:
     router = APIRouter(prefix="/api")
+
+    async def _assert_project(project_id: str, user: dict):
+        proj = await db.projects.find_one(
+            {"id": project_id, "user_id": user["id"]}, {"_id": 0},
+        )
+        if not proj:
+            raise HTTPException(404, "Project not found")
 
     @router.get("/projects/{project_id}/site")
     async def get_site(project_id: str, user: dict = Depends(get_current_user)):
@@ -396,13 +534,76 @@ def build_site_router(db, get_current_user) -> APIRouter:
             "message": f"Sized to AI-detected building (~{round(det_w,0)} × {round(det_d,0)} ft).",
         }
 
-    # ------------------ Tape-measure persistence ------------------
-    async def _assert_project(project_id: str, user: dict):
-        proj = await db.projects.find_one(
-            {"id": project_id, "user_id": user["id"]}, {"_id": 0},
+    # ------------------ 3D landscape generation ------------------
+    @router.post("/projects/{project_id}/site/build-3d")
+    async def build_3d_landscape(project_id: str, user: dict = Depends(get_current_user)):
+        """Generate elevation heightmap (Google Elevation API) + 3D feature objects
+        (trees, buildings, water, etc.) from the existing satellite analysis."""
+        await _assert_project(project_id, user)
+        site = await db.sites.find_one({"project_id": project_id}, {"_id": 0})
+        if not site or not site.get("captured"):
+            raise HTTPException(400, "Capture a site first (Pick Site From Map)")
+
+        lat = float(site.get("lat") or 0)
+        lng = float(site.get("lng") or 0)
+        world_m = float(site.get("world_meters") or 0)
+        if world_m <= 0:
+            raise HTTPException(400, "Site has no world dimensions; recapture the site")
+
+        # 1) Elevation grid via Google Elevation API
+        elevation_grid = await _fetch_elevations(lat, lng, world_m, grid_n=32)
+
+        # 2) AI-estimated story counts for any building features
+        features = ((site.get("analysis") or {}).get("features") or [])
+        try:
+            story_map = await _estimate_building_heights(
+                site.get("image_base64") or "", features,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"building height estimation failed: {exc}")
+            story_map = {}
+
+        # 3) Compose features_3d
+        features_3d = []
+        for idx, f in enumerate(features):
+            if not isinstance(f, dict):
+                continue
+            kind = (f.get("kind") or "other").lower()
+            entry = {
+                "kind": kind,
+                "label": (f.get("label") or "")[:80],
+                "x": float(f.get("x", 0.5)),
+                "y": float(f.get("y", 0.5)),
+                "radius": float(f.get("radius", 0.02)),
+            }
+            if kind == "building":
+                entry["stories"] = int(story_map.get(idx, 1))
+            features_3d.append(entry)
+
+        terrain_3d = {
+            "elevation_grid": elevation_grid,
+            "grid_n": 32,
+            "features_3d": features_3d,
+            "generated_at": now_iso(),
+        }
+        await db.sites.update_one(
+            {"project_id": project_id},
+            {"$set": {"terrain_3d": terrain_3d}},
         )
-        if not proj:
-            raise HTTPException(404, "Project not found")
+        return terrain_3d
+
+    @router.delete("/projects/{project_id}/site/build-3d")
+    async def clear_3d_landscape(project_id: str, user: dict = Depends(get_current_user)):
+        await _assert_project(project_id, user)
+        await db.sites.update_one(
+            {"project_id": project_id},
+            {"$unset": {"terrain_3d": ""}},
+        )
+        return {"ok": True}
+
+    # ------------------ Tape-measure persistence ------------------
 
     @router.get("/projects/{project_id}/measurements")
     async def list_measurements(project_id: str, user: dict = Depends(get_current_user)):

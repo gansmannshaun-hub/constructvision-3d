@@ -53,6 +53,10 @@ export default function RendererTab() {
   const [pickStatus, setPickStatus] = useState("idle"); // idle | first | measured
   const [measurePreview, setMeasurePreview] = useState(null);
 
+  // ---------- 3D landscape state ----------
+  const [buildingLandscape, setBuildingLandscape] = useState(false);
+  const [landscapeError, setLandscapeError] = useState("");
+
   const mountRef = useRef(null);
   const engineRef = useRef(null);
 
@@ -417,6 +421,47 @@ export default function RendererTab() {
     const inches = Math.round((ft - whole) * 12);
     return `${whole}' ${inches}"`;
   }, []);
+
+  const buildLandscape = useCallback(async () => {
+    if (!currentProjectId || !site) return;
+    setBuildingLandscape(true);
+    setLandscapeError("");
+    try {
+      const token = localStorage.getItem("cm_token");
+      const { data } = await axios.post(
+        `${API}/projects/${currentProjectId}/site/build-3d`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 90_000 },
+      );
+      setSite((s) => s ? { ...s, terrain_3d: data } : s);
+      engineRef.current?.setSiteTerrain({ ...site, terrain_3d: data }, data);
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      setLandscapeError(typeof d === "string" ? d : (e?.message || "Build 3D landscape failed"));
+    } finally {
+      setBuildingLandscape(false);
+    }
+  }, [currentProjectId, site]);
+
+  const clearLandscape = useCallback(async () => {
+    if (!currentProjectId || !site) return;
+    try {
+      const token = localStorage.getItem("cm_token");
+      await axios.delete(
+        `${API}/projects/${currentProjectId}/site/build-3d`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setSite((s) => {
+        if (!s) return s;
+        const next = { ...s };
+        delete next.terrain_3d;
+        return next;
+      });
+      engineRef.current?.clearSiteTerrain();
+    } catch (e) {
+      alert("Failed to clear landscape: " + (e?.response?.data?.detail || e?.message));
+    }
+  }, [currentProjectId, site]);
 
   const empty = walls.length === 0;
 
@@ -869,6 +914,60 @@ export default function RendererTab() {
                 onClick={() => setShowSitePicker(true)}
                 className="mt-3 w-full label-mono border border-white/15 hover:bg-white/5 px-3 py-1.5"
               >Change site</button>
+
+              {/* ---- 3D Landscape generator ---- */}
+              <div className="mt-3 border-t border-white/10 pt-3">
+                {site?.terrain_3d ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="label-mono text-[#88EEAA]">// 3D LANDSCAPE · ACTIVE</span>
+                      <button
+                        data-testid="renderer-landscape-clear"
+                        onClick={clearLandscape}
+                        className="label-mono text-neutral-500 hover:text-[#FF6666] text-[10px] px-2 py-0.5 border border-white/10"
+                        title="Remove the 3D landscape and return to flat satellite plane"
+                      >✕ CLEAR</button>
+                    </div>
+                    <div className="text-[10px] font-mono text-neutral-500">
+                      Heightmap: {site.terrain_3d.grid_n}×{site.terrain_3d.grid_n} ·{" "}
+                      {site.terrain_3d.features_3d?.length || 0} feature{(site.terrain_3d.features_3d?.length||0) === 1 ? "" : "s"}
+                    </div>
+                    <button
+                      data-testid="renderer-landscape-rebuild"
+                      onClick={buildLandscape}
+                      disabled={buildingLandscape}
+                      className="w-full label-mono border border-white/15 hover:bg-white/5 px-3 py-1.5 disabled:opacity-40"
+                    >
+                      {buildingLandscape ? "REBUILDING…" : "↻ REBUILD 3D"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    data-testid="renderer-landscape-build"
+                    onClick={buildLandscape}
+                    disabled={buildingLandscape}
+                    className="w-full label-mono px-3 py-2 bg-gradient-to-r from-[#2D5C2D]/30 to-[#FFCC00]/20 border border-[#88EEAA]/50 text-[#88EEAA] hover:from-[#2D5C2D] hover:to-[#FFCC00] hover:text-black disabled:opacity-40 transition-all flex items-center justify-center gap-2"
+                    title="Generate 3D heightmap terrain + extrude AI-detected trees, buildings, water, etc."
+                  >
+                    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M3 19l5-7 4 3 3-5 6 9z"/>
+                      <circle cx="7" cy="7" r="2"/>
+                    </svg>
+                    {buildingLandscape ? "BUILDING 3D…" : "✦ BUILD 3D LANDSCAPE"}
+                  </button>
+                )}
+                {landscapeError && (
+                  <div data-testid="renderer-landscape-error" className="mt-2 border border-[#FF3333]/40 bg-[#FF3333]/10 text-[#FF6666] text-[11px] font-mono px-3 py-2 leading-relaxed">
+                    {landscapeError}
+                  </div>
+                )}
+                {!site?.terrain_3d && !buildingLandscape && !landscapeError && (
+                  <p className="text-[10px] font-mono text-neutral-500 mt-2 leading-relaxed">
+                    Generates real terrain elevation (Google Elevation API) + extrudes AI-detected
+                    trees, buildings, water, roads, rocks, and vegetation as 3D objects.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         ) : (

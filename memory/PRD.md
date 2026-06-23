@@ -108,6 +108,22 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · 3D Landscape from satellite + AI** — New `POST /api/projects/{id}/site/build-3d`
+  (with `DELETE` to clear) generates a 32×32 elevation heightmap via Google
+  Maps Elevation API and extrudes AI-detected features (trees as
+  cone-and-trunk, buildings as boxes with AI-estimated stories, water as
+  translucent planes, roads/driveways as decals, vegetation as domes,
+  rocks as dodecahedrons, slopes as ring markers) onto the heightmap.
+  Sample heightmap surface for object grounding. Engine: `setSiteTerrain()`
+  + `clearSiteTerrain()` in `sceneBuilder.js`. UI: "✦ BUILD 3D LANDSCAPE"
+  button in site panel with clear/rebuild controls and graceful error
+  (telling user to enable the Elevation API in Google Cloud).
+  6/6 backend contract tests pass (auth, 404, cross-user isolation,
+  idempotent clear, requires-captured-site).
+  **Requires the user to enable "Maps Elevation API" in Google Cloud
+  Console** (separate from Maps JavaScript) — already returns a
+  user-actionable error message if not enabled.
+
 - **2026-02-01 · Tape measure tool (3D renderer)** — Click-to-measure on
   the satellite ground plane and model walls, locked to real-world feet
   (1 ft = 1 ft matching the Google Maps capture). Snaps to 1 ft grid +
