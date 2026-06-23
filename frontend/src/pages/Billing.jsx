@@ -23,6 +23,7 @@ export default function Billing() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [stripeConfigured, setStripeConfigured] = useState(true);
 
   useEffect(() => {
     if (!token) {
@@ -30,6 +31,10 @@ export default function Billing() {
       return;
     }
     refresh();
+    // Public probe — surfaces a friendly banner if the server has no Stripe key
+    apiClient.get("/subscriptions/plans")
+      .then(({ data }) => setStripeConfigured(Boolean(data?.configured)))
+      .catch(() => setStripeConfigured(false));
     // eslint-disable-next-line
   }, [token]);
 
@@ -334,6 +339,22 @@ export default function Billing() {
             {/* Subscription plans */}
             <div className="label-mono mb-3">// SUBSCRIPTION PLANS</div>
             <h2 className="font-display text-3xl tracking-tighter mb-8">Choose your tier.</h2>
+
+            {!stripeConfigured && (
+              <div
+                data-testid="stripe-not-configured-banner"
+                className="mb-6 border border-[#FFCC00]/40 bg-[#FFCC00]/10 px-4 py-3 font-mono text-sm text-[#FFCC00]"
+              >
+                <div className="font-bold uppercase tracking-wide mb-1">Billing temporarily unavailable</div>
+                <div className="text-[#FFCC00]/90 leading-relaxed">
+                  This server is not configured for payments yet — checkout will be disabled.
+                  Please try again shortly, or contact support if this persists.
+                  <span className="block mt-1 text-xs text-neutral-400">
+                    (Admin: set <code className="text-[#FFCC00]">STRIPE_API_KEY</code> in the deployment environment variables and redeploy.)
+                  </span>
+                </div>
+              </div>
+            )}
 
             <section className="grid grid-cols-1 md:grid-cols-3 gap-1 mb-16">
               <PlanCard

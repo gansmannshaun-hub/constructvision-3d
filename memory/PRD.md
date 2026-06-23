@@ -108,6 +108,15 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · Stripe diagnostic + "not configured" banner** — `_ensure_key()` in
+  `routes/subscriptions.py` now distinguishes missing vs malformed `STRIPE_API_KEY`
+  and tells admins exactly which env var to set / where. Billing page surfaces a
+  user-friendly amber banner ("Billing temporarily unavailable") when the server
+  reports `configured: false` from `GET /api/subscriptions/plans`, so non-admin
+  users get context before clicking a plan. 100% backend regression (18/18) on
+  iter24. **Production action**: user must add `STRIPE_API_KEY` to Emergent prod
+  env vars and redeploy.
+
 - **2026-02-01 · 3D Landscape from satellite + AI** — New `POST /api/projects/{id}/site/build-3d`
   (with `DELETE` to clear) generates a 32×32 elevation heightmap via Google
   Maps Elevation API and extrudes AI-detected features (trees as
