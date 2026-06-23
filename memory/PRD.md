@@ -108,6 +108,18 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · Tape measure tool (3D renderer)** — Click-to-measure on
+  the satellite ground plane and model walls, locked to real-world feet
+  (1 ft = 1 ft matching the Google Maps capture). Snaps to 1 ft grid +
+  existing wall corners + previous measurement endpoints (SketchUp-style
+  inference). Persistent annotations stored per-project with ft-in
+  display (e.g. `24' 6"`). Grid visible only when tool active.
+  New endpoints: `GET/POST /api/projects/{id}/measurements`,
+  `DELETE /api/projects/{id}/measurements/{measurement_id}`. Engine
+  additions: `enableMeasureTool`, `setMeasurements`, `addMeasurement`,
+  `removeMeasurement`, `setSnapEnabled`, `formatFtIn`. Tested 15/15 backend
+  + full frontend flow (iter22).
+
 - **2026-02-01 · SEO discoverability** — Added comprehensive meta tags
   (title, description, keywords, canonical), Open Graph + Twitter card,
   JSON-LD `SoftwareApplication` & `Organization` structured data,
