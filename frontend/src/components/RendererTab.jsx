@@ -56,6 +56,8 @@ export default function RendererTab() {
   // ---------- 3D landscape state ----------
   const [buildingLandscape, setBuildingLandscape] = useState(false);
   const [landscapeError, setLandscapeError] = useState("");
+  const [terrainStats, setTerrainStats] = useState(null);
+  const [verticalExag, setVerticalExag] = useState(3);
 
   const mountRef = useRef(null);
   const engineRef = useRef(null);
@@ -117,7 +119,15 @@ export default function RendererTab() {
       engineRef.current?.setModelTransform({ x: 0, z: 0, rotation_deg: 0, scale: 1 });
       setTransform({ x: 0, z: 0, rotation_deg: 0, scale: 1 });
     }
-  }, [site]);
+    // Re-apply terrain with current exaggeration and capture stats
+    if (site?.terrain_3d && engineRef.current?.setSiteTerrain) {
+      const stats = engineRef.current.setSiteTerrain(site, site.terrain_3d,
+        { verticalExaggeration: verticalExag });
+      setTerrainStats(stats || null);
+    } else {
+      setTerrainStats(null);
+    }
+  }, [site]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2) Build geometry whenever the blueprint changes
   useEffect(() => {
@@ -434,14 +444,28 @@ export default function RendererTab() {
         { headers: { Authorization: `Bearer ${token}` }, timeout: 90_000 },
       );
       setSite((s) => s ? { ...s, terrain_3d: data } : s);
-      engineRef.current?.setSiteTerrain({ ...site, terrain_3d: data }, data);
+      const stats = engineRef.current?.setSiteTerrain(
+        { ...site, terrain_3d: data }, data, { verticalExaggeration: verticalExag },
+      );
+      setTerrainStats(stats || null);
+      // Auto-tilt camera to oblique angle so the user immediately sees the 3D shape
+      engineRef.current?.tiltCameraOblique();
     } catch (e) {
       const d = e?.response?.data?.detail;
       setLandscapeError(typeof d === "string" ? d : (e?.message || "Build 3D landscape failed"));
     } finally {
       setBuildingLandscape(false);
     }
-  }, [currentProjectId, site]);
+  }, [currentProjectId, site, verticalExag]);
+
+  const onExagChange = useCallback((v) => {
+    const value = Math.max(1, Math.min(10, Number(v) || 1));
+    setVerticalExag(value);
+    if (site?.terrain_3d && engineRef.current?.setTerrainExaggeration) {
+      const stats = engineRef.current.setTerrainExaggeration(value, site, site.terrain_3d);
+      setTerrainStats(stats || null);
+    }
+  }, [site]);
 
   const clearLandscape = useCallback(async () => {
     if (!currentProjectId || !site) return;
@@ -457,6 +481,7 @@ export default function RendererTab() {
         delete next.terrain_3d;
         return next;
       });
+      setTerrainStats(null);
       engineRef.current?.clearSiteTerrain();
     } catch (e) {
       alert("Failed to clear landscape: " + (e?.response?.data?.detail || e?.message));
@@ -931,6 +956,37 @@ export default function RendererTab() {
                     <div className="text-[10px] font-mono text-neutral-500">
                       Heightmap: {site.terrain_3d.grid_n}×{site.terrain_3d.grid_n} ·{" "}
                       {site.terrain_3d.features_3d?.length || 0} feature{(site.terrain_3d.features_3d?.length||0) === 1 ? "" : "s"}
+                    </div>
+                    {terrainStats && (
+                      <div data-testid="terrain-elev-readout" className="text-[10px] font-mono text-neutral-400 border border-white/10 px-2 py-1.5 bg-white/[0.02]">
+                        <div className="flex justify-between">
+                          <span>Elevation Δ:</span>
+                          <span className="text-[#88EEAA]">{terrainStats.delta_ft.toFixed(1)} ft</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Range:</span>
+                          <span className="text-neutral-300">{terrainStats.elevation_min_m.toFixed(0)}–{terrainStats.elevation_max_m.toFixed(0)} m ASL</span>
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="label-mono text-neutral-500">VERTICAL EXAGGERATION</span>
+                        <span className="label-mono text-[#FFCC00]">{verticalExag.toFixed(1)}×</span>
+                      </div>
+                      <input
+                        data-testid="terrain-exaggeration"
+                        type="range"
+                        min="1"
+                        max="10"
+                        step="0.5"
+                        value={verticalExag}
+                        onChange={(e) => onExagChange(e.target.value)}
+                        className="w-full accent-[#FFCC00]"
+                      />
+                      <div className="flex justify-between text-[9px] font-mono text-neutral-600">
+                        <span>1× real</span><span>3× dramatic</span><span>10× extreme</span>
+                      </div>
                     </div>
                     <button
                       data-testid="renderer-landscape-rebuild"

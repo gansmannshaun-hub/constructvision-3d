@@ -690,23 +690,26 @@ export function createSceneEngine(mount) {
     if (siteMesh) siteMesh.visible = true;
   }
 
-  function setSiteTerrain(site, terrain3d) {
+  function setSiteTerrain(site, terrain3d, opts = {}) {
     _disposeTerrain3D();
     if (!site || !terrain3d || !Array.isArray(terrain3d.elevation_grid)
         || !siteTexture) {
       if (siteMesh) siteMesh.visible = true;
-      return;
+      return null;
     }
+    const exaggeration = Number(opts.verticalExaggeration) > 0
+      ? Number(opts.verticalExaggeration) : 3.0;
     const sideFt = site.world_meters * M_TO_FT;
     const elevGrid = terrain3d.elevation_grid;
     const n = elevGrid.length;
-    if (n < 2) return;
+    if (n < 2) return null;
 
     // Baseline elevation (median) so the heightmap sits near ground level.
     const flat = [];
     for (const row of elevGrid) for (const v of row) flat.push(v);
     flat.sort((a, b) => a - b);
     const median = flat[Math.floor(flat.length / 2)];
+    const minE = flat[0], maxE = flat[flat.length - 1];
 
     // Heightmap mesh — PlaneGeometry is XY (z up in plane local frame). After
     // rotation x = -PI/2 the plane lies on XZ with Y up. We displace local-Z
@@ -714,12 +717,9 @@ export function createSceneEngine(mount) {
     const geo = new THREE.PlaneGeometry(sideFt, sideFt, n - 1, n - 1);
     const pos = geo.attributes.position;
     for (let j = 0; j < n; j++) {
-      // PlaneGeometry vertices go LEFT→RIGHT, TOP→BOTTOM in local UV; but with
-      // a -PI/2 X rotation the +Y of the geometry becomes -Z in world. So row
-      // j=0 (top of plane) maps to world -Z (north), matching image y=0=north.
       for (let i = 0; i < n; i++) {
         const elev_m = elevGrid[j][i] - median;
-        const elev_ft = elev_m * M_TO_FT;
+        const elev_ft = elev_m * M_TO_FT * exaggeration;
         const vIdx = j * n + i;
         pos.setZ(vIdx, elev_ft);
       }
@@ -743,6 +743,7 @@ export function createSceneEngine(mount) {
 
     terrain3dGroup = new THREE.Group();
     terrain3dGroup.name = "terrain3d";
+    terrain3dGroup.userData.exaggeration = exaggeration;
     terrain3dGroup.add(terrainMesh);
 
     // Sample heightmap to position features at the terrain surface.
@@ -752,7 +753,7 @@ export function createSceneEngine(mount) {
       const v = (wz / sideFt) + 0.5;
       const i = Math.max(0, Math.min(n - 1, Math.round(u * (n - 1))));
       const j = Math.max(0, Math.min(n - 1, Math.round(v * (n - 1))));
-      return ((elevGrid[j][i] - median) * M_TO_FT) + terrainMesh.position.y;
+      return ((elevGrid[j][i] - median) * M_TO_FT * exaggeration) + terrainMesh.position.y;
     };
 
     const STORY_FT = 10;
@@ -771,6 +772,28 @@ export function createSceneEngine(mount) {
     }
 
     scene.add(terrain3dGroup);
+    return {
+      elevation_min_m: minE,
+      elevation_max_m: maxE,
+      delta_m: maxE - minE,
+      delta_ft: (maxE - minE) * M_TO_FT,
+      exaggeration,
+      feature_count: features.length,
+    };
+  }
+
+  function setTerrainExaggeration(value, site, terrain3d) {
+    return setSiteTerrain(site, terrain3d, { verticalExaggeration: value });
+  }
+
+  function tiltCameraOblique() {
+    // Move camera to an oblique 35° angle so terrain elevation is visible.
+    const target = controls.target.clone();
+    const dist = camera.position.distanceTo(target);
+    const r = Math.max(dist, 25);
+    camera.position.set(target.x + r * 0.75, target.y + r * 0.55, target.z + r * 0.75);
+    camera.lookAt(target);
+    controls.update();
   }
 
   function _buildFeatureObject(f, wx, wz, rFt, yGround, STORY_FT) {
@@ -1498,7 +1521,8 @@ export function createSceneEngine(mount) {
   }
 
   return { build, setVisibility, setSite,
-           setSiteTerrain, clearSiteTerrain,
+           setSiteTerrain, clearSiteTerrain, setTerrainExaggeration,
+           tiltCameraOblique,
            setModelTransform, getModelTransform, enablePlacement,
            captureHiRes, startDolly, getDomElement, dispose,
            enableMeasureTool, setMeasurements, addMeasurement,
