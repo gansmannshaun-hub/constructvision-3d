@@ -173,6 +173,10 @@ class MeasurementIn(BaseModel):
     label: str | None = Field(default=None, max_length=120)
 
 
+class FeaturesUpdateIn(BaseModel):
+    features_3d: list[dict] = Field(default_factory=list)
+
+
 AUTOSCALE_PROMPT = """You are analyzing a satellite image to detect a building footprint and
 estimate its real-world size, so the user can match a 3D model to it.
 
@@ -640,6 +644,42 @@ def build_site_router(db, get_current_user) -> APIRouter:
             {"$unset": {"terrain_3d": ""}},
         )
         return {"ok": True}
+
+    class FeaturesUpdateIn(BaseModel):
+        features_3d: list[dict] = Field(default_factory=list)
+
+    @router.patch("/projects/{project_id}/site/terrain/features")
+    async def update_terrain_features(project_id: str,
+                                      payload: FeaturesUpdateIn,
+                                      user: dict = Depends(get_current_user)):
+        """Replace the features_3d array on the site's terrain_3d (used to hide
+        or delete AI-detected objects like trees/buildings the user doesn't want)."""
+        await _assert_project(project_id, user)
+        site = await db.sites.find_one({"project_id": project_id}, {"_id": 0})
+        if not site or not site.get("terrain_3d"):
+            raise HTTPException(400, "Build the 3D landscape first")
+        # Sanitize each feature to a known shape
+        clean: list[dict] = []
+        for f in payload.features_3d:
+            if not isinstance(f, dict):
+                continue
+            entry = {
+                "kind": str(f.get("kind") or "other")[:32],
+                "label": str(f.get("label") or "")[:80],
+                "x": float(f.get("x", 0.5)),
+                "y": float(f.get("y", 0.5)),
+                "radius": float(f.get("radius", 0.02)),
+            }
+            if "stories" in f:
+                entry["stories"] = max(1, min(20, int(f.get("stories") or 1)))
+            if f.get("hidden"):
+                entry["hidden"] = True
+            clean.append(entry)
+        await db.sites.update_one(
+            {"project_id": project_id},
+            {"$set": {"terrain_3d.features_3d": clean}},
+        )
+        return {"ok": True, "features_3d": clean}
 
     # ------------------ Tape-measure persistence ------------------
 

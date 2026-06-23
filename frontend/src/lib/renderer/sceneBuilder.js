@@ -759,6 +759,7 @@ export function createSceneEngine(mount) {
     const STORY_FT = 10;
     const features = Array.isArray(terrain3d.features_3d) ? terrain3d.features_3d : [];
     for (const f of features) {
+      if (f && f.hidden) continue;  // user has hidden this feature
       const wx = (f.x - 0.5) * sideFt;
       const wz = (f.y - 0.5) * sideFt;
       const rFt = Math.max(2, f.radius * sideFt);

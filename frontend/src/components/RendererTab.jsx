@@ -467,6 +467,40 @@ export default function RendererTab() {
     }
   }, [site]);
 
+  // Persist a new features_3d list, re-render the scene.
+  const persistFeatures = useCallback(async (newFeatures) => {
+    if (!currentProjectId || !site?.terrain_3d) return;
+    const nextTerrain = { ...site.terrain_3d, features_3d: newFeatures };
+    const nextSite = { ...site, terrain_3d: nextTerrain };
+    setSite(nextSite);
+    const stats = engineRef.current?.setSiteTerrain(
+      nextSite, nextTerrain, { verticalExaggeration: verticalExag },
+    );
+    setTerrainStats(stats || null);
+    try {
+      const token = localStorage.getItem("cm_token");
+      await axios.patch(
+        `${API}/projects/${currentProjectId}/site/terrain/features`,
+        { features_3d: newFeatures },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    } catch (e) {
+      alert("Failed to save: " + (e?.response?.data?.detail || e?.message));
+    }
+  }, [currentProjectId, site, verticalExag]);
+
+  const toggleFeatureHidden = useCallback((idx) => {
+    const list = site?.terrain_3d?.features_3d || [];
+    const next = list.map((f, i) => i === idx ? { ...f, hidden: !f.hidden } : f);
+    persistFeatures(next);
+  }, [site, persistFeatures]);
+
+  const deleteFeature = useCallback((idx) => {
+    const list = site?.terrain_3d?.features_3d || [];
+    const next = list.filter((_, i) => i !== idx);
+    persistFeatures(next);
+  }, [site, persistFeatures]);
+
   const clearLandscape = useCallback(async () => {
     if (!currentProjectId || !site) return;
     try {
@@ -996,6 +1030,53 @@ export default function RendererTab() {
                     >
                       {buildingLandscape ? "REBUILDING…" : "↻ REBUILD 3D"}
                     </button>
+
+                    {/* ---- Per-feature controls (hide / delete) ---- */}
+                    {(site.terrain_3d.features_3d?.length || 0) > 0 && (
+                      <div data-testid="terrain-features-list" className="mt-2 border border-white/10 max-h-[220px] overflow-y-auto">
+                        <div className="label-mono text-neutral-500 px-2 pt-2 pb-1 sticky top-0 bg-black/80 backdrop-blur-sm">
+                          // FEATURES ({site.terrain_3d.features_3d.length})
+                        </div>
+                        <ul>
+                          {site.terrain_3d.features_3d.map((f, i) => {
+                            const icon = ({
+                              tree: "🌲", trees: "🌲", building: "▣",
+                              water: "≋", road: "═", driveway: "═",
+                              vegetation: "♣", rock: "◆", slope: "△",
+                            })[String(f.kind || "").toLowerCase()] || "●";
+                            return (
+                              <li
+                                key={i}
+                                data-testid={`terrain-feature-row-${i}`}
+                                className={`flex items-center gap-2 px-2 py-1.5 border-b border-white/5 last:border-b-0 hover:bg-white/[0.03] ${f.hidden ? "opacity-50" : ""}`}
+                              >
+                                <span className="font-mono text-base w-5 text-center text-neutral-400">{icon}</span>
+                                <span className="text-[11px] font-mono text-neutral-300 flex-1 truncate">
+                                  {f.label || f.kind}
+                                  {f.stories ? <span className="text-neutral-500"> · {f.stories}st</span> : null}
+                                </span>
+                                <button
+                                  data-testid={`terrain-feature-hide-${i}`}
+                                  onClick={() => toggleFeatureHidden(i)}
+                                  className="label-mono text-neutral-500 hover:text-[#FFCC00] text-[10px] px-1.5 py-0.5 border border-white/10"
+                                  title={f.hidden ? "Show this feature" : "Hide this feature (kept in DB)"}
+                                >
+                                  {f.hidden ? "show" : "hide"}
+                                </button>
+                                <button
+                                  data-testid={`terrain-feature-delete-${i}`}
+                                  onClick={() => {
+                                    if (window.confirm(`Delete "${f.label || f.kind}"?`)) deleteFeature(i);
+                                  }}
+                                  className="label-mono text-neutral-500 hover:text-[#FF6666] text-[10px] px-1.5 py-0.5 border border-white/10"
+                                  title="Permanently delete this feature"
+                                >✕</button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <button
