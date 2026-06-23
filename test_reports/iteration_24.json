@@ -1,0 +1,40 @@
+{
+  "summary": "Backend regression verification for the Stripe subscription diagnostic-message change in /app/backend/routes/subscriptions.py::_ensure_key. Confirmed on the preview environment (STRIPE_API_KEY=sk_live_... set) that both admin and freshly-registered non-admin users can successfully create checkout sessions for pro_monthly and studio_monthly — i.e. the user-reported 503 'Stripe is not configured on this server' does NOT reproduce here. This proves the production failure is purely a missing STRIPE_API_KEY env var on the prod deployment, not a code regression. Also static-verified that the new helpful error messages ('STRIPE_API_KEY env var is missing' and \"must start with 'sk_test_' or 'sk_live_'\") are present in source and still raise HTTP 503.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter24_subscriptions_diagnostic.py",
+    "/app/test_reports/pytest/pytest_iter24_main.xml",
+    "/app/test_reports/pytest/pytest_iter24_regression.xml"
+  ],
+  "action_items": [
+    "Production fix (out of scope for code): set STRIPE_API_KEY (sk_live_...) and STRIPE_PUBLISHABLE_KEY in the Emergent Production deploy → Environment Variables panel for app-gonzo.com, then redeploy. The new diagnostic message in _ensure_key now tells the admin exactly that.",
+    "Optional follow-up: surface GET /api/subscriptions/plans { configured: false } on the frontend Subscription panel as a banner ('Billing is temporarily unavailable on this server — admin: STRIPE_API_KEY missing') so users see a friendlier message before they click a plan."
+  ],
+  "critical_code_review_comments": [
+    "_ensure_key() correctly distinguishes 'missing' vs 'malformed' and returns 503 in both cases (good).",
+    "Happy-path is purely env-driven (no admin/non-admin branching) — confirmed via runtime test, so the production failure for non-admin only is consistent with role-based UI hiding (admin probably never opened the subscription panel from the same code path) rather than a server-side role check.",
+    "STRIPE_API_KEY in /app/backend/.env on PREVIEW is a sk_live_ key. Each checkout test creates a real Stripe Customer + Product + Price + Checkout Session on the live account. They auto-expire but they DO show up in the live Stripe dashboard. Consider switching preview to sk_test_ to keep dashboards clean.",
+    "create_checkout returns {url, session_id} on success — frontend should redirect to body.url. Confirmed shape unchanged."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter24_subscriptions_diagnostic.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 new + 8/8 prior regression, 1 skipped live-stripe-gated)",
+    "frontend": "not tested (backend-only per request)"
+  },
+  "test_credentials": "Admin: admin@atlas.app / Open0says3me#*03#*. Non-admin: ephemeral iter24_nonadmin_<uuid>@example.com / TestPass123! created per test session.",
+  "seed_data_creation": "Each pytest session registers one fresh non-admin user via /api/auth/register and creates Stripe Customer/Product/Price/Session objects on the live Stripe account (auto-expire). No DB seed beyond standard ephemeral users.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The Stripe checkout flow is fully working on the preview. If a future iteration changes _ensure_key or the /checkout response shape, re-run: pytest /app/backend/tests/test_iter24_subscriptions_diagnostic.py -v. The test_ensure_key_diagnostic_messages_present_in_source test uses a regex to collapse Python adjacent-string-literal joins ('\"\\n  \"') before substring matching — keep that in mind if you edit the message text.",
+  "rca of the issue": "User-reported production bug: non-admin clicking 'Pro Monthly' on app-gonzo.com gets 503 'Stripe is not configured on this server'. RCA confirmed: the production deploy does not have STRIPE_API_KEY set as an env var (preview /app/backend/.env has it as sk_live_..., which is why preview works end-to-end). _ensure_key() raises 503 when os.environ.get('STRIPE_API_KEY', '').strip() is empty. Admin user did not encounter it because admin likely never traversed the same checkout button (UI difference) — there is NO server-side role check on /checkout (verified by successful admin AND non-admin checkout calls on preview). Mitigation: (1) Add STRIPE_API_KEY (sk_live_...) and STRIPE_PUBLISHABLE_KEY to the Emergent Production deploy → Environment Variables → redeploy. (2) New diagnostic messages now tell admins exactly which env var is missing or malformed, so future occurrences are self-diagnosing."
+}

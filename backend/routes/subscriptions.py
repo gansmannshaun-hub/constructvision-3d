@@ -81,8 +81,20 @@ def _publishable() -> str:
 
 def _ensure_key() -> str:
     k = _api_key()
-    if not k or not k.startswith(("sk_test_", "sk_live_")):
-        raise HTTPException(503, "Stripe is not configured on this server")
+    if not k:
+        raise HTTPException(
+            503,
+            "Stripe is not configured on this server: STRIPE_API_KEY env var is "
+            "missing. (Preview admins: set it in backend/.env. Production admins: "
+            "add it in the Emergent deploy → Environment Variables, then redeploy.)",
+        )
+    if not k.startswith(("sk_test_", "sk_live_")):
+        raise HTTPException(
+            503,
+            "Stripe is not configured on this server: STRIPE_API_KEY does not look "
+            "like a secret key — it must start with 'sk_test_' or 'sk_live_'. "
+            "Check for stray quotes or pasting the publishable key by mistake.",
+        )
     stripe.api_key = k
     return k
 
