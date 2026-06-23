@@ -693,7 +693,11 @@ export function createSceneEngine(mount) {
     }
   };
   window.addEventListener("resize", onResize);
-  const ro = new ResizeObserver(onResize);
+  // Wrap in rAF to prevent "ResizeObserver loop completed with undelivered
+  // notifications" warning when the callback itself triggers layout changes.
+  const ro = new ResizeObserver(() => {
+    window.requestAnimationFrame(onResize);
+  });
   ro.observe(mount);
 
   function disposeObject(obj) {

@@ -7,6 +7,26 @@
 
         <!-- Primary SEO -->
         <title>Atlas Construction — AI Construction Management, 3D Visualization & PDF Takeoffs</title>
+        <script>
+          // Suppress benign "ResizeObserver loop" warning that webpack-dev-server
+          // shows as an error overlay. This warning never indicates a real bug.
+          (function () {
+            var RO_MSG = "ResizeObserver loop";
+            window.addEventListener("error", function (e) {
+              if (e && e.message && e.message.indexOf(RO_MSG) !== -1) {
+                e.stopImmediatePropagation();
+                e.preventDefault();
+              }
+            }, true);
+            window.addEventListener("unhandledrejection", function (e) {
+              var msg = e && e.reason && (e.reason.message || String(e.reason));
+              if (msg && msg.indexOf(RO_MSG) !== -1) {
+                e.stopImmediatePropagation();
+                e.preventDefault();
+              }
+            });
+          })();
+        </script>
         <meta name="description" content="AI-powered construction management with 3D visualization, PDF takeoffs, AIA pay apps, and team collaboration." />
         <meta name="keywords" content="construction management software, 3D visualization, PDF takeoff, AIA G702, AIA G703, BIM, contractor software, construction estimating, project management, blueprint takeoff, construction scheduling, daily logs" />
         <meta name="author" content="Atlas Construction" />
