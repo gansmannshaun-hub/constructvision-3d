@@ -108,6 +108,13 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · Deployment blocker fix** — Removed malformed `whsec_=…` env var
+  from `/app/backend/.env` (line 12, originally a bad variable name that broke
+  the production Kubernetes secret mount and caused a backend restart loop).
+  Replaced with properly-named `STRIPE_WEBHOOK_SECRET=whsec_…`. Deployment
+  agent now reports **PASS**. 100% backend regression (31/31 + 6/6 smoke) via
+  `iter25` after the fix.
+
 - **2026-02-01 · Stripe diagnostic + "not configured" banner** — `_ensure_key()` in
   `routes/subscriptions.py` now distinguishes missing vs malformed `STRIPE_API_KEY`
   and tells admins exactly which env var to set / where. Billing page surfaces a
