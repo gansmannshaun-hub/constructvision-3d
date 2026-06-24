@@ -1,0 +1,43 @@
+{
+  "summary": "Tested iter-26 in-app support messaging end-to-end. Backend: 19/19 pytest cases passed (thread auto-create, user→admin message + unread increment, admin inbox, admin reply + user unread, mark-read for both roles, PATCH close (admin-only + non-admin 403), cross-user isolation (GET messages, POST messages, attachment fetch), body validation (empty/>5000), attachment upload + retrieval + content-type/size validation). Frontend: non-admin SUPPORT tab fully working — tab visible, SupportThread renders, send message round-trips and renders the new bubble. Admin: bubble correctly NOT rendered, header admin-support-link navigates to /admin/support, AdminSupportInbox lists threads, clicking inbox-thread loads SupportThread with messages, inbox-toggle-close button is present and clickable.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "SupportBubble + SupportThread (admin reply)",
+        "issue": "Preview-environment 'Made with Emergent' badge (#emergent-badge) is positioned at viewport bottom-right and overlaps two product UI elements: (1) the floating support bubble toggle at bottom-right, and (2) the SEND button on the chat input row in /admin/support. In automated testing without force-click the badge captures the click. In real user use the badge will still partially cover/obscure the bubble. Recommend bumping z-index on .fixed bottom-6 right-6 button and the chat-input-row send button container above the Emergent badge, OR shifting the bubble to bottom-6 right-24 (or use bottom-left) so the two elements don't collide.",
+        "selector": "[data-testid='support-bubble-toggle'], [data-testid='support-send']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter26_support.py",
+    "/app/test_reports/pytest/pytest_iter26_main.xml"
+  ],
+  "action_items": [
+    "Resolve overlap between Emergent preview badge and floating support-bubble + admin chat SEND button (z-index / position adjustment).",
+    "Confirm on production deploy where the Emergent badge is absent that no other element overlaps the bubble."
+  ],
+  "critical_code_review_comments": [
+    "routes/support.py is 363 lines — well structured. Excludes _id from responses. Good use of unread counters on both sides.",
+    "Attachment data stored as base64 inside Mongo doc — fine for an MVP (5MB cap), but storing many large attachments will inflate the support_messages collection and slow list queries (list endpoint already projects out attachments.data_b64, which is the right call). Consider moving to GridFS or external object storage if usage grows.",
+    "PATCH endpoint allows admin to change subject and status, but no audit log of who closed the thread / when. Consider stamping closed_at + closed_by_admin_id for future support analytics.",
+    "post_message reopens any closed thread on every new message (status:'open' in $set). Good for re-engagement but may surprise admin who explicitly closed a thread and then sends a follow-up message themselves — admin reply will reopen it. Probably intentional; just noting.",
+    "_notify_email runs await asyncio.wait_for(send_html_email(...), timeout=10) INSIDE the POST handler — even with timeout=10 this can add up to 10s latency to a message send when Resend is misconfigured. Since the try/except wrapper catches the exception, this is OK in preview (RESEND_API_KEY empty short-circuits inside send_html_email), but for production consider asyncio.create_task to fire-and-forget instead of awaiting."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "~90% (bubble panel / admin SEND blocked by preview overlay only)"},
+  "test_credentials": "Admin admin@atlas.app / Open0says3me#*03#*. Non-admin users created on-the-fly with pattern supporttest_<uuid>@example.com / TestPass123!",
+  "seed_data_creation": "Created 3 support threads via tests (one admin closed). Messages + 1 PNG attachment uploaded. All test data lives in support_threads / support_messages collections.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Use /app/backend/tests/test_iter26_support.py as the regression file (uses session-scoped admin_token + fresh registered users via the shared conftest.user_a/user_b pattern but defines its own support_user_a/_b). Preview env's Emergent badge at viewport bottom-right z-index can hide the support bubble and admin SEND button — use force=True click in Playwright tests against /app and /admin/support.",
+  "rca of the issue": "Floating bubble panel did not visually open in playwright with natural-coordinate click because document.elementFromPoint(bubble center) returned the Emergent preview badge anchor (#emergent-badge id), not the support button. With page.click(..., force=True) the bubble onClick handler does fire (verified setState toggles); however, on the admin /admin/support page the SEND button bounding box also sits underneath the badge so a natural click is consumed by the badge. This is a preview-env artifact — fixable in product by either raising z-index above the badge (badge is likely z-index ~9999) or shifting the bubble away from bottom-right (e.g., bottom-6 right-24). Backend send / inbox functionality verified directly via pytest with 100% pass rate."
+}

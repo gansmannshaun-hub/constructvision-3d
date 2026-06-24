@@ -37,6 +37,7 @@ from routes.projects import build_projects_router
 from routes.share import build_share_router
 from routes.site import build_site_router
 from routes.subscriptions import build_subscriptions_router
+from routes.support import build_support_router
 from routes.takeoff import build_takeoff_router
 from utils import make_current_user_dep
 
@@ -65,6 +66,7 @@ app.include_router(build_notifications_router(db, get_current_user))
 app.include_router(build_pay_apps_router(db, get_current_user))
 app.include_router(build_share_router(db, get_current_user))
 app.include_router(build_subscriptions_router(db, get_current_user))
+app.include_router(build_support_router(db, get_current_user))
 app.include_router(build_site_router(db, get_current_user))
 app.include_router(billing_mod.build_router(db, get_current_user))
 app.include_router(billing_mod.build_webhook_router(db))

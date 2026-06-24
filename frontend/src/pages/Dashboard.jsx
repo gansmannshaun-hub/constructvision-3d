@@ -11,6 +11,40 @@ import FieldTab from "../components/FieldTab";
 import ScheduleTab from "../components/ScheduleTab";
 import PayAppsTab from "../components/PayAppsTab";
 import ManualTab from "../components/ManualTab";
+import SupportTab from "../components/SupportTab";
+
+function AdminSupportLink() {
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    let cancel = false;
+    const fetch = async () => {
+      try {
+        const { data } = await apiClient.get("/support/admin/unread");
+        if (!cancel) setUnread(Number(data?.unread || 0));
+      } catch (_) { /* swallow */ }
+    };
+    fetch();
+    const id = setInterval(fetch, 20_000);
+    return () => { cancel = true; clearInterval(id); };
+  }, []);
+  return (
+    <Link
+      to="/admin/support"
+      data-testid="admin-support-link"
+      className="relative px-4 py-3 flex flex-col justify-center hover:bg-[#FFCC00]/10 transition-colors border-r border-white/10"
+      title="Support inbox"
+    >
+      <div className="label-mono text-[#FFCC00]">SUPPORT</div>
+      <div className="font-mono text-xs mt-0.5 text-[#FFCC00]">✉ INBOX</div>
+      {unread > 0 && (
+        <span
+          data-testid="admin-support-badge"
+          className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 bg-[#FF3333] text-white text-[10px] font-bold font-mono rounded-full flex items-center justify-center"
+        >{unread > 9 ? "9+" : unread}</span>
+      )}
+    </Link>
+  );
+}
 
 const TABS = [
   { id: "documents", label: "Documents", hint: "01" },
@@ -22,6 +56,7 @@ const TABS = [
   { id: "schedule", label: "Schedule", hint: "07" },
   { id: "payapps", label: "Pay Apps", hint: "08" },
   { id: "manual", label: "Manual", hint: "09" },
+  { id: "support", label: "Support", hint: "10" },
 ];
 
 const TIER_COLOR = { free: "#A0A0A0", pro: "#FFCC00", studio: "#5588FF" };
@@ -156,6 +191,7 @@ export default function Dashboard() {
                 <div className="font-mono text-xs mt-0.5 text-[#FF6666]">⚡ PANEL</div>
               </Link>
             )}
+            {user?.is_admin && <AdminSupportLink />}
             <Link
               to="/settings"
               data-testid="settings-link"
@@ -215,6 +251,7 @@ export default function Dashboard() {
             {tab === "schedule" && <ScheduleTab />}
             {tab === "payapps" && <PayAppsTab />}
             {tab === "manual" && <ManualTab />}
+            {tab === "support" && <SupportTab />}
           </>
         ) : projects.length === 0 ? (
           <EmptyProjectsState />
