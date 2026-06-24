@@ -108,6 +108,22 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · Legal Terms + Privacy gate** — Post-login users (new and
+  existing) must accept versioned **Terms of Service** + **Privacy & Data Use
+  Policy** before any protected route. New `/app/backend/routes/legal.py` with
+  `GET /api/legal/current` (public), `GET /api/legal/status` (auth),
+  `POST /api/legal/accept` recording `{terms_version, privacy_version,
+  accepted_at, ip}` on the user doc. `Protected` wrapper bounces unaccepted
+  users to `/accept-terms`. UI: side-by-side scrollable Terms + Privacy panels,
+  scroll-to-enable checkboxes, "I AGREE & CONTINUE" CTA. Public pages at
+  `/terms` and `/privacy`. Bump `CURRENT_TERMS_VERSION` /
+  `CURRENT_PRIVACY_VERSION` in both `/app/backend/routes/legal.py` AND
+  `/app/frontend/src/legal/documents.js` to force re-acceptance.
+  **Boilerplate text generated** — has `[STATE PLACEHOLDER]` and
+  `[CITY, STATE]` markers in section 11 that you should fill in before
+  shipping to production. iter27: 11/11 backend pytest + full frontend
+  flow pass.
+
 - **2026-02-01 · In-app support messaging** — Two-way chat between end-users
   and admin, with email notifications via Resend (when configured) and image/PDF
   attachments. New collection `support_threads` (one open thread per user) +
