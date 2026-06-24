@@ -1,0 +1,38 @@
+{
+  "summary": "Iter 27 — Legal Terms + Privacy gate end-to-end testing. All 11 backend tests pass (status, current, accept happy path, mismatched/unchecked version rejections, register/login include needs_legal_acceptance, force re-acceptance via DB). Frontend gate verified: registration redirects to /accept-terms, both documents render with disabled checkboxes/accept button, scroll-to-bottom enables checkboxes, checking both enables accept, POST /api/legal/accept clears the gate and redirects to /app, reload stays on /app, public /terms and /privacy render, Protected wrapper redirects /app, /billing, /settings, /admin to /accept-terms when needs_legal_acceptance=true, SIGN OUT clears tokens and returns to /, and admin@atlas.app is also gated (needs_legal_acceptance=true on login).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter27_legal.py",
+    "/app/test_reports/pytest/pytest_iter27_main.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "legal.py — IP capture via x-forwarded-for is good, but no IP validation; IPv6/IPv4 mixed strings are truncated to 64 chars which is fine. Consider also recording user-agent string for stronger audit trail (compliance nicety).",
+    "auth.py — `from routes.legal import needs_acceptance` is imported lazily inside login/me to avoid circular imports; this is fine but could be hoisted to module top since legal.py only depends on db/get_current_user via factory; no functional issue.",
+    "documents.js — Body markdown contains hard-coded [STATE PLACEHOLDER] and [CITY, STATE] placeholders in section 11 of Terms — flag for legal/product owner to replace before going to production.",
+    "AcceptTerms.jsx — Scroll detection requires the user to reach within 8px of the bottom. On very tall viewports the scroll element collapses to its content height and may already be at-bottom; works correctly today because container has fixed h-[440px] on mobile and uses flex on lg.",
+    "App.js — Protected wrapper checks `user?.needs_legal_acceptance` but does not check `token` separately for /accept-terms itself (intentionally — AcceptTerms.jsx handles that bounce). OK.",
+    "Audit immutability: legal_acceptance is overwritten on each /accept call. For audit compliance, consider appending to a history array (e.g., legal_acceptance_history: [...]) so historical version acceptances are preserved when versions are bumped."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter27_legal.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11)",
+    "frontend": "100% (gate, public pages, sign-out, protected-route redirects, admin gate)"
+  },
+  "test_credentials": "Admin: admin@atlas.app / Open0says3me#*03#* (now requires legal acceptance on next login — verified). Test users created with pattern legaltest_<uuid>@example.com / TestPass123!",
+  "seed_data_creation": "Created ~5 ephemeral users prefixed legaltest_ via /api/auth/register during the test run. Admin account state: legal_acceptance was NOT applied during testing (admin only logged via API to confirm needs_legal_acceptance=true; admin did NOT complete acceptance through the frontend, so admin will still be gated on next login). All legaltest_* users that completed acceptance now have legal_acceptance set to 2026-02-01.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 27 legal gate is fully functional and verified. Backend constants live at /app/backend/routes/legal.py (CURRENT_TERMS_VERSION / CURRENT_PRIVACY_VERSION) and MUST be kept in sync with /app/frontend/src/legal/documents.js. Admin account (admin@atlas.app) has NOT yet accepted in the DB — if subsequent iterations need admin access via the UI, the test agent will need to complete the gate flow (scroll both bodies, tick both checkboxes, click I AGREE) OR run a one-time MongoDB update via $set on legal_acceptance.",
+  "rca of the issue": "N/A — no defects found. All required behaviors verified."
+}

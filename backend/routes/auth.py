@@ -42,6 +42,7 @@ def build_auth_router(db, get_current_user) -> APIRouter:
         token = create_token(uid, payload.email.lower())
         return AuthOut(token=token, user={
             "id": uid, "email": payload.email.lower(), "name": payload.name, "is_admin": False,
+            "needs_legal_acceptance": True,
         })
 
     @router.post("/login", response_model=AuthOut)
@@ -51,16 +52,22 @@ def build_auth_router(db, get_current_user) -> APIRouter:
             raise HTTPException(401, "Invalid email or password")
         if user.get("suspended"):
             raise HTTPException(403, "Account suspended. Contact support.")
+        from routes.legal import needs_acceptance
         token = create_token(user["id"], user["email"])
         return AuthOut(token=token, user={
             "id": user["id"],
             "email": user["email"],
             "name": user["name"],
             "is_admin": bool(user.get("is_admin")),
+            "needs_legal_acceptance": needs_acceptance(user),
         })
 
     @router.get("/me")
     async def me(user: dict = Depends(get_current_user)):
-        return user
+        # Lazy-import to avoid circular dependency at module load
+        from routes.legal import needs_acceptance
+        out = {**user}
+        out["needs_legal_acceptance"] = needs_acceptance(user)
+        return out
 
     return router
