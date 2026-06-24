@@ -36,7 +36,7 @@ export default function SupportBubble() {
       {open && (
         <div
           data-testid="support-bubble-panel"
-          className="fixed bottom-24 right-6 z-50 w-[380px] h-[560px] max-h-[80vh] bg-black border border-[#FFCC00]/40 shadow-2xl flex flex-col"
+          className="fixed bottom-24 right-6 z-[100] w-[380px] h-[560px] max-h-[80vh] bg-black border border-[#FFCC00]/40 shadow-2xl flex flex-col"
         >
           <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-[#111]">
             <div>
@@ -57,7 +57,7 @@ export default function SupportBubble() {
       <button
         data-testid="support-bubble-toggle"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-[#FFCC00] hover:bg-[#E6B800] text-black shadow-2xl flex items-center justify-center transition-transform hover:scale-105"
+        className="fixed bottom-6 right-24 z-[100] w-14 h-14 rounded-full bg-[#FFCC00] hover:bg-[#E6B800] text-black shadow-2xl flex items-center justify-center transition-transform hover:scale-105"
         title={open ? "Close support" : "Contact support"}
       >
         {open ? (

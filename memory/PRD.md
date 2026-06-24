@@ -108,6 +108,21 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · In-app support messaging** — Two-way chat between end-users
+  and admin, with email notifications via Resend (when configured) and image/PDF
+  attachments. New collection `support_threads` (one open thread per user) +
+  `support_messages` (sender, body, attachments[]). Endpoints under `/api/support/*`:
+  `GET /me/thread`, `GET /me/unread`, `GET /threads/{id}/messages`,
+  `POST /threads/{id}/messages`, `POST /threads/{id}/read`,
+  `POST /threads/{id}/attachments` (multipart, 5MB cap, PNG/JPEG/WebP/GIF/PDF),
+  `GET /attachments/{id}` (base64 stream), `GET /admin/inbox`, `GET /admin/unread`,
+  `PATCH /threads/{id}` (admin close/reopen/subject). UI: floating bottom-right
+  bubble (`SupportBubble`) for users, `Support` tab in Dashboard,
+  `AdminSupportInbox` page at `/admin/support` with thread list + filters
+  (all/unread/open/closed). Admin header gets `SUPPORT` link with red unread
+  badge. Email templates HTML-styled with Atlas branding. iter26: 19/19 backend
+  tests + frontend flows pass.
+
 - **2026-02-01 · Deployment blocker fix** — Removed malformed `whsec_=…` env var
   from `/app/backend/.env` (line 12, originally a bad variable name that broke
   the production Kubernetes secret mount and caused a backend restart loop).
