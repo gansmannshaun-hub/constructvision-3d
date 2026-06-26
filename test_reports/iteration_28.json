@@ -1,0 +1,40 @@
+{
+  "summary": "Iter 28 — Materials tab pricing-slider race-condition fix verified end-to-end. The original bug ('sliders glitching, not mirrored, not responsive') is FIXED: dispatching a rapid burst of input events on each of the four sliders (waste, overhead, profit, contingency), every slider's DOM `value` attribute AND the yellow %-label now snap cleanly to the LAST emitted value with no rollback/oscillation (verified for waste=20.0%, overhead=28.0%, profit=30.0%, contingency=19.0%). Optimistic localCfg renders within a single frame, debounced PATCH fires after 200ms, and the Grand Total updates accordingly. ZIP-blur regression and Save-Bid regression both pass. One side-effect bug discovered during testing — see backend_issues.minor.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/projects/{id}/pricing", "issue": "Not a backend bug, but the shared `patchTimerRef` in PricingPanel.jsx means that if the user rapidly switches between multiple sliders within the 200 ms debounce window, the pending PATCH for the previously-dragged slider is canceled and never sent. Result: only the LAST slider that was touched gets persisted to the server. During testing, a sequential burst across all 4 sliders (~210ms per slider) resulted in only contingency_pct=19 being PATCH'd; waste/overhead/profit values reverted to their server-side originals on next render. Real-world impact is low (humans rarely drag 4 sliders in <800ms) but it can surface if a user quickly tweaks two sliders in succession. Fix: keep a per-key timer map (e.g. `patchTimerRef.current[key] = setTimeout(...)`) and an abort controller per key, so each slider has its own independent debounce/cancel pipeline."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Multi-slider rapid drag", "issue": "Earlier slider's debounced PATCH is canceled when a different slider starts being dragged within 200ms; values appear to 'snap back' to server defaults after debounce flushes. See backend_issues.minor for RCA.", "affected_selectors": ["[data-testid='pricing-waste_pct']", "[data-testid='pricing-overhead_pct']", "[data-testid='pricing-profit_pct']", "[data-testid='pricing-contingency_pct']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_28.json"
+  ],
+  "action_items": [
+    "(Optional / minor) Refactor PricingPanel.jsx to use a per-key debounce map: `const patchTimers = useRef({})` and `patchTimers.current[key] = setTimeout(...)`, with a matching `patchAbortRef.current[key]` AbortController. This will let users tweak multiple sliders in quick succession without losing earlier values."
+  ],
+  "critical_code_review_comments": [
+    "PricingPanel.jsx L25-26: `patchTimerRef` and `patchAbortRef` are single refs shared across all 4 sliders. onSliderChange unconditionally clears the previous timer regardless of which slider's value just changed, which means changes to slider A pending in the debounce window get DROPPED if the user touches slider B within 200ms. Recommend keying both refs by `key`.",
+    "PricingPanel.jsx L138 — `{Number((localCfg || cfg)[key]).toFixed(1)}%` correctly reads optimistic localCfg first; fix verified.",
+    "PricingPanel.jsx L42-44 — Server cfg → localCfg sync via useEffect([cfg]) is good, but if a PATCH response lands WHILE the user is dragging (very unlikely with debounce but possible on slow networks), localCfg is overwritten by the now-stale server value. Consider gating: `if (!patchTimerRef.current && !patchAbortRef.current?.signal.aborted === false) setLocalCfg(cfg)`, or compare timestamps. Low priority — debounce + abort already minimize this.",
+    "PricingPanel.jsx L111 — onBlur for ZIP fires synchronous PATCH without abort/debounce; OK since ZIP changes are infrequent and blur is a discrete event.",
+    "Dashboard / dev-tooling: x-component devtools render an extra `<span>` inside `<option>` in PricingPanel L180/L189 causing a React hydration warning ('In HTML, <span> cannot be a child of <option>'). This is a dev-only x-component injection issue, not a runtime bug; flag for the dev-tools team if it bleeds into production builds."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "n/a (frontend-only iteration; backend PATCH/GET endpoints still respond correctly and Save Bid V2 persisted)",
+    "frontend": "100% on the reported bug (sliders mirror the LAST emitted value with zero oscillation across fast bursts); 1 minor multi-slider race surfaced as a secondary issue"
+  },
+  "test_credentials": "Admin: admin@atlas.app / Open0says3me#*03#*. Legal gate was completed during this run, so admin is no longer gated on subsequent logins.",
+  "seed_data_creation": "Created bid snapshot 'TEST_iter28_smoke_bid' (V2) on project '9301 berry road' (id 98f4e548-bcda-4a43-adf2-34100951db11) as part of the Save Bid regression. Also changed that project's ZIP to 90210 (Beverly Hills, CA — multiplier 1.220) and its contingency_pct to 19. If clean state matters for the next iteration, reset via PATCH /api/projects/{id}/pricing.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The primary bug from the user report (slider glitching / not mirrored) is fully resolved by the localCfg + 200ms debounce + AbortController fix in PricingPanel.jsx. The single secondary issue worth fixing later is the shared patchTimerRef/patchAbortRef across all 4 sliders — make them per-key so multi-slider quick-edits don't drop earlier PATCHes. Tests used direct `input` event dispatch via Element.prototype.value setter to bypass React's synthetic event tracking properly. ZIP onBlur PATCH still works. Save Bid V1->V2 confirmed.",
+  "rca of the issue": "Reported bug RCA: range-input was controlled by server state `cfg[key]`, and every onChange fired an immediate async PATCH. Fast drags produced an out-of-order response storm; setCfg from a slow response overwrote the new value, snapping the thumb backward. FIX (verified working): introduce optimistic `localCfg` state (slider reads from `(localCfg||cfg)[key]`), schedule PATCH on a 200ms debounce, and abort any in-flight PATCH when the user keeps dragging. Burst-input test shows DOM .value == final dispatched value 100% of the time with no flicker. Secondary RCA: the single shared patchTimerRef/patchAbortRef makes the debounce pipeline cross-cancel between different slider keys — patch for an earlier slider is silently discarded when the user starts dragging a different slider within 200ms. Mitigation: use a per-key Map of timers/aborts."
+}

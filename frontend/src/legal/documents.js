@@ -15,7 +15,7 @@ export const TERMS_OF_SERVICE = {
 
 **Last updated: February 1, 2026**
 
-Welcome to **Atlas Construction** ("Atlas", "we", "us", "our"). These Terms of Service ("Terms") govern your access to and use of the Atlas Construction software-as-a-service platform (the "Service"), accessible at app-gonzo.com and any related domains. By creating an account or using the Service, you ("User", "you") agree to be bound by these Terms.
+Welcome to **Atlas Construction** ("Gonzo ai Solutions","Atlas", "we", "us", "our"). These Terms of Service ("Terms") govern your access to and use of the Atlas Construction software-as-a-service platform (the "Service"), accessible at app-gonzo.com and any related domains. By creating an account or using the Service, you ("User", "you") agree to be bound by these Terms.
 
 ## 1. Eligibility & Accounts
 1.1 You must be at least 18 years old and capable of forming a binding contract to use the Service.
@@ -37,7 +37,7 @@ Welcome to **Atlas Construction** ("Atlas", "we", "us", "our"). These Terms of S
 4.1 **Your data is yours.** You retain all rights to documents, drawings, photos, and other content you upload ("User Content").
 4.2 You grant Atlas a worldwide, non-exclusive, royalty-free license to host, process, and display your User Content **solely to operate the Service for you**.
 4.3 You represent that you have all necessary rights to the User Content you upload and that it does not infringe any third-party rights.
-4.4 **Atlas IP.** The Service software, code, design, trademarks, and logos are owned by Atlas Construction. These Terms do not transfer any IP rights to you.
+4.4 **Atlas IP.** The Service software, code, design, trademarks, and logos are owned by Gonzo ai Solutions. These Terms do not transfer any IP rights to you.
 
 ## 5. Acceptable Use
 You may NOT:
@@ -60,13 +60,13 @@ Atlas integrates with third-party services including **Stripe** (payments), **Go
 THE SERVICE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. Atlas does not warrant that AI-generated outputs are accurate, complete, code-compliant, or suitable for permit submission or construction.
 
 ## 9. Limitation of Liability
-TO THE MAXIMUM EXTENT PERMITTED BY LAW, ATLAS, ITS OFFICERS, EMPLOYEES, AND AFFILIATES SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUE, ARISING FROM YOUR USE OF THE SERVICE. OUR TOTAL CUMULATIVE LIABILITY SHALL NOT EXCEED THE GREATER OF (A) US $100 OR (B) THE FEES YOU PAID US IN THE 12 MONTHS PRECEDING THE CLAIM.
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, Gonzo ai Solutions,ATLAS, ITS OFFICERS, EMPLOYEES, AND AFFILIATES SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUE, ARISING FROM YOUR USE OF THE SERVICE. OUR TOTAL CUMULATIVE LIABILITY SHALL NOT EXCEED THE GREATER OF (A) US $100 OR (B) THE FEES YOU PAID US IN THE 12 MONTHS PRECEDING THE CLAIM.
 
 ## 10. Indemnification
-You agree to indemnify and hold Atlas harmless from any claims, damages, or expenses arising from your User Content, your use of the Service, or your violation of these Terms.
+You agree to indemnify and hold Atlas, Gonzo ai Solutions, harmless from any claims, damages, or expenses arising from your User Content, your use of the Service, or your violation of these Terms.
 
 ## 11. Governing Law & Disputes
-These Terms are governed by the laws of the State of [STATE PLACEHOLDER — please replace], United States, without regard to conflict-of-laws principles. Any dispute shall be resolved by binding arbitration in [CITY, STATE], administered by the American Arbitration Association under its Commercial Arbitration Rules, except that either party may seek injunctive relief in court to protect intellectual property.
+These Terms are governed by the laws of the State of Missouri, United States, without regard to conflict-of-laws principles. Any dispute shall be resolved by binding arbitration in Jefferson City, Missouri administered by the American Arbitration Association under its Commercial Arbitration Rules, except that either party may seek injunctive relief in court to protect intellectual property.
 
 ## 12. Changes to These Terms
 We may update these Terms from time to time. When we do, we will bump the version number and require you to re-accept on next login. Continued use of the Service after acceptance constitutes agreement.

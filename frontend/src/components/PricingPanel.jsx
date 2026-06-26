@@ -4,7 +4,7 @@
  * - Live grand-total cascade
  * - Save Bid + history + diff modal
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -20,6 +20,11 @@ export default function PricingPanel({ projectId }) {
   const [diffB, setDiffB] = useState("");
   const [diff, setDiff] = useState(null);
 
+  // Local slider state — updates instantly on drag; the server PATCH is debounced.
+  const [localCfg, setLocalCfg] = useState(null);
+  const patchTimerRef = useRef(null);
+  const patchAbortRef = useRef(null);
+
   const load = async () => {
     if (!projectId) return;
     const [p, b] = await Promise.all([
@@ -33,9 +38,44 @@ export default function PricingPanel({ projectId }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [projectId]);
 
-  const patch = async (patch) => {
-    const { data } = await axios.patch(`${API}/projects/${projectId}/pricing`, patch, auth());
-    setCfg(data.config); setTotals(data.totals);
+  // Sync local slider state whenever the canonical cfg changes
+  useEffect(() => {
+    if (cfg) setLocalCfg(cfg);
+  }, [cfg]);
+
+  // Clean up any pending timer on unmount
+  useEffect(() => () => {
+    if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+    if (patchAbortRef.current) patchAbortRef.current.abort();
+  }, []);
+
+  const patch = async (patchBody, signal) => {
+    const { data } = await axios.patch(
+      `${API}/projects/${projectId}/pricing`,
+      patchBody,
+      { ...auth(), signal },
+    );
+    setCfg(data.config);
+    setTotals(data.totals);
+  };
+
+  // Slider drag handler — instant local update, debounced backend sync.
+  const onSliderChange = (key, value) => {
+    setLocalCfg((prev) => prev ? { ...prev, [key]: value } : prev);
+    if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+    patchTimerRef.current = setTimeout(async () => {
+      // Cancel any in-flight patch so out-of-order responses can't overwrite us
+      if (patchAbortRef.current) patchAbortRef.current.abort();
+      const controller = new AbortController();
+      patchAbortRef.current = controller;
+      try {
+        await patch({ [key]: value }, controller.signal);
+      } catch (e) {
+        if (e?.name !== "CanceledError" && e?.code !== "ERR_CANCELED") {
+          console.error("pricing patch failed", e);
+        }
+      }
+    }, 200);
   };
 
   const saveBid = async () => {
@@ -95,12 +135,13 @@ export default function PricingPanel({ projectId }) {
             <label key={key} className="block mb-2.5">
               <div className="flex justify-between label-mono">
                 <span>{label}</span>
-                <span className="text-[#FFCC00]">{Number(cfg[key]).toFixed(1)}%</span>
+                <span className="text-[#FFCC00]">{Number((localCfg || cfg)[key]).toFixed(1)}%</span>
               </div>
               <input
                 data-testid={`pricing-${key}`}
-                type="range" min={mn} max={mx} step="0.5" value={cfg[key]}
-                onChange={(e) => patch({ [key]: Number(e.target.value) })}
+                type="range" min={mn} max={mx} step="0.5"
+                value={(localCfg || cfg)[key]}
+                onChange={(e) => onSliderChange(key, Number(e.target.value))}
                 className="w-full accent-[#FFCC00]"
               />
             </label>
