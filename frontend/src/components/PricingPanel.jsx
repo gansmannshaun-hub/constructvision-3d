@@ -22,8 +22,11 @@ export default function PricingPanel({ projectId }) {
 
   // Local slider state — updates instantly on drag; the server PATCH is debounced.
   const [localCfg, setLocalCfg] = useState(null);
-  const patchTimerRef = useRef(null);
-  const patchAbortRef = useRef(null);
+  // Per-key debounce timer + abort controller so each slider has its own
+  // independent pipeline (dragging slider A then B within 200ms must NOT cancel
+  // A's pending PATCH — that was the original bug).
+  const patchTimersRef = useRef({});
+  const patchAbortsRef = useRef({});
 
   const load = async () => {
     if (!projectId) return;
@@ -38,15 +41,20 @@ export default function PricingPanel({ projectId }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [projectId]);
 
-  // Sync local slider state whenever the canonical cfg changes
+  // Sync local slider state whenever the canonical cfg changes — but only if
+  // there are no pending in-flight changes (otherwise a slow server response
+  // could overwrite the user's mid-drag value).
   useEffect(() => {
-    if (cfg) setLocalCfg(cfg);
+    if (!cfg) return;
+    const anyPending = Object.keys(patchTimersRef.current).length > 0
+      || Object.keys(patchAbortsRef.current).length > 0;
+    if (!anyPending) setLocalCfg(cfg);
   }, [cfg]);
 
-  // Clean up any pending timer on unmount
+  // Clean up any pending timers / aborts on unmount
   useEffect(() => () => {
-    if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
-    if (patchAbortRef.current) patchAbortRef.current.abort();
+    Object.values(patchTimersRef.current).forEach((t) => clearTimeout(t));
+    Object.values(patchAbortsRef.current).forEach((c) => c.abort());
   }, []);
 
   const patch = async (patchBody, signal) => {
@@ -59,20 +67,27 @@ export default function PricingPanel({ projectId }) {
     setTotals(data.totals);
   };
 
-  // Slider drag handler — instant local update, debounced backend sync.
+  // Slider drag handler — instant local update, per-key debounced backend sync.
   const onSliderChange = (key, value) => {
     setLocalCfg((prev) => prev ? { ...prev, [key]: value } : prev);
-    if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
-    patchTimerRef.current = setTimeout(async () => {
-      // Cancel any in-flight patch so out-of-order responses can't overwrite us
-      if (patchAbortRef.current) patchAbortRef.current.abort();
+    // Reset this key's debounce timer
+    if (patchTimersRef.current[key]) clearTimeout(patchTimersRef.current[key]);
+    patchTimersRef.current[key] = setTimeout(async () => {
+      delete patchTimersRef.current[key];
+      // Cancel only THIS key's previous in-flight patch
+      if (patchAbortsRef.current[key]) patchAbortsRef.current[key].abort();
       const controller = new AbortController();
-      patchAbortRef.current = controller;
+      patchAbortsRef.current[key] = controller;
       try {
         await patch({ [key]: value }, controller.signal);
       } catch (e) {
         if (e?.name !== "CanceledError" && e?.code !== "ERR_CANCELED") {
           console.error("pricing patch failed", e);
+        }
+      } finally {
+        // Clear ref only if it's still our controller (a newer one may have replaced it)
+        if (patchAbortsRef.current[key] === controller) {
+          delete patchAbortsRef.current[key];
         }
       }
     }, 200);

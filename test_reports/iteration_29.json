@@ -1,0 +1,35 @@
+{
+  "summary": "Iter 29 — Materials tab per-key debounce/abort fix VERIFIED. Both the primary iter28 fix (single-slider rapid burst mirroring) and the new secondary regression fix (multi-slider rapid drag persistence) now pass. Tested on project '9301 berry road' (98f4e548-bcda-4a43-adf2-34100951db11) using direct native input event dispatch via the React-aware HTMLInputElement value setter. (1) Single-slider bursts of 6 values within ~90ms on each of the 4 sliders: DOM .value AND the yellow %-label show the LAST emitted value with NO oscillation; debounced PATCH lands at the server with the correct final value (waste=11, overhead=17, profit=23, contingency=7). (2) NEW REGRESSION: multi-slider sequence (waste=12 → overhead=22 → profit=25 → contingency=8) fired in ~370ms total (~120ms gap each, BELOW the 200ms debounce window): after a 2.5s settle, GET /api/projects/{id}/pricing returned ALL FOUR persisted correctly. With the previous shared-ref code, earlier sliders' PATCHes would have been cancelled and only contingency=8 would have survived; now every key has its own timer/abort pipeline and all four PATCHes complete. (3) ZIP onBlur regression: typing 10001 + blur correctly PATCHes (zip=10001, regional_multiplier=1.42, New York NY). (4) Save Bid regression: clicking Save Bid created a new snapshot — bid count went from 1 → 2, button label updated from 'Save Bid V2' to 'Save Bid V3' in the UI, confirming a new version was persisted with the current post-debounce config.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_29.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PricingPanel.jsx L28-29: per-key `patchTimersRef`/`patchAbortsRef` plain objects look good. Consider switching to a `Map` for slightly cleaner semantics, but functionally equivalent.",
+    "PricingPanel.jsx L47-52: the cfg->localCfg useEffect now correctly guards against overwriting localCfg while any pending timer/abort exists — this fixes the slow-network clobber edge case flagged in iter28. Good.",
+    "PricingPanel.jsx L55-58: cleanup useEffect aborts all in-flight controllers on unmount — correct.",
+    "PricingPanel.jsx L83-91: abort-key ownership check (`if (patchAbortsRef.current[key] === controller) delete...`) correctly avoids deleting a newer controller's entry. Good.",
+    "Cosmetic dev-only warning (still present from iter28): x-component tooling injects an extra <span> inside <option> in the bid-history <select>s (L195/L204). Causes a React hydration warning in dev console only; not a runtime bug. Already flagged in iter28; safe to ignore unless it bleeds into production builds.",
+    "L60-68 `patch()` uses axios PATCH with AbortSignal — proper cancel error code handling at L84 (`CanceledError`/`ERR_CANCELED`). Good."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "n/a (frontend-only iteration; PATCH/POST/GET endpoints all responded 200 with expected payloads)",
+    "frontend": "100% — primary single-slider mirroring + persistence pass, multi-slider regression (the new fix) passes, ZIP onBlur passes, Save Bid passes"
+  },
+  "test_credentials": "Admin: admin@atlas.app / Open0says3me#*03#*. Legal gate already accepted from iter28 — no gate appeared.",
+  "seed_data_creation": "Project '9301 berry road' (id 98f4e548-bcda-4a43-adf2-34100951db11) now has: zip=10001 (New York NY, mult 1.42), waste_pct=12, overhead_pct=22, profit_pct=25, contingency_pct=8. Bid history grew by one snapshot (named 'TEST_iter29_multislider_bid', new version V3 — though the API returned the older bid first in unsorted order, the UI's button label and bids count confirm V3 was created).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter28 primary slider-glitch fix AND iter29 multi-slider per-key debounce/abort regression fix are both confirmed working end-to-end. Test technique: drive sliders via `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el, val)` then dispatch native `input`+`change` events — this bypasses React's synthetic event tracking that otherwise swallows programmatic .value writes on controlled range inputs. To open a project other than the default in the dashboard, programmatically set the project <select>'s value via the prototype value setter and dispatch `change`. The dashboard route `/projects/{id}` redirects to `/app` and uses the dashboard's project picker — do NOT trust the path param to bind PricingPanel to a specific project. Always cross-check UI is bound to the intended project by comparing initial slider values to a GET on /api/projects/{id}/pricing before driving the test.",
+  "rca of the issue": "Iter28 secondary bug RCA: a single `patchTimerRef` and `patchAbortRef` shared across all 4 pricing sliders meant onSliderChange unconditionally cleared the previous timer and aborted the previous controller — regardless of which slider's value just changed. Dragging slider A then slider B within 200ms therefore silently dropped slider A's pending PATCH; only the LAST-touched slider got persisted. FIX (now verified): convert both refs into plain objects keyed by field name (waste_pct/overhead_pct/profit_pct/contingency_pct). onSliderChange now clears/sets only `patchTimersRef.current[key]` and aborts only `patchAbortsRef.current[key]`, giving every slider its own independent debounce + cancel pipeline. Additionally, the cfg→localCfg sync useEffect now guards `if (!anyPending) setLocalCfg(cfg)` to prevent a slow PATCH response from clobbering a still-active drag. Multi-slider burst test (4 sliders, 120ms apart, total ~370ms) shows ALL FOUR final values land on the server after debounce settle — the bug is fixed."
+}
