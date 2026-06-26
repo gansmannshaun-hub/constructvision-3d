@@ -108,6 +108,18 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · Pricing-slider race fix (Materials tab)** — Sliders no longer
+  glitch / oscillate / lose values. Two-part fix in `PricingPanel.jsx`:
+  (1) Optimistic `localCfg` state so the slider updates instantly on drag
+  instead of waiting for the server PATCH round-trip; (2) Per-key debounce
+  timers + AbortControllers (200ms) so each of the four sliders (waste,
+  overhead, profit, contingency) has an independent cancel pipeline.
+  `cfg → localCfg` sync useEffect guards against slow-network clobber by
+  refusing to overwrite localCfg while any key has a pending timer or abort.
+  iter28 verified the primary single-slider fix; iter29 verified the
+  multi-slider regression fix (4 sliders dragged in 370ms all persist
+  correctly).
+
 - **2026-02-01 · Legal Terms + Privacy gate** — Post-login users (new and
   existing) must accept versioned **Terms of Service** + **Privacy & Data Use
   Policy** before any protected route. New `/app/backend/routes/legal.py` with
