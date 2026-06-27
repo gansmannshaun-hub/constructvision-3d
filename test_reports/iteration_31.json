@@ -1,0 +1,38 @@
+{
+  "summary": "Verified the AcceptTerms.jsx legal-gate fix for the user's 'cannot agree' bug. The auto-detect useEffect correctly marks both legal panels as 'scrolled' when their content fits without internal scrolling (scrollHeight <= clientHeight + 8), unblocking the checkboxes. All three requested scenarios pass: (1) tall viewport 1920x1100 — checkboxes enabled at load, accept → /app, reload stays on /app; (2) shorter viewport 1280x600 (and mobile 390x844) — auto-detect still works because the flex layout grows panels to content size, so checkboxes are enabled and Accept reaches /app; (3) SIGN OUT button on /accept-terms clears token and returns to /. The original bug (user locked out of the gate) is RESOLVED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/accept-terms",
+        "issues": [
+          "The legal panel CSS uses 'flex-1 overflow-y-auto px-5 py-4 h-[440px] lg:h-auto' but the flex item lacks 'min-h-0', so on small viewports (<1024px) the panels still grow to fit content instead of becoming 440px scrollable areas. Result: the whole page scrolls instead of just the panel. This is not a regression and not blocking — the new useEffect auto-marks them as scrolled in this case. But the original 'scroll to read' UX never actually engages on any tested viewport (1920x1100, 1280x600, 768x900, 390x844). If product intent is to force users to scroll the panel, the panel needs 'min-h-0' added to its className (or replace flex-1 with explicit max-h)."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Optional UX polish) Add 'min-h-0' to the legal panel scroller className so 'h-[440px]' actually constrains the panel height on small viewports and the 'scroll to read' interaction engages. Current behaviour is acceptable since the auto-detect fallback covers it, but the 32px scroll-tolerance path was never exercised in real viewports because internal scrolling never occurs."
+  ],
+  "critical_code_review_comments": [
+    "AcceptTerms.jsx useEffect on lines 37-48 correctly handles the no-scroll case and cleans up resize listener — looks good.",
+    "Threshold widened to 32px in onTermsScroll/onPrivacyScroll — reasonable for high-DPI rounding.",
+    "Auto-detect uses scrollHeight <= clientHeight + 8 — slight inconsistency with the 32px scroll threshold elsewhere, but harmless because the +8 only widens the 'no scroll needed' detection.",
+    "Layout note: lacking 'min-h-0' on the panel scroller means h-[440px] is ignored on flex children, so 'scroll to read' interaction never actually engages in any tested viewport — but this is a UX/intent concern, not a bug for this fix."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only review)", "frontend": "100%"},
+  "test_credentials": "Ephemeral users created via POST /api/auth/register (TestPass123!) for each test",
+  "seed_data_creation": "Created 4 throwaway accounts via /api/auth/register during the test run (nosrcoll_*, scrl2_*, t2_*, t3f_*@example.com)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "AcceptTerms.jsx fix is fully verified. Three scenarios from the request all pass. The 32px scroll-tolerance path was not exercised end-to-end because the panel CSS does not engage internal scrolling at any tested viewport (flex-1 without min-h-0 overrides h-[440px]). The auto-detect useEffect (scrollHeight <= clientHeight + 8) covers every case so the user is never locked out. If the layout is changed to actually force panel scrolling, retest the 32px tolerance directly.",
+  "rca of the issue": "Original bug RCA: AcceptTerms.jsx required the user to scroll each legal panel within 8px of the bottom before enabling the agreement checkbox; on viewports where the content fits without internal scrolling, the onScroll handler never fires, so termsScrolled/privacyScrolled stay false and the checkboxes stay disabled — user is locked out of the gate. Fix: new useEffect (lines 37-48) checks scrollHeight vs clientHeight on mount and on resize and auto-sets the *Scrolled flags when no scroll is needed; the per-scroll threshold was also widened from 8px to 32px to absorb high-DPI rounding. Verified working at viewports 1920x1100, 1280x600, 768x900, 390x844 — checkboxes are enabled at load, Accept→/app round-trip succeeds, and the gate clears (reload stays on /app)."
+}

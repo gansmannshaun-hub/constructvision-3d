@@ -31,10 +31,26 @@ export default function AcceptTerms() {
     }
   }, [token, user, navigate]);
 
+  // If a panel's content fits without scrolling, treat it as already-scrolled
+  // (the onScroll handler will never fire on those screens). Also re-check on
+  // window resize, since collapsing layouts can hide/show the scrollbar.
+  useEffect(() => {
+    const check = () => {
+      const t = termsRef.current;
+      const p = privacyRef.current;
+      if (t && t.scrollHeight <= t.clientHeight + 8) setTermsScrolled(true);
+      if (p && p.scrollHeight <= p.clientHeight + 8) setPrivacyScrolled(true);
+    };
+    // Run after first paint + on resize
+    const id = setTimeout(check, 60);
+    window.addEventListener("resize", check);
+    return () => { clearTimeout(id); window.removeEventListener("resize", check); };
+  }, []);
+
   const onTermsScroll = () => {
     const el = termsRef.current;
     if (!el) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) {
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
       setTermsScrolled(true);
     }
   };
@@ -42,7 +58,7 @@ export default function AcceptTerms() {
   const onPrivacyScroll = () => {
     const el = privacyRef.current;
     if (!el) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) {
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
       setPrivacyScrolled(true);
     }
   };
