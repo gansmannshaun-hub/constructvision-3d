@@ -711,28 +711,66 @@ export default function CadEditorTab() {
           })}
 
           {/* Doors */}
+          {/* Doors — neutral outline + "DOOR" text label */}
           {doors.map((d) => {
             const isSel = selected?.type === "door" && selected.id === d.id;
+            const r = (d.width || 3) / 4;
+            const stroke = isSel ? "#FFCC00" : "#222";
+            const strokeW = isSel ? 0.22 : 0.14;
             return (
-              <circle key={d.id}
-                cx={d.position[0]} cy={d.position[1]} r={(d.width || 3) / 4}
-                fill={isSel ? "#FF8800" : "#FFCC00"} stroke="#333" strokeWidth="0.1"
-                onClick={(e) => onElementClick(e, "door", d.id)}
-              />
+              <g key={d.id} onClick={(e) => onElementClick(e, "door", d.id)} className="cursor-pointer">
+                <circle
+                  cx={d.position[0]} cy={d.position[1]} r={r}
+                  fill="#FFFFFF" stroke={stroke} strokeWidth={strokeW}
+                />
+                {/* swing arc to visually hint a door */}
+                <path
+                  d={`M ${d.position[0] - r} ${d.position[1]} A ${r * 1.6} ${r * 1.6} 0 0 1 ${d.position[0] + r * 0.5} ${d.position[1] + r * 1.3}`}
+                  fill="none" stroke={stroke} strokeWidth={strokeW * 0.7} opacity="0.6"
+                />
+                <text
+                  x={d.position[0]} y={d.position[1] + r + 1.6}
+                  fontSize="1.2"
+                  fill={isSel ? "#FFCC00" : "#222"}
+                  textAnchor="middle"
+                  fontFamily="ui-monospace, SFMono-Regular, monospace"
+                  fontWeight="600"
+                  pointerEvents="none"
+                >DOOR</text>
+              </g>
             );
           })}
 
-          {/* Windows */}
+          {/* Windows — neutral outline + "WINDOW" text label */}
           {windows.map((w) => {
             const isSel = selected?.type === "window" && selected.id === w.id;
+            const width = w.width || 4;
+            const stroke = isSel ? "#FFCC00" : "#222";
+            const strokeW = isSel ? 0.22 : 0.14;
             return (
-              <rect key={w.id}
-                x={w.position[0] - (w.width || 4) / 2}
-                y={w.position[1] - 0.4}
-                width={w.width || 4} height={0.8}
-                fill={isSel ? "#00CCFF" : "#0055FF"} stroke="#333" strokeWidth="0.1"
-                onClick={(e) => onElementClick(e, "window", w.id)}
-              />
+              <g key={w.id} onClick={(e) => onElementClick(e, "window", w.id)} className="cursor-pointer">
+                <rect
+                  x={w.position[0] - width / 2}
+                  y={w.position[1] - 0.4}
+                  width={width} height={0.8}
+                  fill="#FFFFFF" stroke={stroke} strokeWidth={strokeW}
+                />
+                {/* center mullion to visually hint a window */}
+                <line
+                  x1={w.position[0]} y1={w.position[1] - 0.4}
+                  x2={w.position[0]} y2={w.position[1] + 0.4}
+                  stroke={stroke} strokeWidth={strokeW * 0.7} opacity="0.6"
+                />
+                <text
+                  x={w.position[0]} y={w.position[1] + 1.8}
+                  fontSize="1.2"
+                  fill={isSel ? "#FFCC00" : "#222"}
+                  textAnchor="middle"
+                  fontFamily="ui-monospace, SFMono-Regular, monospace"
+                  fontWeight="600"
+                  pointerEvents="none"
+                >WINDOW</text>
+              </g>
             );
           })}
 
