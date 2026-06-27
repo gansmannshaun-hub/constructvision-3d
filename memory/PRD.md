@@ -108,6 +108,18 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · Code-compliance backlog: smoke alarms, stairs, append-mode, zoning** —
+  Extended `_check_compliance()` in `ai_tools.py` with **IRC R314.3 smoke
+  alarm coverage** (expects ≥ one `SMOKE` label per bedroom) and **IRC R311.7
+  stair sanity-check** (any `STAIR` label emits an info note about rise/run
+  /headroom that must be confirmed in 3D detail). Compliance now also runs on
+  the **merged blueprint** in AI-edit / append mode (not just the new chunk).
+  Added **zoning compliance to `POST /api/projects/{id}/site/build-3d`** — warns
+  if any AI-detected building exceeds R-zone defaults (3 stories / 35 ft) and
+  if a structure sits within ~5 ft of the satellite-frame edge (proxy for
+  side/rear setbacks). UI: new `terrain-compliance` panel in `RendererTab`
+  showing green ✓ or amber warning list with code refs.
+
 - **2026-02-01 · AI renders are code-compliant** — Beefed up
   `FLOORPLAN_PROMPT` in `routes/ai_tools.py` with explicit IBC/IRC rules
   (door widths ≥ 2'-8" / 3'-0" front, bedroom egress windows on exterior

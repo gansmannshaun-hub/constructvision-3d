@@ -235,6 +235,8 @@ async def _gen_floorplan(prompt: str) -> dict:
 _HALLWAY_KEYWORDS = ("corridor", "hall", "hallway", "passage")
 _BEDROOM_KEYWORDS = ("bed", "br ", "bedroom", "master", "guest")
 _BATH_KEYWORDS = ("bath", "wc", "restroom", "toilet")
+_STAIR_KEYWORDS = ("stair", "stairs", "staircase", "stairway")
+_SMOKE_KEYWORDS = ("smoke", "alarm", "detector", "co alarm")
 
 _MIN_DOOR_WIDTH = 2.67       # 32"
 _MIN_FRONT_DOOR = 3.0        # 36"
@@ -368,6 +370,31 @@ def _check_compliance(plan: dict) -> list[dict]:
             "severity": "warn",
             "code": "IRC-R304.1",
             "message": "No living/family room with min 120 sqft detected — IRC requires one habitable space ≥ 120 sqft.",
+        })
+
+    # 6. Smoke alarms — IRC R314.3 requires one in each bedroom + one outside
+    # each sleeping area. We can't enforce physical placement, but we can
+    # confirm the count of SMOKE labels matches expected coverage.
+    smoke_labels = [lb for lb in labels if _label_matches(lb.get("text", ""), _SMOKE_KEYWORDS)]
+    expected_smokes = max(0, len(bedroom_labels))
+    if expected_smokes > 0 and len(smoke_labels) < expected_smokes:
+        warnings.append({
+            "severity": "warn",
+            "code": "IRC-R314.3",
+            "message": (f"IRC requires a smoke alarm in each of {expected_smokes} bedroom(s) plus "
+                        f"one outside each sleeping area — only {len(smoke_labels)} 'SMOKE' label(s) placed."),
+        })
+
+    # 7. Stair sanity — if any STAIR label exists, hint that R311.7 rise/run
+    # (max 7-3/4" rise, min 10" run) and a 36" min stair width must be observed
+    # since the 2D model can't enforce 3D geometry directly.
+    stair_labels = [lb for lb in labels if _label_matches(lb.get("text", ""), _STAIR_KEYWORDS)]
+    for lb in stair_labels:
+        warnings.append({
+            "severity": "info",
+            "code": "IRC-R311.7",
+            "message": (f"Stair '{lb.get('text','STAIR')}' detected — confirm max rise 7-3/4\", "
+                        f"min run 10\", min width 36\", and 6'-8\" headroom in 3D detailing."),
         })
 
     return warnings
@@ -536,6 +563,18 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
             }},
             upsert=True,
         )
+
+        # Re-run compliance on the MERGED final blueprint when append mode
+        # (replace=False) merged new geometry into an existing layout.
+        if not payload.replace:
+            merged = {
+                "walls": new_walls,
+                "doors": new_doors,
+                "windows": new_windows,
+                "labels": new_labels,
+                "building": plan.get("building"),
+            }
+            compliance = _check_compliance(merged)
         await log_activity(db, project_id, user["email"], "ai.floorplan_generated",
                            target_type="blueprint", target_id=project_id,
                            target_name=payload.prompt[:80])

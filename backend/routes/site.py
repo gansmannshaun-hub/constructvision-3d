@@ -630,6 +630,58 @@ def build_site_router(db, get_current_user) -> APIRouter:
             "features_3d": features_3d,
             "generated_at": now_iso(),
         }
+
+        # Zoning compliance — without a 3rd-party zoning API we can't know the
+        # actual R-zone, so we warn against common residential limits and let
+        # the user reconcile against their local code.
+        compliance_warnings: list[dict] = []
+        # Conservative single-family R-1/R-2 height cap: 35 ft / ~3 stories
+        STORY_FT = 10
+        HEIGHT_CAP_FT = 35
+        HEIGHT_CAP_STORIES = 3
+        for f in features_3d:
+            if f.get("kind") != "building":
+                continue
+            stories = int(f.get("stories") or 1)
+            est_height_ft = stories * STORY_FT
+            label = (f.get("label") or "BUILDING")
+            if stories > HEIGHT_CAP_STORIES or est_height_ft > HEIGHT_CAP_FT:
+                compliance_warnings.append({
+                    "severity": "warn",
+                    "code": "ZONING-HEIGHT",
+                    "message": (f"{label}: estimated {stories} stories (~{est_height_ft} ft) — "
+                                f"most single-family R-zones cap height at {HEIGHT_CAP_FT} ft "
+                                f"({HEIGHT_CAP_STORIES} stories). Confirm against your local zoning."),
+                })
+            # Setback proxy — building radius extends into the satellite edge
+            world_ft = world_m * 3.28084
+            wx = (f.get("x", 0.5) - 0.5) * world_ft
+            wz = (f.get("y", 0.5) - 0.5) * world_ft
+            r_ft = float(f.get("radius", 0.02)) * world_ft
+            dist_to_edge = min(
+                (world_ft / 2) - abs(wx),
+                (world_ft / 2) - abs(wz),
+            )
+            # Most R-1 zones require 5 ft side / 25 ft front / 25 ft rear setbacks.
+            if dist_to_edge - r_ft < 5:
+                compliance_warnings.append({
+                    "severity": "warn",
+                    "code": "ZONING-SETBACK",
+                    "message": (f"{label}: structure appears within 5 ft of the satellite-frame edge — "
+                                f"verify side/rear setbacks (typical R-1 minimum is 5 ft side, 25 ft front/rear)."),
+                })
+        if compliance_warnings:
+            terrain_3d["compliance"] = {
+                "warnings": compliance_warnings,
+                "warn_count": sum(1 for w in compliance_warnings if w["severity"] == "warn"),
+                "critical_count": sum(1 for w in compliance_warnings if w["severity"] == "critical"),
+                "clean": False,
+            }
+        else:
+            terrain_3d["compliance"] = {
+                "warnings": [], "warn_count": 0, "critical_count": 0, "clean": True,
+            }
+
         await db.sites.update_one(
             {"project_id": project_id},
             {"$set": {"terrain_3d": terrain_3d}},

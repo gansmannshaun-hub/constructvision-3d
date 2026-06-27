@@ -1062,6 +1062,35 @@ export default function RendererTab() {
                       {buildingLandscape ? "REBUILDING…" : "↻ REBUILD 3D"}
                     </button>
 
+                    {/* ---- Zoning compliance for the rendered landscape ---- */}
+                    {site.terrain_3d.compliance && (
+                      <div data-testid="terrain-compliance" className="mt-2 border border-white/10 p-2 text-[11px] font-mono">
+                        {site.terrain_3d.compliance.clean ? (
+                          <div className="text-[#88EEAA] flex items-center gap-1.5">
+                            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12l5 5L20 7"/></svg>
+                            No zoning red flags detected.
+                          </div>
+                        ) : (
+                          <>
+                            <div className="font-bold text-[#FFCC00] mb-1">
+                              {site.terrain_3d.compliance.warn_count} zoning warning{site.terrain_3d.compliance.warn_count === 1 ? "" : "s"}
+                            </div>
+                            <ul className="space-y-1">
+                              {site.terrain_3d.compliance.warnings.slice(0, 4).map((w, i) => (
+                                <li key={i} className="text-[#FFCC00]">
+                                  <span className="opacity-70">[{w.code}]</span> {w.message}
+                                </li>
+                              ))}
+                              {site.terrain_3d.compliance.warnings.length > 4 && (
+                                <li className="text-neutral-500">… +{site.terrain_3d.compliance.warnings.length - 4} more</li>
+                              )}
+                            </ul>
+                            <div className="text-[10px] text-neutral-500 mt-1.5">Verify against local zoning — limits vary by jurisdiction.</div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
                     {/* ---- Per-feature controls (hide / delete) ---- */}
                     {(site.terrain_3d.features_3d?.length || 0) > 0 && (
                       <div data-testid="terrain-features-list" className="mt-2 border border-white/10 max-h-[220px] overflow-y-auto">
