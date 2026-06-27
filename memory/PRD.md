@@ -108,6 +108,18 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · CAD editor zoom "scrolls and zooms" fix** — Wheel handler in
+  `CadEditorTab.jsx` was attached via React's `onWheel` prop which is
+  registered as a **passive** listener since React 17, so `e.preventDefault()`
+  was silently ignored — the page scrolled AND the zoom fired at the same
+  time. Fix: removed the React prop, attach the wheel listener manually with
+  `svg.addEventListener("wheel", handler, { passive: false })` via a useEffect
+  + onWheelRef pattern (latest closure without re-attaching). Added
+  `touch-action: none` + `overscroll-behavior: contain` on the SVG as
+  belt-and-suspenders for trackpads/touch. iter30: 100% pass — single events
+  +deltaY/-deltaY and 5-event rapid bursts both keep window.scrollY at 0
+  while viewBox grows/shrinks correctly. No passive-listener console warnings.
+
 - **2026-02-01 · Pricing-slider race fix (Materials tab)** — Sliders no longer
   glitch / oscillate / lose values. Two-part fix in `PricingPanel.jsx`:
   (1) Optimistic `localCfg` state so the slider updates instantly on drag
