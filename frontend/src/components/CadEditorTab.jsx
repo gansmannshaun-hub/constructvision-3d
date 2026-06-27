@@ -211,6 +211,10 @@ export default function CadEditorTab() {
 
   const onMouseUp = () => setPanning(null);
 
+  // Keep `onWheel` in a ref so the native listener (which we attach below) can
+  // always call the latest closure (capturing the current vb / tool state).
+  const onWheelRef = useRef(null);
+
   const onWheel = (e) => {
     e.preventDefault();
     const [cx, cy] = toSvgCoord(e);
@@ -224,6 +228,18 @@ export default function CadEditorTab() {
     const my = (e.clientY - rect.top) / rect.height;
     setVb({ x: cx - newW * mx, y: cy - newH * my, w: newW, h: newH });
   };
+  onWheelRef.current = onWheel;
+
+  // React's synthetic `onWheel` is registered as PASSIVE, so preventDefault is
+  // silently ignored and the page scrolls in addition to our zoom. We bypass
+  // this by attaching the listener manually with passive:false on the SVG.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return undefined;
+    const handler = (e) => onWheelRef.current && onWheelRef.current(e);
+    svg.addEventListener("wheel", handler, { passive: false });
+    return () => svg.removeEventListener("wheel", handler);
+  }, []);
 
   const resetView = () => setVb({ x: 0, y: 0, w: 100, h: 100 });
 
@@ -658,12 +674,12 @@ export default function CadEditorTab() {
           viewBox={vbStr}
           preserveAspectRatio="xMidYMid meet"
           className={`w-full h-full ${cursorClass}`}
+          style={{ touchAction: "none", overscrollBehavior: "contain" }}
           data-testid="cad-canvas"
           onClick={moveFrom ? onMoveCommit : onCanvasClick}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseLeave={() => setHover(null)}
-          onWheel={onWheel}
         >
           {/* Grid */}
           {showGrid && gridLines.map((l) => (
