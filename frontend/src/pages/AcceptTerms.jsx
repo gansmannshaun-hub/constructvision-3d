@@ -115,7 +115,7 @@ export default function AcceptTerms() {
             data-testid="legal-terms-body"
             ref={termsRef}
             onScroll={onTermsScroll}
-            className="flex-1 overflow-y-auto px-5 py-4 h-[440px] lg:h-auto"
+            className="flex-1 min-h-0 overflow-y-auto px-5 py-4 h-[420px]"
           >
             <LegalRenderer markdown={TERMS_OF_SERVICE.body} />
           </div>
@@ -149,7 +149,7 @@ export default function AcceptTerms() {
             data-testid="legal-privacy-body"
             ref={privacyRef}
             onScroll={onPrivacyScroll}
-            className="flex-1 overflow-y-auto px-5 py-4 h-[440px] lg:h-auto"
+            className="flex-1 min-h-0 overflow-y-auto px-5 py-4 h-[420px]"
           >
             <LegalRenderer markdown={PRIVACY_POLICY.body} />
           </div>
