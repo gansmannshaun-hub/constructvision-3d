@@ -159,6 +159,37 @@ export default function CadAIPanel({ projectId, onPlanLoaded }) {
                     lot {result.lot.w}×{result.lot.h}ft · building {result.building?.w}×{result.building?.h}ft
                   </div>
                 )}
+                {result.compliance && (
+                  <div data-testid="cad-ai-compliance" className="mt-2 pt-2 border-t border-white/10">
+                    {result.compliance.clean ? (
+                      <div className="text-[#00CC66] flex items-center gap-1.5">
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12l5 5L20 7"/></svg>
+                        Code-compliant — no IBC/IRC violations detected.
+                      </div>
+                    ) : (
+                      <>
+                        <div className={`font-bold ${result.compliance.critical_count > 0 ? "text-[#FF6666]" : "text-[#FFCC00]"}`}>
+                          {result.compliance.critical_count > 0
+                            ? `${result.compliance.critical_count} CODE VIOLATION${result.compliance.critical_count === 1 ? "" : "S"}`
+                            : `${result.compliance.warn_count} warning${result.compliance.warn_count === 1 ? "" : "s"}`}
+                          {result.compliance.retried && (
+                            <span className="ml-2 text-[10px] text-neutral-500 font-normal">(AI auto-retried once)</span>
+                          )}
+                        </div>
+                        <ul className="mt-1 space-y-1 text-[11px]">
+                          {result.compliance.warnings.slice(0, 6).map((w, i) => (
+                            <li key={i} className={w.severity === "critical" ? "text-[#FF8888]" : "text-[#FFCC00]"}>
+                              <span className="font-mono opacity-70">[{w.code}]</span> {w.message}
+                            </li>
+                          ))}
+                          {result.compliance.warnings.length > 6 && (
+                            <li className="text-neutral-500">… +{result.compliance.warnings.length - 6} more in CODE tab</li>
+                          )}
+                        </ul>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

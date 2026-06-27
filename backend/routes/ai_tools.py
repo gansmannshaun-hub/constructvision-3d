@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import uuid
@@ -54,15 +55,44 @@ Schema:
   "labels": [{"position": [x,y], "text": "BEDROOM 1"}]
 }
 
-Rules:
+Layout rules:
 - Use rectangular rooms aligned to the X/Y axes. NO diagonals.
 - Total walls 8-20 (exterior + interior partitions).
 - Place the front door on the south wall (lowest Y).
-- Door widths: bedrooms 2.67 ft (32"), baths 2.5 ft (30"), front/garage 3 ft (36").
-- Window widths: 3-5 ft each, place 1 per habitable room on an exterior wall.
 - Each label (BEDROOM 1, KITCHEN, BATH, etc.) goes at the geometric centroid of its room.
 - wall_index references the wall a door/window cuts through (0-based).
-- Output JSON only. No markdown fences, no commentary.
+
+BUILDING CODE COMPLIANCE — these are REQUIREMENTS, not preferences. Every output MUST:
+1. **Egress doors**: minimum door width 2 ft 8 in (2.67 ft / 32"). FRONT door and any
+   garage-to-house door at least 3 ft (36"). NEVER generate a door narrower than 2.67.
+2. **Bedroom egress**: EVERY bedroom (any label starting with BEDROOM, BR, MASTER, GUEST)
+   MUST have at least one window on an EXTERIOR wall. Window width minimum 3 ft.
+   (Real net opening is 5.7 sqft IRC R310 — for our simple model: width ≥ 3 ft and place
+   on the room's exterior wall.)
+3. **Hallway width**: any corridor / hallway labeled CORRIDOR / HALL / HALLWAY must be
+   at least 3 ft wide (residential R311.6). Translate that as the wall-to-wall spacing
+   in the corridor direction.
+4. **Minimum room areas** (IRC R304 + common bath ergonomics):
+   - Bedroom ≥ 70 sqft, with smallest dimension ≥ 7 ft
+   - Bathroom ≥ 35 sqft, with smallest dimension ≥ 5 ft
+   - Kitchen ≥ 50 sqft
+   - Living/Family ≥ 120 sqft (one habitable space ≥ 120 sqft is required by R304)
+5. **At least one exterior door** clearly labeled or visually on the front (south) wall.
+6. **No door on a structural-exterior corner**: doors must sit at least 1 ft from a wall
+   endpoint (jamb / framing clearance).
+7. **No bedroom window on an interior wall**: bedroom windows MUST cut through an
+   exterior wall (a wall on the perimeter of the building rectangle).
+8. **Door widths by room**: bedrooms 2.67 ft (32"), baths 2.5 ft (30") — HOWEVER 2.5 ft
+   bath doors are only allowed if the bathroom has NO bathtub ≥ 60". For simplicity in
+   this model use 2.67 ft for ALL doors so the layout is universally compliant.
+9. **Window widths**: 3-5 ft each, place at least 1 per habitable room on an exterior wall.
+
+Self-check before emitting JSON:
+- Walk through each wall, door, window — does it satisfy every numbered rule above?
+- If a door width or room dimension would violate a rule, ADJUST the layout BEFORE outputting
+  (resize the room, move the door, etc.). Do not output a knowingly non-compliant plan.
+
+Output JSON only. No markdown fences, no commentary.
 """
 
 
@@ -197,6 +227,156 @@ async def _gen_floorplan(prompt: str) -> dict:
         return json.loads(m.group(0))
 
 
+# ============================ Compliance check (server-side mirror) ============================
+# Mirrors the rule constants from /app/frontend/src/lib/compliance.js so the AI
+# output is validated server-side before being persisted. Surfaces warnings to
+# the UI AND auto-retries once with violation feedback when critical issues exist.
+
+_HALLWAY_KEYWORDS = ("corridor", "hall", "hallway", "passage")
+_BEDROOM_KEYWORDS = ("bed", "br ", "bedroom", "master", "guest")
+_BATH_KEYWORDS = ("bath", "wc", "restroom", "toilet")
+
+_MIN_DOOR_WIDTH = 2.67       # 32"
+_MIN_FRONT_DOOR = 3.0        # 36"
+_MIN_WINDOW_WIDTH = 3.0      # 36" (IRC bedroom egress minimum width is ~3 ft)
+_MIN_BEDROOM_AREA = 70       # sqft
+_MIN_BATH_AREA = 35          # sqft
+_MIN_DOOR_FROM_CORNER = 1.0  # 12" jamb framing clearance
+
+
+def _label_matches(label_text: str, keywords) -> bool:
+    t = (label_text or "").lower()
+    return any(k in t for k in keywords)
+
+
+def _wall_len(w: dict) -> float:
+    s = w.get("start") or [0, 0]
+    e = w.get("end") or [0, 0]
+    return math.hypot(e[0] - s[0], e[1] - s[1])
+
+
+def _is_exterior_wall(wall_idx: int, walls: list[dict], building: dict) -> bool:
+    """A wall is 'exterior' if it sits on the building rectangle perimeter."""
+    if not building or wall_idx < 0 or wall_idx >= len(walls):
+        return False
+    bw, bh = float(building.get("w", 0)), float(building.get("h", 0))
+    w = walls[wall_idx]
+    s, e = w.get("start") or [0, 0], w.get("end") or [0, 0]
+    tol = 0.5
+    # Check if both endpoints lie on the same building edge
+    on_left = abs(s[0]) < tol and abs(e[0]) < tol
+    on_right = abs(s[0] - bw) < tol and abs(e[0] - bw) < tol
+    on_bottom = abs(s[1]) < tol and abs(e[1]) < tol
+    on_top = abs(s[1] - bh) < tol and abs(e[1] - bh) < tol
+    return on_left or on_right or on_bottom or on_top
+
+
+def _check_compliance(plan: dict) -> list[dict]:
+    """Run building-code rules over a sanitized floorplan dict.
+    Returns a list of {severity, code, message} entries (empty if clean)."""
+    warnings: list[dict] = []
+    walls = plan.get("walls") or []
+    doors = plan.get("doors") or []
+    windows = plan.get("windows") or []
+    labels = plan.get("labels") or []
+    building = plan.get("building") or {}
+
+    # 1. Door widths
+    for i, d in enumerate(doors):
+        width = float(d.get("width") or 0)
+        if width < _MIN_DOOR_WIDTH:
+            warnings.append({
+                "severity": "critical",
+                "code": "IRC-R311.2",
+                "message": f"Door #{i + 1} width {width:.2f} ft is below the 2'-8\" (2.67 ft) minimum egress width.",
+            })
+
+    # 2. Door clearance from wall corners
+    for i, d in enumerate(doors):
+        wi = int(d.get("wall_index", -1))
+        if not (0 <= wi < len(walls)):
+            continue
+        w = walls[wi]
+        s = w.get("start") or [0, 0]
+        e = w.get("end") or [0, 0]
+        pos = d.get("position") or [0, 0]
+        # distance from door position to each wall endpoint
+        d1 = math.hypot(pos[0] - s[0], pos[1] - s[1])
+        d2 = math.hypot(pos[0] - e[0], pos[1] - e[1])
+        if min(d1, d2) < _MIN_DOOR_FROM_CORNER:
+            warnings.append({
+                "severity": "warn",
+                "code": "FRAMING-CORNER",
+                "message": f"Door #{i + 1} is within 12\" of a wall corner — relocate for jamb framing.",
+            })
+
+    # 3. Bedroom egress windows on exterior walls
+    bedroom_labels = [lb for lb in labels if _label_matches(lb.get("text", ""), _BEDROOM_KEYWORDS)]
+    for lb in bedroom_labels:
+        # Find any window within room radius placed on an exterior wall
+        lx, ly = (lb.get("position") or [0, 0])[:2]
+        radius = 20  # search radius in ft
+        found = False
+        for win in windows:
+            wp = win.get("position") or [0, 0]
+            if math.hypot(wp[0] - lx, wp[1] - ly) > radius:
+                continue
+            wi = int(win.get("wall_index", -1))
+            if not _is_exterior_wall(wi, walls, building):
+                continue
+            if float(win.get("width") or 0) >= _MIN_WINDOW_WIDTH:
+                found = True
+                break
+        if not found:
+            warnings.append({
+                "severity": "critical",
+                "code": "IRC-R310",
+                "message": f"Bedroom '{lb.get('text','BEDROOM')}' has no compliant egress window (≥ 3 ft wide on an exterior wall).",
+            })
+
+    # 4. Front door exists & is ≥ 36"
+    if doors:
+        front_doors = [d for d in doors if (d.get("position") or [0, 0])[1] < 3.0]
+        if not front_doors:
+            # fall back to lowest-Y door
+            front_doors = [min(doors, key=lambda d: (d.get("position") or [0, 0])[1])]
+        max_front_w = max(float(d.get("width") or 0) for d in front_doors)
+        if max_front_w < _MIN_FRONT_DOOR:
+            warnings.append({
+                "severity": "critical",
+                "code": "IBC-1010.1.1",
+                "message": f"Front door width {max_front_w:.2f} ft is below the 36\" (3 ft) minimum.",
+            })
+    else:
+        warnings.append({
+            "severity": "critical",
+            "code": "IBC-EGRESS",
+            "message": "No exterior door found — at least one egress door is required.",
+        })
+
+    # 5. Minimum living room area (one habitable space ≥ 120 sqft per IRC R304)
+    has_living_120 = False
+    living_labels = [lb for lb in labels if "living" in (lb.get("text", "").lower())
+                     or "family" in (lb.get("text", "").lower())
+                     or "great" in (lb.get("text", "").lower())]
+    if living_labels and building:
+        # heuristic: if a living-area label exists AND the smaller building dimension >= 12 ft, OK
+        if min(float(building.get("w", 0)), float(building.get("h", 0))) >= 12:
+            has_living_120 = True
+    if not has_living_120:
+        warnings.append({
+            "severity": "warn",
+            "code": "IRC-R304.1",
+            "message": "No living/family room with min 120 sqft detected — IRC requires one habitable space ≥ 120 sqft.",
+        })
+
+    return warnings
+
+
+def _critical_count(warnings: list[dict]) -> int:
+    return sum(1 for w in warnings if w.get("severity") == "critical")
+
+
 def _sanitize_floorplan(data: dict) -> dict:
     """Coerce GPT output into the strict wall/door/window schema used everywhere."""
     walls_raw = data.get("walls") or []
@@ -300,6 +480,33 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
         if not plan["walls"]:
             raise HTTPException(422, "AI returned no walls — refine your prompt")
 
+        # Code-compliance validation. If the first generation has CRITICAL violations,
+        # re-prompt the AI once with the specific violations listed and accept whichever
+        # result has fewer criticals.
+        compliance = _check_compliance(plan)
+        retried = False
+        if _critical_count(compliance) > 0:
+            retried = True
+            critical_msgs = [w["message"] for w in compliance if w["severity"] == "critical"]
+            retry_prompt = (
+                payload.prompt
+                + "\n\nIMPORTANT — fix these CODE VIOLATIONS in your next attempt: "
+                + " | ".join(critical_msgs[:6])
+                + "\nRespect every numbered building-code rule from the system instructions. Output JSON only."
+            )
+            try:
+                raw2 = await _gen_floorplan(retry_prompt)
+                plan2 = _sanitize_floorplan(raw2)
+                if plan2["walls"]:
+                    compliance2 = _check_compliance(plan2)
+                    if _critical_count(compliance2) < _critical_count(compliance):
+                        plan = plan2
+                        compliance = compliance2
+                        logger.info("ai_floorplan: retry reduced criticals %d -> %d",
+                                    _critical_count(compliance), _critical_count(compliance2))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ai_floorplan retry failed: %s", exc)
+
         # Merge / replace into the blueprint
         bp = await db.blueprints.find_one({"project_id": project_id}, {"_id": 0}) or {}
         existing_walls = [] if payload.replace else (bp.get("walls") or [])
@@ -341,6 +548,13 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
                        "windows": len(plan["windows"]),
                        "labels": len(plan["labels"])},
             "replaced": payload.replace,
+            "compliance": {
+                "warnings": compliance,
+                "critical_count": _critical_count(compliance),
+                "warn_count": sum(1 for w in compliance if w.get("severity") == "warn"),
+                "retried": retried,
+                "clean": len(compliance) == 0,
+            },
         }
 
     # ---------- Schedule / Gantt ----------

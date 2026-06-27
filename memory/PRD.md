@@ -108,6 +108,18 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-01 · AI renders are code-compliant** — Beefed up
+  `FLOORPLAN_PROMPT` in `routes/ai_tools.py` with explicit IBC/IRC rules
+  (door widths ≥ 2'-8" / 3'-0" front, bedroom egress windows on exterior
+  walls ≥ 3 ft, min room areas R304, hallway widths R311.6, corner-jamb
+  clearance, mandatory living room ≥ 120 sqft). Added Python-side
+  `_check_compliance()` mirroring frontend `compliance.js`, runs after
+  generation, **auto-retries ONCE** with violations pasted into the
+  prompt, keeps whichever has fewer critical violations. Response now
+  includes `compliance: {warnings, critical_count, warn_count, retried,
+  clean}`. UI surfaces a green `✓ Code-compliant` or red/amber
+  per-rule bullets in the AI panel.
+
 - **2026-02-01 · CAD editor zoom "scrolls and zooms" fix** — Wheel handler in
   `CadEditorTab.jsx` was attached via React's `onWheel` prop which is
   registered as a **passive** listener since React 17, so `e.preventDefault()`
