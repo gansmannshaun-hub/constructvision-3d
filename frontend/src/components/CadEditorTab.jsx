@@ -890,13 +890,46 @@ export default function CadEditorTab() {
             <circle cx={circleCenter[0]} cy={circleCenter[1]} r={dist(circleCenter, hover)}
               fill="rgba(255, 204, 0, 0.1)" stroke="#FFCC00" strokeWidth="0.3" strokeDasharray="1 0.6" />
           )}
-          {tool === "tape" && tapeStart && hover && (
-            <>
-              <line x1={tapeStart[0]} y1={tapeStart[1]} x2={hover[0]} y2={hover[1]} stroke="#FF3333" strokeWidth="0.3" strokeDasharray="0.6 0.6" />
-              <circle cx={tapeStart[0]} cy={tapeStart[1]} r="0.6" fill="#FF3333" />
-              <circle cx={hover[0]} cy={hover[1]} r="0.6" fill="#FF3333" />
-            </>
-          )}
+          {tool === "tape" && tapeStart && hover && (() => {
+            const dx = hover[0] - tapeStart[0];
+            const dy = hover[1] - tapeStart[1];
+            const len = Math.hypot(dx, dy);
+            const mx = (tapeStart[0] + hover[0]) / 2;
+            const my = (tapeStart[1] + hover[1]) / 2;
+            // Perpendicular offset so the label sits just above the line
+            const offUnits = 1.4;
+            let nx = 0, ny = -offUnits;
+            if (len > 0.001) {
+              nx = -dy / len * offUnits;
+              ny = dx / len * offUnits;
+              // Always offset "up" relative to screen — flip if the normal points down
+              if (ny > 0) { nx = -nx; ny = -ny; }
+            }
+            const lx = mx + nx;
+            const ly = my + ny;
+            return (
+              <>
+                <line x1={tapeStart[0]} y1={tapeStart[1]} x2={hover[0]} y2={hover[1]}
+                      stroke="#FF3333" strokeWidth="0.3" strokeDasharray="0.6 0.6" />
+                <circle cx={tapeStart[0]} cy={tapeStart[1]} r="0.6" fill="#FF3333" />
+                <circle cx={hover[0]} cy={hover[1]} r="0.6" fill="#FF3333" />
+                {len > 0.05 && (
+                  <g pointerEvents="none" data-testid="cad-tape-live-label">
+                    {/* white halo behind text for legibility */}
+                    <text x={lx} y={ly} fontSize="1.8"
+                          stroke="#FFFFFF" strokeWidth="0.55"
+                          paintOrder="stroke"
+                          fill="#FF3333"
+                          textAnchor="middle"
+                          fontFamily="ui-monospace, SFMono-Regular, monospace"
+                          fontWeight="700">
+                      {formatFeetInches(len)}
+                    </text>
+                  </g>
+                )}
+              </>
+            );
+          })()}
 
           {/* Inference snap indicator */}
           {inference && hover && (
