@@ -18,6 +18,43 @@ const GRID_STEP = 2; // major grid step in coord units
 const SNAP_THRESHOLD = 3; // distance in coord units within which we snap
 const CIRCLE_SEGMENTS = 16;
 
+// ---------- Style catalogs ----------
+const DOOR_STYLES = [
+  { value: "panel",     label: "Panel · 32\"",          default_in: 32 },
+  { value: "panel_36",  label: "Panel · 36\" (Front)",  default_in: 36 },
+  { value: "french",    label: "French · 60\"",         default_in: 60 },
+  { value: "sliding",   label: "Sliding · 72\"",        default_in: 72 },
+  { value: "barn",      label: "Barn · 36\"",           default_in: 36 },
+  { value: "pocket",    label: "Pocket · 30\"",         default_in: 30 },
+  { value: "bath",      label: "Bath · 28\"",           default_in: 28 },
+];
+const WINDOW_STYLES = [
+  { value: "dh",        label: "Double Hung · 36\"",    default_in: 36 },
+  { value: "sh",        label: "Single Hung · 30\"",    default_in: 30 },
+  { value: "casement",  label: "Casement · 24\"",       default_in: 24 },
+  { value: "sliding",   label: "Sliding · 48\"",        default_in: 48 },
+  { value: "picture",   label: "Picture · 60\"",        default_in: 60 },
+  { value: "bay",       label: "Bay · 72\"",            default_in: 72 },
+  { value: "awning",    label: "Awning · 30\"",         default_in: 30 },
+  { value: "egress",    label: "Egress · 36\"",         default_in: 36 },
+];
+const WALL_STYLES = [
+  { value: "int_4",     label: "Interior · 4\"",        thickness_ft: 0.33 },
+  { value: "ext_6",     label: "Exterior · 6\"",        thickness_ft: 0.5 },
+  { value: "struct_8",  label: "Structural · 8\"",      thickness_ft: 0.67 },
+  { value: "demising",  label: "Demising · 6\" Fire",   thickness_ft: 0.5 },
+];
+
+// Per-tool input config — drives the bottom-bar input placeholder + ↵ behavior.
+const TOOL_INPUT = {
+  line:    { placeholder: "length (ft)",   unit: "ft", label: "LENGTH" },
+  rect:    { placeholder: "side (ft)",     unit: "ft", label: "SIDE" },
+  circle:  { placeholder: "radius (ft)",   unit: "ft", label: "RADIUS" },
+  offset:  { placeholder: "distance (ft)", unit: "ft", label: "OFFSET" },
+  door:    { placeholder: "width (in)",    unit: "in", label: "DOOR W" },
+  window:  { placeholder: "width (in)",    unit: "in", label: "WIN W" },
+};
+
 const TOOLS = [
   { id: "select",   key: "V", label: "Select",       hint: "Click an element to select. Backspace to delete." },
   { id: "line",     key: "L", label: "Line",         hint: "Click for start, click again to finish wall. ESC cancels." },
@@ -99,6 +136,14 @@ export default function CadEditorTab() {
   const [hover, setHover] = useState(null);                   // current cursor in coords
   const [inference, setInference] = useState(null);           // {type, point} for snap indicator
   const [measureInput, setMeasureInput] = useState("");
+  // Per-tool selected style + size (size in inches for door/window, ft for wall)
+  const [doorStyle, setDoorStyle] = useState(DOOR_STYLES[0].value);
+  const [windowStyle, setWindowStyle] = useState(WINDOW_STYLES[0].value);
+  const [wallStyle, setWallStyle] = useState(WALL_STYLES[0].value);
+  const [doorSizeIn, setDoorSizeIn] = useState(DOOR_STYLES[0].default_in);
+  const [windowSizeIn, setWindowSizeIn] = useState(WINDOW_STYLES[0].default_in);
+  // Current wall thickness derived from the selected wall-style preset.
+  const wallThicknessFt = (WALL_STYLES.find((s) => s.value === wallStyle)?.thickness_ft) || 0.5;
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -255,7 +300,7 @@ export default function CadEditorTab() {
       setPendingStart((prev) => {
         if (!prev) return p;
         if (dist(prev, p) < 0.5) return prev;
-        setWalls((arr) => [...arr, { id: cryptoId(), start: prev, end: p, thickness: 0.2 }]);
+        setWalls((arr) => [...arr, { id: cryptoId(), start: prev, end: p, thickness: wallThicknessFt, style: wallStyle }]);
         markDirty();
         return null;
       });
@@ -266,10 +311,10 @@ export default function CadEditorTab() {
       const [x1, y1] = rectStart, [x2, y2] = p;
       const corners = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
       const newWalls = [
-        { id: cryptoId(), start: corners[0], end: corners[1], thickness: 0.2 },
-        { id: cryptoId(), start: corners[1], end: corners[2], thickness: 0.2 },
-        { id: cryptoId(), start: corners[2], end: corners[3], thickness: 0.2 },
-        { id: cryptoId(), start: corners[3], end: corners[0], thickness: 0.2 },
+        { id: cryptoId(), start: corners[0], end: corners[1], thickness: wallThicknessFt, style: wallStyle },
+        { id: cryptoId(), start: corners[1], end: corners[2], thickness: wallThicknessFt, style: wallStyle },
+        { id: cryptoId(), start: corners[2], end: corners[3], thickness: wallThicknessFt, style: wallStyle },
+        { id: cryptoId(), start: corners[3], end: corners[0], thickness: wallThicknessFt, style: wallStyle },
       ];
       setWalls((arr) => [...arr, ...newWalls]);
       setRectStart(null);
@@ -285,15 +330,29 @@ export default function CadEditorTab() {
         return [circleCenter[0] + r * Math.cos(t), circleCenter[1] + r * Math.sin(t)];
       });
       const newWalls = pts.map((pt, i) => ({
-        id: cryptoId(), start: pt, end: pts[(i + 1) % segs], thickness: 0.2,
+        id: cryptoId(), start: pt, end: pts[(i + 1) % segs], thickness: wallThicknessFt, style: wallStyle,
       }));
       setWalls((arr) => [...arr, ...newWalls]);
       setCircleCenter(null);
       markDirty();
       return;
     }
-    if (tool === "door")    { setDoors((arr) => [...arr, { id: cryptoId(), position: p, width: 3, wall_index: 0 }]); markDirty(); return; }
-    if (tool === "window")  { setWindows((arr) => [...arr, { id: cryptoId(), position: p, width: 4, wall_index: 0 }]); markDirty(); return; }
+    if (tool === "door") {
+      const widthFt = Math.max(2, doorSizeIn / 12);
+      setDoors((arr) => [...arr, {
+        id: cryptoId(), position: p, width: widthFt, wall_index: 0, style: doorStyle,
+      }]);
+      markDirty();
+      return;
+    }
+    if (tool === "window") {
+      const widthFt = Math.max(2, windowSizeIn / 12);
+      setWindows((arr) => [...arr, {
+        id: cryptoId(), position: p, width: widthFt, wall_index: 0, style: windowStyle,
+      }]);
+      markDirty();
+      return;
+    }
     if (tool === "text")    { setTextEditor({ position: p, value: "" }); return; }
     if (tool === "offset") {
       if (!offsetWall) {
@@ -420,6 +479,9 @@ export default function CadEditorTab() {
     const v = parseFloat(measureInput);
     setMeasureInput("");
     if (!Number.isFinite(v) || v <= 0) return;
+    // Door / Window width: typed in inches, sets the upcoming-click size
+    if (tool === "door")   { setDoorSizeIn(v); return; }
+    if (tool === "window") { setWindowSizeIn(v); return; }
     // Line tool: exact-length wall
     if (tool === "line" && pendingStart && hover) {
       const dx = hover[0] - pendingStart[0];
@@ -428,7 +490,7 @@ export default function CadEditorTab() {
       if (cur < 0.001) return;
       const k = v / cur;
       const end = [pendingStart[0] + dx * k, pendingStart[1] + dy * k];
-      setWalls((arr) => [...arr, { id: cryptoId(), start: pendingStart, end, thickness: 0.2 }]);
+      setWalls((arr) => [...arr, { id: cryptoId(), start: pendingStart, end, thickness: wallThicknessFt, style: wallStyle }]);
       setPendingStart(null);
       markDirty();
       return;
@@ -736,7 +798,7 @@ export default function CadEditorTab() {
                   fontFamily="ui-monospace, SFMono-Regular, monospace"
                   fontWeight="600"
                   pointerEvents="none"
-                >DOOR</text>
+                >DOOR{d.style ? ` · ${(DOOR_STYLES.find(s => s.value === d.style)?.label || d.style).split(" ·")[0].toUpperCase()}` : ""}</text>
               </g>
             );
           })}
@@ -769,7 +831,7 @@ export default function CadEditorTab() {
                   fontFamily="ui-monospace, SFMono-Regular, monospace"
                   fontWeight="600"
                   pointerEvents="none"
-                >WINDOW</text>
+                >WINDOW{w.style ? ` · ${(WINDOW_STYLES.find(s => s.value === w.style)?.label || w.style).split(" ·")[0].toUpperCase()}` : ""}</text>
               </g>
             );
           })}
@@ -1027,17 +1089,77 @@ export default function CadEditorTab() {
           </span>
         )}
         <span className="bg-black px-2 py-1 border border-white/10">ZOOM {(100 / vb.w).toFixed(1)}×</span>
-        <form onSubmit={onMeasureSubmit} className="flex items-center gap-1">
-          <span className="label-mono text-neutral-500">LENGTH</span>
-          <input
-            data-testid="cad-measurement-input"
-            value={measureInput}
-            onChange={(e) => setMeasureInput(e.target.value)}
-            placeholder="e.g. 12"
-            className="w-20 bg-black border border-white/20 px-2 py-1 text-white text-right font-mono"
-          />
-          <button type="submit" className="text-[#FFCC00] hover:underline">↵</button>
-        </form>
+
+        {/* ---- Per-tool style dropdown (door / window / wall) ---- */}
+        {tool === "door" && (
+          <select
+            data-testid="cad-door-style"
+            value={doorStyle}
+            onChange={(e) => {
+              const s = DOOR_STYLES.find((x) => x.value === e.target.value);
+              setDoorStyle(e.target.value);
+              if (s) setDoorSizeIn(s.default_in);
+            }}
+            className="bg-black border border-white/20 text-[#FFCC00] px-2 py-1 font-mono text-xs"
+            title="Door style"
+          >
+            {DOOR_STYLES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        )}
+        {tool === "window" && (
+          <select
+            data-testid="cad-window-style"
+            value={windowStyle}
+            onChange={(e) => {
+              const s = WINDOW_STYLES.find((x) => x.value === e.target.value);
+              setWindowStyle(e.target.value);
+              if (s) setWindowSizeIn(s.default_in);
+            }}
+            className="bg-black border border-white/20 text-[#FFCC00] px-2 py-1 font-mono text-xs"
+            title="Window style"
+          >
+            {WINDOW_STYLES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        )}
+        {(tool === "wall" || tool === "line" || tool === "rect" || tool === "circle") && (
+          <select
+            data-testid="cad-wall-style"
+            value={wallStyle}
+            onChange={(e) => setWallStyle(e.target.value)}
+            className="bg-black border border-white/20 text-neutral-300 px-2 py-1 font-mono text-xs"
+            title="Wall thickness preset"
+          >
+            {WALL_STYLES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        )}
+
+        {/* ---- Per-tool measurement input ---- */}
+        {TOOL_INPUT[tool] && (
+          <form onSubmit={onMeasureSubmit} className="flex items-center gap-1">
+            <span className="label-mono text-neutral-500">{TOOL_INPUT[tool].label}</span>
+            <input
+              data-testid="cad-measurement-input"
+              value={measureInput}
+              onChange={(e) => setMeasureInput(e.target.value)}
+              placeholder={TOOL_INPUT[tool].placeholder}
+              className="w-24 bg-black border border-white/20 px-2 py-1 text-white text-right font-mono"
+            />
+            <span className="text-neutral-500 font-mono text-[10px]">{TOOL_INPUT[tool].unit}</span>
+            <button type="submit" className="text-[#FFCC00] hover:underline">↵</button>
+          </form>
+        )}
+
+        {/* ---- Current upcoming size readout for door/window ---- */}
+        {tool === "door" && (
+          <span data-testid="cad-door-size-readout" className="bg-black px-2 py-1 border border-white/10 font-mono text-[10px] text-neutral-400">
+            next: {doorSizeIn}″
+          </span>
+        )}
+        {tool === "window" && (
+          <span data-testid="cad-window-size-readout" className="bg-black px-2 py-1 border border-white/10 font-mono text-[10px] text-neutral-400">
+            next: {windowSizeIn}″
+          </span>
+        )}
       </div>
     </div>
   );
