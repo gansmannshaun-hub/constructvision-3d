@@ -1,0 +1,25 @@
+{
+  "summary": "Iter 33 — Verified bug fix for 'AxiosError / Network Error' React error overlay from sheet-mutation store calls. All 4 backend pytests pass (sheet CRUD end-to-end + OpenCV trace_walls_from_image producing walls for a synthetic PNG). Frontend Playwright test confirmed: (a) clicking cad-sheet-tab-<id> in the CAD editor activates the sheet with NO React error overlay and NO pageerror; (b) the global window.unhandledrejection handler in /app/frontend/src/index.js intercepts AxiosError/Network Error rejections and logs '[net] swallowed: Network Error' instead of surfacing the overlay; (c) navigating to a URL with a non-existent project id does not crash the app. Store-layer try/catch guards in createSheet/renameSheet/deleteSheet/activateSheet/saveSheetGeometry/refreshDocuments/refreshMaterials/refreshBlueprint verified via code review — all catch and console.warn instead of re-throw.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter35_net_error_fix.py",
+    "/app/test_reports/pytest/iter35_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "store.js sheet-mutation try/catch guards are correct — errors are swallowed with console.warn and, for activateSheet, a best-effort refreshBlueprint() is called to re-sync UI. Good defensive pattern.",
+    "index.js unhandledrejection handler is scoped correctly: only swallows AxiosError name / Network Error message / ERR_NETWORK / ECONNABORTED codes; other unhandled rejections still bubble so real bugs aren't hidden.",
+    "opencv_tracer.py trace_walls_from_image gracefully handles decode failures (returns count=0) and lazy-imports cv2 so the module can load without opencv installed.",
+    "Minor: refreshBilling in store.js catches errors but silently sets nothing (no console.warn); consider aligning with the other refresh* helpers for observability."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter35_net_error_fix.py"],
+  "success_rate": {"backend": "4/4 passed (100%)", "frontend": "sheet tab click + no-overlay + unhandled rejection swallow all verified"},
+  "test_credentials": "Admin: admin@atlas.app / Open0says3me#*03#*. Test users registered on-the-fly via /api/auth/register (iter35_*@example.com, TestPass123!).",
+  "seed_data_creation": "Ephemeral test users iter35_*@example.com + TEST_iter35_* projects created per run; cleaned by test isolation (unique uuid suffix).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 33 bug fix is fully verified end-to-end. Backend test file: /app/backend/tests/test_iter35_net_error_fix.py (4 tests, 100% passing). Frontend flow: register → accept legal (POST /api/legal/accept with terms_version/privacy_version from /api/legal/current, plus agreed_terms/agreed_privacy) → start-trial → create project → add sheet → localStorage cm_token/cm_user → navigate '/' → click testid='tab-cad' → click cad-sheet-tab-<id>. No error overlay, no pageerror events. Console shows '[net] swallowed: Network Error' when a transient network rejection is thrown, confirming the global handler in /app/frontend/src/index.js works.",
+  "rca of the issue": "Original bug: sheet-mutation store functions (activateSheet et al.) and refresh* helpers in /app/frontend/src/store.js let axios network errors propagate as unhandled promise rejections, tripping webpack-dev-server's red error overlay. Fix (verified): (1) each sheet-mutation and refresh function now wraps its axios call in try/catch with a console.warn on failure — no re-throw; (2) a defensive window.addEventListener('unhandledrejection', ...) in /app/frontend/src/index.js catches any remaining AxiosError/Network Error/ERR_NETWORK/ECONNABORTED rejections (e.g. from background query-client refetches) and calls event.preventDefault() to keep the React overlay from opening. Both layers are functioning as designed."
+}

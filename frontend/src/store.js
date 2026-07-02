@@ -68,20 +68,26 @@ export const useStore = create((set, get) => ({
   refreshDocuments: async () => {
     const id = get().currentProjectId;
     if (!id) return;
-    const { data } = await apiClient.get(`/projects/${id}/documents`);
-    set({ documents: data });
+    try {
+      const { data } = await apiClient.get(`/projects/${id}/documents`);
+      set({ documents: data });
+    } catch (e) { console.warn("refreshDocuments failed:", e?.message); }
   },
   refreshMaterials: async () => {
     const id = get().currentProjectId;
     if (!id) return;
-    const { data } = await apiClient.get(`/projects/${id}/materials`);
-    set({ materials: data });
+    try {
+      const { data } = await apiClient.get(`/projects/${id}/materials`);
+      set({ materials: data });
+    } catch (e) { console.warn("refreshMaterials failed:", e?.message); }
   },
   refreshBlueprint: async () => {
     const id = get().currentProjectId;
     if (!id) return;
-    const { data } = await apiClient.get(`/projects/${id}/blueprint`);
-    set({ blueprint: data });
+    try {
+      const { data } = await apiClient.get(`/projects/${id}/blueprint`);
+      set({ blueprint: data });
+    } catch (e) { console.warn("refreshBlueprint failed:", e?.message); }
   },
   saveBlueprint: async (walls, doors, windows, labels = [], extra = {}) => {
     const id = get().currentProjectId;
@@ -100,44 +106,71 @@ export const useStore = create((set, get) => ({
   },
 
   // ---------- Sheet operations ----------
+  // All sheet mutations swallow transient network errors so a flaky ingress
+  // hop doesn't blow up the CAD editor with a red React error overlay.  If
+  // the request fails, we simply skip the state update — the next successful
+  // interaction re-syncs.
   createSheet: async ({ name = "New Sheet", floor_level = 0 } = {}) => {
     const id = get().currentProjectId;
     if (!id) return null;
-    const { data } = await apiClient.post(
-      `/projects/${id}/blueprint/sheets`,
-      { name, floor_level },
-    );
-    await get().refreshBlueprint();
-    return data;
+    try {
+      const { data } = await apiClient.post(
+        `/projects/${id}/blueprint/sheets`,
+        { name, floor_level },
+      );
+      await get().refreshBlueprint();
+      return data;
+    } catch (e) {
+      console.warn("createSheet failed:", e?.message);
+      return null;
+    }
   },
   renameSheet: async (sheetId, patch) => {
     const id = get().currentProjectId;
     if (!id) return;
-    await apiClient.patch(`/projects/${id}/blueprint/sheets/${sheetId}`, patch);
-    await get().refreshBlueprint();
+    try {
+      await apiClient.patch(`/projects/${id}/blueprint/sheets/${sheetId}`, patch);
+      await get().refreshBlueprint();
+    } catch (e) {
+      console.warn("renameSheet failed:", e?.message);
+    }
   },
   deleteSheet: async (sheetId) => {
     const id = get().currentProjectId;
     if (!id) return;
-    await apiClient.delete(`/projects/${id}/blueprint/sheets/${sheetId}`);
-    await get().refreshBlueprint();
+    try {
+      await apiClient.delete(`/projects/${id}/blueprint/sheets/${sheetId}`);
+      await get().refreshBlueprint();
+    } catch (e) {
+      console.warn("deleteSheet failed:", e?.message);
+    }
   },
   activateSheet: async (sheetId) => {
     const id = get().currentProjectId;
     if (!id) return;
-    const { data } = await apiClient.post(
-      `/projects/${id}/blueprint/active/${sheetId}`,
-    );
-    set({ blueprint: data });
+    try {
+      const { data } = await apiClient.post(
+        `/projects/${id}/blueprint/active/${sheetId}`,
+      );
+      set({ blueprint: data });
+    } catch (e) {
+      console.warn("activateSheet failed:", e?.message);
+      // Best-effort refresh so the UI settles rather than showing the wrong sheet.
+      try { await get().refreshBlueprint(); } catch (_) { /* transient */ }
+    }
   },
   saveSheetGeometry: async (sheetId, walls, doors, windows, labels, fixtures) => {
     const id = get().currentProjectId;
     if (!id) return;
-    await apiClient.put(
-      `/projects/${id}/blueprint/sheets/${sheetId}`,
-      { walls, doors, windows, labels, fixtures },
-    );
-    await get().refreshBlueprint();
+    try {
+      await apiClient.put(
+        `/projects/${id}/blueprint/sheets/${sheetId}`,
+        { walls, doors, windows, labels, fixtures },
+      );
+      await get().refreshBlueprint();
+    } catch (e) {
+      console.warn("saveSheetGeometry failed:", e?.message);
+    }
   },
 
   // ---------- Document underlay (base64 image) ----------
