@@ -50,6 +50,7 @@ export const useStore = create((set, get) => ({
       set({ billing: data });
       return data;
     } catch (e) {
+      console.warn("refreshBilling failed:", e?.message);
       return null;
     }
   },
