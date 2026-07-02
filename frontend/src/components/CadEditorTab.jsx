@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useStore } from "../store";
 import { formatFeetInches, wallsAabb } from "../lib/dim";
 import CadAIPanel from "./CadAIPanel";
+import { SheetTabBar } from "./SheetTabBar";
 
 /** SketchUp-inspired 2D CAD editor.
  *  - Tools: Select / Line / Rectangle / Circle / Door / Window / Eraser /
@@ -143,7 +144,10 @@ const TOOL_ICON = ({ id, className = "" }) => {
 };
 
 export default function CadEditorTab() {
-  const { blueprint, saveBlueprint, currentProjectId, refreshBlueprint } = useStore();
+  const { blueprint, saveBlueprint, currentProjectId, refreshBlueprint,
+          createSheet, renameSheet, deleteSheet, activateSheet } = useStore();
+  const sheets = blueprint.sheets || [];
+  const activeSheetId = blueprint.active_sheet_id;
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [tool, setTool] = useState("select");
@@ -671,6 +675,40 @@ export default function CadEditorTab() {
 
   return (
     <div className="flex flex-col h-full bg-[#F5F5F0] text-black" data-testid="cad-editor-tab">
+      {/* Sheet tabs — one tab per blueprint (each uploaded blueprint gets its own sheet + own geometry) */}
+      <SheetTabBar
+        sheets={sheets}
+        activeSheetId={activeSheetId}
+        dirty={dirty}
+        onActivate={async (id) => {
+          if (id === activeSheetId) return;
+          if (dirty && !window.confirm("You have unsaved changes on the current sheet. Switch anyway?")) return;
+          await activateSheet(id);
+        }}
+        onCreate={async () => {
+          const name = window.prompt("New sheet name:", `Sheet ${sheets.length + 1}`);
+          if (!name || !name.trim()) return;
+          const fl = parseInt(window.prompt("Floor level (0 = ground, 1 = 2nd floor, -1 = basement):", "0"), 10) || 0;
+          const s = await createSheet({ name: name.trim(), floor_level: fl });
+          if (s) await activateSheet(s.id);
+        }}
+        onRename={async (id, currentName) => {
+          const name = window.prompt("Rename sheet:", currentName);
+          if (name && name.trim() && name !== currentName) await renameSheet(id, { name: name.trim() });
+        }}
+        onDelete={async (id, name) => {
+          if (sheets.length <= 1) { alert("You must keep at least one sheet."); return; }
+          if (!window.confirm(`Delete sheet "${name}"? This cannot be undone.`)) return;
+          await deleteSheet(id);
+        }}
+        onChangeFloor={async (id, currentFloor) => {
+          const raw = window.prompt("Floor level (-5..50):", String(currentFloor));
+          if (raw === null) return;
+          const n = parseInt(raw, 10);
+          if (Number.isFinite(n)) await renameSheet(id, { floor_level: n });
+        }}
+      />
+
       {/* Top toolbar (SketchUp style) */}
       <div className="flex items-center gap-1 px-3 py-2 bg-[#E8E8E0] border-b border-[#BBB] flex-shrink-0 flex-wrap">
         {TOOLS.map((t) => (

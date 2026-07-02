@@ -1,10 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { formatFeetInches, wallsAabb } from "../lib/dim";
+import { SheetTabBar } from "./SheetTabBar";
 
 /** Read-only blueprint view: draws walls/doors/windows on the blueprint grid */
 export default function BlueprintTab() {
-  const { blueprint, documents } = useStore();
+  const { blueprint, documents, createSheet, renameSheet, deleteSheet, activateSheet } = useStore();
+  const sheets = blueprint?.sheets || [];
+  const activeSheetId = blueprint?.active_sheet_id;
   const walls = blueprint?.walls || [];
   const doors = blueprint?.doors || [];
   const windows = blueprint?.windows || [];
@@ -25,7 +28,36 @@ export default function BlueprintTab() {
   const vbSize = 100 + VB_PAD * 2;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] h-full" data-testid="blueprint-tab">
+    <div className="flex flex-col h-full" data-testid="blueprint-tab">
+      <SheetTabBar
+        sheets={sheets}
+        activeSheetId={activeSheetId}
+        dirty={false}
+        onActivate={activateSheet}
+        onCreate={async () => {
+          const name = window.prompt("New sheet name:", `Sheet ${sheets.length + 1}`);
+          if (!name || !name.trim()) return;
+          const fl = parseInt(window.prompt("Floor level (0 = ground, 1 = 2nd floor, -1 = basement):", "0"), 10) || 0;
+          const s = await createSheet({ name: name.trim(), floor_level: fl });
+          if (s) await activateSheet(s.id);
+        }}
+        onRename={async (id, currentName) => {
+          const name = window.prompt("Rename sheet:", currentName);
+          if (name && name.trim() && name !== currentName) await renameSheet(id, { name: name.trim() });
+        }}
+        onDelete={async (id, name) => {
+          if (sheets.length <= 1) { alert("You must keep at least one sheet."); return; }
+          if (!window.confirm(`Delete sheet "${name}"? This cannot be undone.`)) return;
+          await deleteSheet(id);
+        }}
+        onChangeFloor={async (id, currentFloor) => {
+          const raw = window.prompt("Floor level (-5..50):", String(currentFloor));
+          if (raw === null) return;
+          const n = parseInt(raw, 10);
+          if (Number.isFinite(n)) await renameSheet(id, { floor_level: n });
+        }}
+      />
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] flex-1 min-h-0">
       <section className="relative flex flex-col">
         <div className="p-6 border-b border-white/10 flex items-baseline justify-between">
           <div>
@@ -199,6 +231,7 @@ export default function BlueprintTab() {
           <div className="text-neutral-500 text-sm font-mono">No analysis yet.</div>
         )}
       </aside>
+      </div>
     </div>
   );
 }

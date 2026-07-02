@@ -299,7 +299,7 @@ export default function CadAIPanel({ projectId, onPlanLoaded }) {
                     onChange={(e) => setTraceReplace(e.target.checked)}
                   />
                   <span className="text-neutral-300">
-                    {traceReplace ? "Replace existing geometry" : "Append to current layout"}
+                    {traceReplace ? "Create a new sheet from this trace" : "Append into the active sheet"}
                   </span>
                 </label>
 

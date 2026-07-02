@@ -32,6 +32,7 @@ from routes.documents import (
     ANALYSIS_PROMPT_HEADER, EXISTING_MATERIALS_TEMPLATE_NONE, ANALYSIS_PROMPT_FOOTER,
     _sanitize_fixture, _sanitize_label, _coord, _strip_code_fence,
 )
+from routes.projects import _create_sheet, _mirror_active_sheet_to_blueprint, get_or_create_blueprint
 from billing import consume_addon_credit, ensure_user_subscription
 from utils import now_iso
 
@@ -717,47 +718,63 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
         if not walls_out:
             raise HTTPException(422, "AI tracer returned no walls — the image may not be a clear floor plan")
 
-        # Merge / replace into the blueprint
-        bp = await db.blueprints.find_one({"project_id": project_id}, {"_id": 0}) or {}
-        existing_walls = [] if payload.replace else (bp.get("walls") or [])
-        existing_doors = [] if payload.replace else (bp.get("doors") or [])
-        existing_windows = [] if payload.replace else (bp.get("windows") or [])
-        existing_labels = [] if payload.replace else (bp.get("labels") or [])
-        existing_fixtures = [] if payload.replace else (bp.get("fixtures") or [])
-        offset = len(existing_walls)
-        shifted_doors = [{**d, "wall_index": (d.get("wall_index") or 0) + offset} for d in doors_out]
-        shifted_windows = [{**w, "wall_index": (w.get("wall_index") or 0) + offset} for w in windows_out]
-
-        new_walls = existing_walls + walls_out
-        new_doors = existing_doors + shifted_doors
-        new_windows = existing_windows + shifted_windows
-        new_labels = existing_labels + labels_out
-        new_fixtures = existing_fixtures + fixtures_out
-
         bf = data.get("building_ft") or {}
         try:
             bw, bh = float(bf.get("w") or 0), float(bf.get("h") or 0)
             building_ft = {"w": bw, "h": bh} if bw > 0 and bh > 0 else None
         except (TypeError, ValueError):
             building_ft = None
+        scale_confidence = str(data.get("scale_confidence") or "medium")
 
-        update = {
-            "walls": new_walls,
-            "doors": new_doors,
-            "windows": new_windows,
-            "labels": new_labels,
-            "fixtures": new_fixtures,
-            "updated_at": now_iso(),
-            "last_source_document_id": payload.document_id,
-        }
-        if building_ft:
-            update["building_ft"] = building_ft
+        # Baseline blueprint + sheets.
+        await get_or_create_blueprint(db, project_id)
+        sheet_name = (doc.get("filename") or "Traced Sheet")[:80]
 
-        await db.blueprints.update_one(
-            {"project_id": project_id},
-            {"$set": update},
-            upsert=True,
-        )
+        if payload.replace:
+            # Create a fresh sheet dedicated to this trace and make it active.
+            floor_level = await db.blueprint_sheets.count_documents({"project_id": project_id})
+            new_sheet = await _create_sheet(
+                db, project_id,
+                name=sheet_name,
+                floor_level=floor_level,
+                source_document_id=payload.document_id,
+                geometry={
+                    "walls":    walls_out,
+                    "doors":    doors_out,
+                    "windows":  windows_out,
+                    "labels":   labels_out,
+                    "fixtures": fixtures_out,
+                },
+                building_ft=building_ft,
+                scale_confidence=scale_confidence,
+            )
+            await _mirror_active_sheet_to_blueprint(db, project_id, new_sheet["id"])
+            result_sheet_id = new_sheet["id"]
+        else:
+            # Append to the currently active sheet (legacy "append" behavior).
+            bp_doc = await db.blueprints.find_one({"project_id": project_id}, {"_id": 0}) or {}
+            active_id = bp_doc.get("active_sheet_id")
+            active_sheet = await db.blueprint_sheets.find_one(
+                {"id": active_id, "project_id": project_id}, {"_id": 0}
+            )
+            if not active_sheet:
+                raise HTTPException(500, "No active sheet to append to")
+            offset = len(active_sheet.get("walls") or [])
+            shifted_doors = [{**d, "wall_index": (d.get("wall_index") or 0) + offset} for d in doors_out]
+            shifted_windows = [{**w, "wall_index": (w.get("wall_index") or 0) + offset} for w in windows_out]
+            await db.blueprint_sheets.update_one(
+                {"id": active_id, "project_id": project_id},
+                {"$set": {
+                    "walls":    (active_sheet.get("walls") or []) + walls_out,
+                    "doors":    (active_sheet.get("doors") or []) + shifted_doors,
+                    "windows":  (active_sheet.get("windows") or []) + shifted_windows,
+                    "labels":   (active_sheet.get("labels") or []) + labels_out,
+                    "fixtures": (active_sheet.get("fixtures") or []) + fixtures_out,
+                    "updated_at": now_iso(),
+                }},
+            )
+            await _mirror_active_sheet_to_blueprint(db, project_id, active_id)
+            result_sheet_id = active_id
 
         await log_activity(db, project_id, user["email"], "ai.blueprint_traced",
                            target_type="document", target_id=payload.document_id,
@@ -766,7 +783,8 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
             "summary": str(data.get("summary") or "")[:400],
             "doc_type": data.get("doc_type"),
             "building_ft": building_ft,
-            "scale_confidence": str(data.get("scale_confidence") or "medium"),
+            "scale_confidence": scale_confidence,
+            "sheet_id": result_sheet_id,
             "counts": {
                 "walls": len(walls_out),
                 "doors": len(doors_out),

@@ -98,4 +98,45 @@ export const useStore = create((set, get) => ({
     const { data } = await apiClient.put(`/projects/${id}/blueprint`, body);
     set({ blueprint: data });
   },
+
+  // ---------- Sheet operations ----------
+  createSheet: async ({ name = "New Sheet", floor_level = 0 } = {}) => {
+    const id = get().currentProjectId;
+    if (!id) return null;
+    const { data } = await apiClient.post(
+      `/projects/${id}/blueprint/sheets`,
+      { name, floor_level },
+    );
+    await get().refreshBlueprint();
+    return data;
+  },
+  renameSheet: async (sheetId, patch) => {
+    const id = get().currentProjectId;
+    if (!id) return;
+    await apiClient.patch(`/projects/${id}/blueprint/sheets/${sheetId}`, patch);
+    await get().refreshBlueprint();
+  },
+  deleteSheet: async (sheetId) => {
+    const id = get().currentProjectId;
+    if (!id) return;
+    await apiClient.delete(`/projects/${id}/blueprint/sheets/${sheetId}`);
+    await get().refreshBlueprint();
+  },
+  activateSheet: async (sheetId) => {
+    const id = get().currentProjectId;
+    if (!id) return;
+    const { data } = await apiClient.post(
+      `/projects/${id}/blueprint/active/${sheetId}`,
+    );
+    set({ blueprint: data });
+  },
+  saveSheetGeometry: async (sheetId, walls, doors, windows, labels, fixtures) => {
+    const id = get().currentProjectId;
+    if (!id) return;
+    await apiClient.put(
+      `/projects/${id}/blueprint/sheets/${sheetId}`,
+      { walls, doors, windows, labels, fixtures },
+    );
+    await get().refreshBlueprint();
+  },
 }));

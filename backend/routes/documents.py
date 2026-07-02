@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
 
 import billing as billing_mod
-from routes.projects import get_or_create_blueprint
+from routes.projects import _create_sheet, _mirror_active_sheet_to_blueprint, get_or_create_blueprint
 from utils import clean, now_iso
 
 logger = logging.getLogger("documents")
@@ -468,35 +468,40 @@ def _build_pipeline(db):
             )
 
             synced = False
+            sheet_id: str | None = None
             if walls_all or doors_all or windows_all or labels_all or fixtures_all:
                 await _set_doc_status(doc_id, "syncing", doc_type=first_doc_type, materials_count=inserted)
-                existing = await get_or_create_blueprint(db, project_id)
-                # For exact tracing, wall_indexes in doors/windows are already
-                # global (offset applied per-page in the loop above). Just append.
-                merged_walls = (existing.get("walls") or []) + walls_all
-                # Shift new door/window wall_indexes by the count of PRE-EXISTING walls.
-                existing_wall_count = len(existing.get("walls") or [])
-                shifted_doors = [{**d, "wall_index": (d.get("wall_index") or 0) + existing_wall_count} for d in doors_all]
-                shifted_windows = [{**w, "wall_index": (w.get("wall_index") or 0) + existing_wall_count} for w in windows_all]
-                merged_doors = (existing.get("doors") or []) + shifted_doors
-                merged_windows = (existing.get("windows") or []) + shifted_windows
-                merged_labels = (existing.get("labels") or []) + labels_all
-                merged_fixtures = (existing.get("fixtures") or []) + fixtures_all
-                bp_update = {
-                    "walls": merged_walls,
-                    "doors": merged_doors,
-                    "windows": merged_windows,
-                    "labels": merged_labels,
-                    "fixtures": merged_fixtures,
-                    "updated_at": now_iso(),
-                    "last_source_document_id": doc_id,
-                }
-                if building_ft:
-                    bp_update["building_ft"] = building_ft
-                await db.blueprints.update_one(
-                    {"project_id": project_id},
-                    {"$set": bp_update},
-                    upsert=True,
+                # Ensure baseline blueprint doc + sheets exist.
+                await get_or_create_blueprint(db, project_id)
+                # Auto-create a NEW sheet dedicated to this document so each
+                # uploaded blueprint gets its own tab in the CAD editor.
+                doc_meta = await db.documents.find_one({"id": doc_id}, {"_id": 0, "filename": 1}) or {}
+                sheet_name = (doc_meta.get("filename") or "Sheet")[:80]
+                # Determine floor_level = current sheet count (auto-stack).
+                floor_level = await db.blueprint_sheets.count_documents({"project_id": project_id})
+                new_sheet = await _create_sheet(
+                    db, project_id,
+                    name=sheet_name,
+                    floor_level=floor_level,
+                    source_document_id=doc_id,
+                    geometry={
+                        "walls":    walls_all,
+                        "doors":    doors_all,
+                        "windows":  windows_all,
+                        "labels":   labels_all,
+                        "fixtures": fixtures_all,
+                    },
+                    building_ft=building_ft,
+                    scale_confidence=scale_confidence,
+                )
+                sheet_id = new_sheet["id"]
+                # Make the new traced sheet active so the user sees it right away.
+                await _mirror_active_sheet_to_blueprint(db, project_id, sheet_id)
+                # Stamp all materials extracted from this doc with the sheet id
+                # so the per-sheet materials view can filter cleanly.
+                await db.materials.update_many(
+                    {"project_id": project_id, "document_id": doc_id},
+                    {"$set": {"sheet_id": sheet_id}},
                 )
                 synced = True
 
@@ -524,6 +529,7 @@ def _build_pipeline(db):
                 materials_skipped=skipped,
                 dedup_audit=dedup_audit,
                 synced_3d=synced,
+                sheet_id=sheet_id,
                 pages_total=total_pages,
                 pages_done=total_pages,
             )

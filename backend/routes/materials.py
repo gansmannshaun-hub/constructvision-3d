@@ -11,13 +11,15 @@ def build_materials_router(db, get_current_user) -> APIRouter:
     router = APIRouter(prefix="/api")
 
     @router.get("/projects/{project_id}/materials")
-    async def list_materials(project_id: str, user: dict = Depends(get_current_user)):
+    async def list_materials(project_id: str, sheet_id: str | None = None,
+                             user: dict = Depends(get_current_user)):
         proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]})
         if not proj:
             raise HTTPException(404, "Project not found")
-        return await db.materials.find(
-            {"project_id": project_id}, {"_id": 0}
-        ).sort("created_at", -1).to_list(500)
+        query: dict = {"project_id": project_id}
+        if sheet_id:
+            query["sheet_id"] = sheet_id
+        return await db.materials.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
 
     @router.patch("/materials/{material_id}")
     async def update_material(material_id: str, payload: MaterialPatchIn, user: dict = Depends(get_current_user)):

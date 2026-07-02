@@ -944,34 +944,78 @@ export function createSceneEngine(mount) {
   }
 
   function build(blueprint) {
-    const walls = blueprint.walls || [];
-    const doors = blueprint.doors || [];
-    const windows = blueprint.windows || [];
     CFG = {
       roof_type: blueprint.roof_type || DEFAULT_CFG.roof_type,
       roof_pitch_deg: blueprint.roof_pitch_deg ?? DEFAULT_CFG.roof_pitch_deg,
       wall_color: blueprint.wall_color || DEFAULT_CFG.wall_color,
       roof_color: blueprint.roof_color || DEFAULT_CFG.roof_color,
     };
-    // dispose previous
+    // Dispose previous
     for (const id of Object.keys(groups)) {
       modelRoot.remove(groups[id]);
       disposeObject(groups[id]);
     }
     groups = {};
-    const aabb = footprintAabb(walls);
+
+    // Multi-sheet support: each sheet gets its own stack of layer groups
+    // offset by `floor_level * (WALL_HEIGHT + SLAB_THICK + ~0.1 ft)`.  When
+    // no sheets are present we fall back to legacy single-blueprint mode.
+    const sheets = Array.isArray(blueprint.sheets) && blueprint.sheets.length > 0
+      ? blueprint.sheets
+      : [{
+          id: "__legacy__",
+          walls: blueprint.walls || [],
+          doors: blueprint.doors || [],
+          windows: blueprint.windows || [],
+          floor_level: 0,
+        }];
+
+    // Pre-create per-layer container groups so setVisibility toggles ALL sheets.
     for (const layer of ALL_LAYERS) {
-      const g = BUILDERS[layer.id](aabb, walls, doors, windows);
+      const g = new THREE.Group();
       g.name = layer.id;
       modelRoot.add(g);
       groups[layer.id] = g;
     }
-    // Auto-fit camera (uses world-space center of model after current transform)
-    if (aabb) {
-      const size = Math.max(aabb.w, aabb.d, 4);
+
+    const FLOOR_STEP = WALL_HEIGHT + SLAB_THICK + 0.02; // meters between floors
+    let globalAabb = null;
+    for (const sheet of sheets) {
+      const walls = sheet.walls || [];
+      const doors = sheet.doors || [];
+      const windows = sheet.windows || [];
+      const yOffset = (sheet.floor_level || 0) * FLOOR_STEP;
+      const aabb = footprintAabb(walls);
+      if (aabb) {
+        if (!globalAabb) globalAabb = { ...aabb };
+        else {
+          globalAabb.minX = Math.min(globalAabb.minX ?? aabb.minX, aabb.minX);
+          globalAabb.maxX = Math.max(globalAabb.maxX ?? aabb.maxX, aabb.maxX);
+          globalAabb.minZ = Math.min(globalAabb.minZ ?? aabb.minZ, aabb.minZ);
+          globalAabb.maxZ = Math.max(globalAabb.maxZ ?? aabb.maxZ, aabb.maxZ);
+          globalAabb.cx = (globalAabb.minX + globalAabb.maxX) / 2;
+          globalAabb.cz = (globalAabb.minZ + globalAabb.maxZ) / 2;
+          globalAabb.w  = globalAabb.maxX - globalAabb.minX;
+          globalAabb.d  = globalAabb.maxZ - globalAabb.minZ;
+        }
+      }
+      for (const layer of ALL_LAYERS) {
+        const sheetLayer = BUILDERS[layer.id](aabb, walls, doors, windows);
+        // Ground-only layers (excavation, foundation, underground, septic) skip
+        // upper floors so we don't get stacked dirt / duplicate slabs.
+        const groundOnly = ["excavation", "underground", "septic"].includes(layer.id);
+        if (groundOnly && (sheet.floor_level || 0) !== 0) continue;
+        sheetLayer.position.y += yOffset;
+        groups[layer.id].add(sheetLayer);
+      }
+    }
+
+    // Auto-fit camera
+    if (globalAabb && globalAabb.w > 0) {
+      const size = Math.max(globalAabb.w, globalAabb.d, 4);
       const dist = size * 1.6 + 6;
-      const cx = aabb.cx + modelRoot.position.x;
-      const cz = aabb.cz + modelRoot.position.z;
+      const cx = globalAabb.cx + modelRoot.position.x;
+      const cz = globalAabb.cz + modelRoot.position.z;
       camera.position.set(cx + dist * 0.65, dist * 0.7, cz + dist * 0.85);
       controls.target.set(cx, WALL_HEIGHT * 0.5, cz);
       controls.update();
