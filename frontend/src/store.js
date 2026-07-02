@@ -139,4 +139,22 @@ export const useStore = create((set, get) => ({
     );
     await get().refreshBlueprint();
   },
+
+  // ---------- Document underlay (base64 image) ----------
+  underlayCache: {},
+  fetchDocumentImage: async (docId) => {
+    if (!docId) return null;
+    const cache = get().underlayCache || {};
+    if (cache[docId]) return cache[docId];
+    try {
+      const { data } = await apiClient.get(`/documents/${docId}/image`);
+      const url = data?.image_base64
+        ? `data:${data.mime_type || "image/png"};base64,${data.image_base64}`
+        : null;
+      set({ underlayCache: { ...(get().underlayCache || {}), [docId]: url } });
+      return url;
+    } catch {
+      return null;
+    }
+  },
 }));

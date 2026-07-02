@@ -260,25 +260,34 @@ email digest with /invite landing.
 - True path-traced render via three-gpu-pathtracer (current is hi-res raster).
 
 ## Recent changes — 2026-07-02 (this iteration)
-### AI Exact Blueprint Replication (P0 — Complete)
-- New endpoint `POST /api/projects/{id}/ai/trace-blueprint` (ai_tools.py) —
-  GPT-4o Vision re-analyzes a previously uploaded document in EXACT tracing
-  mode. Returns walls / doors / windows / labels / fixtures in real-world
-  feet + `building_ft` + `scale_confidence`. Credits are only consumed
-  AFTER document existence is validated (fixed iter-32 credit-burn bug).
-- Documents pipeline (`documents.py`) rewritten with a new
-  `ANALYSIS_PROMPT_HEADER` that instructs GPT-4o to trace the source drawing
-  exactly, in FEET, with (0,0) at building bottom-left, and to include all
-  fixtures (toilets, sinks, showers, tubs, appliances, closets, stairs,
-  furniture, etc.). New `_sanitize_fixture` and `_sanitize_label` helpers.
-- Blueprint schema now includes `fixtures: List[dict]` — persisted through
-  `BlueprintIn`, `PUT /projects/{id}/blueprint`, and mongo docs (both
-  `get_or_create_blueprint` and `create_project` initial docs).
-- CadEditorTab now renders fixtures as labeled rectangles (`cad-fixture-<id>`)
-  with per-kind color coding (`FIXTURE_META`). Eraser / Move / Delete work.
-- CadAIPanel gains a TRACE tab (`cad-ai-tab-trace`) that lists all
-  `doc_type=floor_plan|blueprint|site_plan` documents with status `done`
-  and lets the user re-trace any of them into the CAD editor.
+### Multi-sheet architecture (P0 — Complete)
+- Each uploaded blueprint now gets its OWN sheet (walls/doors/windows/labels/
+  fixtures) with a source_document_id. Users can also create hand-drawn blank
+  sheets from the "+" button.
+- `blueprint_sheets` collection stores per-sheet geometry. Legacy blueprints
+  doc auto-migrates to Sheet 1 on first read (via `_migrate_legacy_blueprint`).
+- 5 new endpoints: GET list, POST create, PATCH rename/reorder, PUT geometry,
+  DELETE (rejects deleting the only sheet), POST activate.
+- Documents pipeline: on upload, spawns a NEW sheet with the traced geometry
+  and auto-activates it. Materials get stamped with sheet_id for per-sheet
+  filtering (`GET /materials?sheet_id=…`).
+- CAD editor + Blueprint tab render a `SheetTabBar` at the top with the
+  active sheet highlighted, rename ✎ / delete ✕ / floor ⇅ actions per tab.
+- 3D renderer (sceneBuilder.js) now stacks all sheets by `floor_level × ~10 ft`
+  so ground floor + 2nd floor render together as a multi-story building.
+  Ground-only layers (excavation, underground, septic) render only on level 0.
+
+### Exact-copy blueprint underlay (P0 — Complete)
+- New tracing prompt uses TOP-LEFT origin (matching SVG/image conventions) so
+  AI-traced vectors align pixel-for-pixel with the source drawing.
+- Wall extraction cap raised from 60 → 200 (labels 60 → 150, fixtures 80 → 200)
+  for denser fidelity. Snap resolution 0.5 ft → 0.25 ft.
+- CAD editor + Blueprint tab render the source blueprint image as a
+  semi-transparent underlay sized to `building_ft` (or walls AABB fallback).
+- Toolbar controls: `cad-toggle-underlay`, `cad-underlay-opacity` (slider),
+  `blueprint-underlay-opacity` (Blueprint tab slider).
+- On-demand image fetch via `GET /api/documents/{doc_id}/image` + client-side
+  base64 cache in the store.
 
 ## Integrations
 - **Emergent LLM Key** — GPT-4o vision (PDF + photo) + text (floorplan).

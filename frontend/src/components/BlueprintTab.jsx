@@ -1,16 +1,31 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { formatFeetInches, wallsAabb } from "../lib/dim";
 import { SheetTabBar } from "./SheetTabBar";
 
 /** Read-only blueprint view: draws walls/doors/windows on the blueprint grid */
 export default function BlueprintTab() {
-  const { blueprint, documents, createSheet, renameSheet, deleteSheet, activateSheet } = useStore();
+  const { blueprint, documents, createSheet, renameSheet, deleteSheet,
+          activateSheet, fetchDocumentImage } = useStore();
   const sheets = blueprint?.sheets || [];
   const activeSheetId = blueprint?.active_sheet_id;
+  const activeSheet = sheets.find((s) => s.id === activeSheetId) || null;
   const walls = blueprint?.walls || [];
   const doors = blueprint?.doors || [];
   const windows = blueprint?.windows || [];
+
+  const [underlayUrl, setUnderlayUrl] = useState(null);
+  const [underlayOpacity, setUnderlayOpacity] = useState(0.65);
+  useEffect(() => {
+    let cancelled = false;
+    const docId = activeSheet?.source_document_id;
+    if (!docId) { setUnderlayUrl(null); return; }
+    (async () => {
+      const url = await fetchDocumentImage(docId);
+      if (!cancelled) setUnderlayUrl(url);
+    })();
+    return () => { cancelled = true; };
+  }, [activeSheet?.source_document_id, fetchDocumentImage]);
 
   const [showDimensions, setShowDimensions] = useState(true);
 
@@ -83,6 +98,22 @@ export default function BlueprintTab() {
 
         <div className="flex-1 p-4 min-h-0">
           <div className="w-full h-full blueprint-canvas-bg relative">
+            {underlayUrl && (
+              <div className="absolute top-2 left-2 z-10 flex items-center gap-2 bg-black/70 border border-white/20 rounded px-2 py-1 text-white text-[10px] font-mono uppercase tracking-wider">
+                <span>UNDERLAY</span>
+                <input
+                  data-testid="blueprint-underlay-opacity"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={underlayOpacity}
+                  onChange={(e) => setUnderlayOpacity(parseFloat(e.target.value))}
+                  className="w-24 accent-[#FFCC00]"
+                />
+                <span className="tabular-nums w-9 text-right">{Math.round(underlayOpacity * 100)}%</span>
+              </div>
+            )}
             {walls.length === 0 ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center text-blue-200/40 font-mono">
@@ -92,6 +123,26 @@ export default function BlueprintTab() {
               </div>
             ) : (
               <svg viewBox={`${vbMin} ${vbMin} ${vbSize} ${vbSize}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet" data-testid="blueprint-svg">
+                {/* Blueprint underlay */}
+                {underlayUrl && (() => {
+                  const bf = activeSheet?.building_ft;
+                  let x = 0, y = 0, w = 0, h = 0;
+                  if (bf?.w > 0 && bf?.h > 0) {
+                    w = bf.w; h = bf.h;
+                  } else if (aabb) {
+                    x = aabb.minX; y = aabb.minY; w = aabb.w; h = aabb.h;
+                  }
+                  if (w <= 0 || h <= 0) return null;
+                  return (
+                    <image
+                      data-testid="blueprint-underlay"
+                      href={underlayUrl}
+                      x={x} y={y} width={w} height={h}
+                      preserveAspectRatio="none"
+                      opacity={underlayOpacity}
+                    />
+                  );
+                })()}
                 {/* Walls */}
                 {walls.map((w) => (
                   <line

@@ -58,9 +58,11 @@ Return a STRICT JSON response — no prose, no markdown, only valid JSON — wit
 
 COORDINATE SYSTEM (this is critical — read carefully):
 - ALL coordinates are in REAL WORLD FEET.
-- Origin (0,0) is the BOTTOM-LEFT corner of the building footprint (not the image).
-- +x = east, +y = north.
+- Origin (0,0) is the TOP-LEFT corner of the source drawing/image (SVG-style axis).
+- +x = right, +y = down. Do NOT flip Y.
 - `building_ft.w` / `building_ft.h` is the overall building bounding box width and height in feet.
+- Every wall/door/window/label/fixture position MUST fall inside [0, building_ft.w] × [0, building_ft.h].
+- This convention lets the frontend overlay the AI vectors directly on top of the original blueprint image with no coordinate transform.
 
 HOW TO DETERMINE SCALE (in this exact priority order):
 1. If a printed scale ratio is visible (e.g. `1/4"=1'-0"`, `Scale 1:50`), use it.
@@ -73,16 +75,24 @@ HOW TO DETERMINE SCALE (in this exact priority order):
    Set `scale_confidence` = "low" when inferring.
 
 TRACING FIDELITY (the reason the user uploaded this drawing):
-- Reproduce EVERY wall segment you can identify. Do not simplify by merging corridors.
-  Aim for 15-60 wall segments on a typical residential floor plan.
-- Snap each wall endpoint to a 0.5 ft grid.
-- Preserve orthogonal (X/Y axis-aligned) walls as axis-aligned. Only emit diagonal
-  segments if the source is truly diagonal.
+- Reproduce EVERY wall segment you can identify. Do NOT simplify by merging corridors.
+  Aim for 40-200 wall segments on a typical residential floor plan. Trace every jog,
+  bump-out, closet, and interior partition. If the drawing shows a wall break for a
+  door/window, output TWO wall segments (one on each side of the opening).
+- Include EVERY exterior wall including any porches, decks, garages, and roof outlines
+  drawn on the plan. Include the site plan property line if visible.
+- Snap each wall endpoint to a 0.25 ft grid (finer than usual — we want fidelity).
+- Preserve orthogonal (X/Y axis-aligned) walls as axis-aligned. Emit diagonal segments
+  faithfully when the source is diagonal (e.g. bay windows, angled walls).
 - Every door / window MUST reference the wall it cuts through by `wall_index`
   (0-based into `walls`). Place `position` on that wall segment.
 - Extract EVERY room label / callout you can read (e.g. `MASTER BEDROOM`, `KITCHEN`,
-  `BATH 2`, `WIC`, `LAUNDRY`, `GARAGE`). Place its `position` at the room's centroid.
+  `BATH 2`, `WIC`, `LAUNDRY`, `GARAGE`, `PORCH`, `DECK`). Place its `position` at the
+  room's centroid. If dimension callouts are visible (e.g. `12'-0"`, `18'-6"`), include
+  them as labels at the point where they appear.
 - Extract fixtures — see next section.
+- If the drawing has multiple floors on one page, trace ONLY the floor that is the
+  primary focus (largest / most detailed) and set `summary` accordingly.
 
 FIXTURES (extract ALL you can see in the source drawing):
 - `kind` MUST be one of:
@@ -452,11 +462,11 @@ def _build_pipeline(db):
                                 "width": float(w_item.get("width") or 4.0),
                                 "wall_index": wi,
                             })
-                    for lbl in (analysis.get("labels") or [])[:60]:
+                    for lbl in (analysis.get("labels") or [])[:150]:
                         clean_lbl = _sanitize_label(lbl)
                         if clean_lbl:
                             labels_all.append(clean_lbl)
-                    for fx in (analysis.get("fixtures") or [])[:80]:
+                    for fx in (analysis.get("fixtures") or [])[:200]:
                         clean_fx = _sanitize_fixture(fx)
                         if clean_fx:
                             fixtures_all.append(clean_fx)

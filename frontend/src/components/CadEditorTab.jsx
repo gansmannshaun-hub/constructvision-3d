@@ -145,9 +145,16 @@ const TOOL_ICON = ({ id, className = "" }) => {
 
 export default function CadEditorTab() {
   const { blueprint, saveBlueprint, currentProjectId, refreshBlueprint,
-          createSheet, renameSheet, deleteSheet, activateSheet } = useStore();
+          createSheet, renameSheet, deleteSheet, activateSheet,
+          fetchDocumentImage } = useStore();
   const sheets = blueprint.sheets || [];
   const activeSheetId = blueprint.active_sheet_id;
+  const activeSheet = sheets.find((s) => s.id === activeSheetId) || null;
+
+  // Underlay (source blueprint image) state
+  const [underlayUrl, setUnderlayUrl] = useState(null);
+  const [underlayVisible, setUnderlayVisible] = useState(true);
+  const [underlayOpacity, setUnderlayOpacity] = useState(0.55);
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [tool, setTool] = useState("select");
@@ -196,6 +203,18 @@ export default function CadEditorTab() {
     setFixtures(blueprint.fixtures || []);
     setDirty(false);
   }, [blueprint]);
+
+  // Fetch the source blueprint image for the active sheet (if any)
+  useEffect(() => {
+    let cancelled = false;
+    const docId = activeSheet?.source_document_id;
+    if (!docId) { setUnderlayUrl(null); return; }
+    (async () => {
+      const url = await fetchDocumentImage(docId);
+      if (!cancelled) setUnderlayUrl(url);
+    })();
+    return () => { cancelled = true; };
+  }, [activeSheet?.source_document_id, fetchDocumentImage]);
 
   const markDirty = () => setDirty(true);
 
@@ -752,6 +771,33 @@ export default function CadEditorTab() {
         >
           DIM
         </button>
+        {underlayUrl && (
+          <div className="flex items-center gap-1 h-10 px-2 border border-[#CCC] bg-white" title="Blueprint underlay controls">
+            <button
+              data-testid="cad-toggle-underlay"
+              onClick={() => setUnderlayVisible((v) => !v)}
+              className={`h-8 px-2 text-[10px] uppercase tracking-wider font-bold border ${underlayVisible ? "bg-[#B8860B] text-white border-[#B8860B]" : "bg-white border-[#CCC] text-[#666]"}`}
+              title="Toggle the uploaded blueprint image behind the CAD layer"
+            >
+              UNDERLAY
+            </button>
+            <input
+              data-testid="cad-underlay-opacity"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={underlayOpacity}
+              onChange={(e) => setUnderlayOpacity(parseFloat(e.target.value))}
+              disabled={!underlayVisible}
+              className="w-20 accent-[#B8860B]"
+              title="Underlay opacity"
+            />
+            <span className="text-[10px] font-mono text-[#666] tabular-nums w-8">
+              {Math.round(underlayOpacity * 100)}%
+            </span>
+          </div>
+        )}
         <button
           data-testid="cad-reset-view"
           onClick={resetView}
@@ -815,6 +861,38 @@ export default function CadEditorTab() {
           onMouseMove={onMouseMove}
           onMouseLeave={() => setHover(null)}
         >
+          {/* Blueprint underlay (source drawing) — pixel-perfect trace reference */}
+          {underlayVisible && underlayUrl && (() => {
+            const bf = activeSheet?.building_ft;
+            let x = 0, y = 0, w = 0, h = 0;
+            if (bf?.w > 0 && bf?.h > 0) {
+              w = bf.w;
+              h = bf.h;
+            } else if (walls.length > 0) {
+              // Fallback: fit the underlay to the walls AABB.
+              const ab = wallsAabb(walls);
+              if (ab) {
+                x = ab.minX;
+                y = ab.minY;
+                w = ab.maxX - ab.minX;
+                h = ab.maxY - ab.minY;
+              }
+            }
+            if (w <= 0 || h <= 0) return null;
+            return (
+              <image
+                data-testid="cad-underlay"
+                href={underlayUrl}
+                x={x}
+                y={y}
+                width={w}
+                height={h}
+                preserveAspectRatio="none"
+                opacity={underlayOpacity}
+                pointerEvents="none"
+              />
+            );
+          })()}
           {/* Grid */}
           {showGrid && gridLines.map((l) => (
             <line key={l.k} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}

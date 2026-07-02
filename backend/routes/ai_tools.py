@@ -671,7 +671,7 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
 
         # Sanitize walls / doors / windows / labels / fixtures.
         walls_out: list[dict] = []
-        for w in (data.get("walls") or [])[:120]:
+        for w in (data.get("walls") or [])[:400]:
             s, e = _coord(w.get("start")), _coord(w.get("end"))
             if s and e:
                 walls_out.append({
@@ -679,7 +679,7 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
                     "thickness": float(w.get("thickness") or 0.5),
                 })
         doors_out: list[dict] = []
-        for d in (data.get("doors") or [])[:60]:
+        for d in (data.get("doors") or [])[:120]:
             pos = _coord(d.get("position"))
             if pos:
                 try:
@@ -692,7 +692,7 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
                     "wall_index": max(0, min(wi, len(walls_out) - 1)) if walls_out else 0,
                 })
         windows_out: list[dict] = []
-        for w in (data.get("windows") or [])[:60]:
+        for w in (data.get("windows") or [])[:120]:
             pos = _coord(w.get("position"))
             if pos:
                 try:
@@ -705,12 +705,12 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
                     "wall_index": max(0, min(wi, len(walls_out) - 1)) if walls_out else 0,
                 })
         labels_out: list[dict] = []
-        for lbl in (data.get("labels") or [])[:80]:
+        for lbl in (data.get("labels") or [])[:150]:
             cl = _sanitize_label(lbl)
             if cl:
                 labels_out.append(cl)
         fixtures_out: list[dict] = []
-        for fx in (data.get("fixtures") or [])[:120]:
+        for fx in (data.get("fixtures") or [])[:200]:
             cf = _sanitize_fixture(fx)
             if cf:
                 fixtures_out.append(cf)
