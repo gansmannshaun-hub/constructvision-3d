@@ -36,11 +36,36 @@ export default function BlueprintTab() {
   }, [blueprint, documents]);
 
   const aabb = useMemo(() => wallsAabb(walls), [walls]);
+  const fixtures = blueprint?.fixtures || [];
+  const labels = blueprint?.labels || [];
 
-  // Expand SVG viewBox to accommodate outer dimension chains
-  const VB_PAD = 8;
-  const vbMin = -VB_PAD;
-  const vbSize = 100 + VB_PAD * 2;
+  // The Blueprint tab now uses a dynamic viewBox that fits the underlay
+  // (if any) OR the walls AABB, so scanned images and traced geometry show
+  // up regardless of what unit the AI produced.
+  const viewBox = useMemo(() => {
+    const pad = 4;
+    const bf = activeSheet?.building_ft;
+    if (bf?.w > 0 && bf?.h > 0) {
+      return { x: -pad, y: -pad, w: bf.w + pad * 2, h: bf.h + pad * 2 };
+    }
+    if (aabb && aabb.w > 0 && aabb.h > 0) {
+      return { x: aabb.minX - pad, y: aabb.minY - pad, w: aabb.w + pad * 2, h: aabb.h + pad * 2 };
+    }
+    // Fallback — legacy 100×100 canvas.
+    return { x: -8, y: -8, w: 116, h: 116 };
+  }, [aabb, activeSheet?.building_ft]);
+  const vbStr = `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`;
+
+  // A sheet has SOMETHING renderable if it has walls, an underlay image,
+  // any traced labels/fixtures/doors/windows, or a source_document_id — in
+  // which case we render the SVG instead of the "empty" placeholder.
+  const hasRenderableContent =
+    walls.length > 0 ||
+    doors.length > 0 ||
+    windows.length > 0 ||
+    labels.length > 0 ||
+    fixtures.length > 0 ||
+    !!underlayUrl;
 
   return (
     <div className="flex flex-col h-full" data-testid="blueprint-tab">
@@ -114,7 +139,7 @@ export default function BlueprintTab() {
                 <span className="tabular-nums w-9 text-right">{Math.round(underlayOpacity * 100)}%</span>
               </div>
             )}
-            {walls.length === 0 ? (
+            {!hasRenderableContent ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center text-blue-200/40 font-mono">
                   <div className="label-mono text-blue-200/60 mb-2">// AWAITING ANALYSIS</div>
@@ -122,17 +147,18 @@ export default function BlueprintTab() {
                 </div>
               </div>
             ) : (
-              <svg viewBox={`${vbMin} ${vbMin} ${vbSize} ${vbSize}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet" data-testid="blueprint-svg">
-                {/* Blueprint underlay */}
+              <svg viewBox={vbStr} className="w-full h-full" preserveAspectRatio="xMidYMid meet" data-testid="blueprint-svg">
+                {/* Blueprint underlay — falls back to a 100×100 ft canvas
+                    when we don't yet have building_ft or wall geometry,
+                    so a scanned image ALWAYS renders, not a blank page. */}
                 {underlayUrl && (() => {
                   const bf = activeSheet?.building_ft;
-                  let x = 0, y = 0, w = 0, h = 0;
+                  let x = 0, y = 0, w = 100, h = 100;
                   if (bf?.w > 0 && bf?.h > 0) {
                     w = bf.w; h = bf.h;
-                  } else if (aabb) {
+                  } else if (aabb && aabb.w > 0 && aabb.h > 0) {
                     x = aabb.minX; y = aabb.minY; w = aabb.w; h = aabb.h;
                   }
-                  if (w <= 0 || h <= 0) return null;
                   return (
                     <image
                       data-testid="blueprint-underlay"
@@ -178,6 +204,39 @@ export default function BlueprintTab() {
                     height={0.8}
                     fill="#0055FF"
                   />
+                ))}
+
+                {/* AI-traced fixtures */}
+                {fixtures.map((f) => {
+                  const [w, h] = f.size || [2, 2];
+                  const rot = f.rotation_deg || 0;
+                  return (
+                    <g key={f.id} transform={`translate(${f.position[0]},${f.position[1]}) rotate(${rot})`}>
+                      <rect x={-w / 2} y={-h / 2} width={w} height={h}
+                        fill="#8FA8C0" fillOpacity="0.35" stroke="#8FA8C0" strokeWidth="0.1" />
+                      <text x={0} y={0.3} fontSize={Math.min(w, h) * 0.32}
+                        fill="#F5F5F5" textAnchor="middle"
+                        fontFamily="IBM Plex Mono, monospace" fontWeight="700">
+                        {(f.kind || "").toUpperCase()}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Room / dimension labels */}
+                {labels.map((l) => (
+                  <text
+                    key={l.id}
+                    x={l.position[0]}
+                    y={l.position[1]}
+                    fontSize={1.6}
+                    fill="#F5F5F0"
+                    textAnchor="middle"
+                    fontFamily="IBM Plex Mono, monospace"
+                    fontWeight="700"
+                  >
+                    {l.text}
+                  </text>
                 ))}
 
                 {/* Per-wall dimensions */}

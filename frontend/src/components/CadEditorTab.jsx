@@ -861,15 +861,16 @@ export default function CadEditorTab() {
           onMouseMove={onMouseMove}
           onMouseLeave={() => setHover(null)}
         >
-          {/* Blueprint underlay (source drawing) — pixel-perfect trace reference */}
+          {/* Blueprint underlay (source drawing) — pixel-perfect trace reference.
+              Falls back to a 100×100 ft canvas when we don't yet have
+              building_ft or wall geometry, so a scanned image ALWAYS renders. */}
           {underlayVisible && underlayUrl && (() => {
             const bf = activeSheet?.building_ft;
-            let x = 0, y = 0, w = 0, h = 0;
+            let x = 0, y = 0, w = 100, h = 100;
             if (bf?.w > 0 && bf?.h > 0) {
               w = bf.w;
               h = bf.h;
             } else if (walls.length > 0) {
-              // Fallback: fit the underlay to the walls AABB.
               const ab = wallsAabb(walls);
               if (ab) {
                 x = ab.minX;
@@ -878,7 +879,6 @@ export default function CadEditorTab() {
                 h = ab.maxY - ab.minY;
               }
             }
-            if (w <= 0 || h <= 0) return null;
             return (
               <image
                 data-testid="cad-underlay"
