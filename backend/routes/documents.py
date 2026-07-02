@@ -745,34 +745,20 @@ def build_documents_router(db, get_current_user) -> APIRouter:
             raise HTTPException(402, reason)
 
         content = await file.read()
-        if len(content) > 16 * 1024 * 1024:
-            raise HTTPException(400, "File too large (max 16MB)")
+        if len(content) > 32 * 1024 * 1024:
+            raise HTTPException(400, "File too large (max 32MB)")
         mime = file.content_type or "application/octet-stream"
 
         is_pdf = mime == "application/pdf" or (file.filename or "").lower().endswith(".pdf")
         is_image = mime.startswith("image/")
         if not (is_pdf or is_image):
-            raise HTTPException(400, "Unsupported file type. Upload an image (PNG/JPG) or a PDF.")
+            raise HTTPException(400, "Unsupported file type. Upload an image (PNG/JPG/WEBP/HEIC) or a PDF.")
 
-        pages_b64: list[str] = []
-        if is_pdf:
-            try:
-                pages_b64 = _rasterize_pdf_pages(content)
-            except Exception as exc:
-                logger.exception("PDF rasterize failed")
-                raise HTTPException(400, f"Could not read PDF: {exc}") from exc
-            if not pages_b64:
-                raise HTTPException(400, "PDF has no pages.")
-        else:
-            try:
-                pages_b64 = [_shrink_image_bytes_to_b64(content)]
-            except Exception as exc:
-                logger.exception("image decode failed")
-                raise HTTPException(400, f"Could not read image: {exc}") from exc
-
-        # First-page b64 used as the doc thumbnail
-        thumb_b64 = pages_b64[0] if pages_b64 else None
-
+        # Insert a placeholder doc IMMEDIATELY so the client gets a fast 200
+        # response. All heavy work (PDF rasterize, downscale, JPEG encode) is
+        # offloaded to a background thread + pipeline task so the ingress
+        # doesn't time out and the async event loop stays responsive to
+        # concurrent uploads.
         doc_id = str(uuid.uuid4())
         document = {
             "id": doc_id,
@@ -780,25 +766,68 @@ def build_documents_router(db, get_current_user) -> APIRouter:
             "filename": file.filename,
             "mime_type": mime,
             "size": len(content),
-            "image_base64": thumb_b64,
-            "status": "uploaded",
+            "image_base64": None,
+            "status": "queued",
             "analysis": None,
             "materials_count": 0,
             "materials_merged": 0,
             "materials_skipped": 0,
             "synced_3d": False,
             "doc_type": None,
-            "pages_total": len(pages_b64),
+            "pages_total": 0,
             "pages_done": 0,
             "is_pdf": is_pdf,
             "created_at": now_iso(),
         }
         await db.documents.insert_one(document)
-
         await billing_mod.consume_upload_credit(db, user)
-        asyncio.create_task(run_pipeline(doc_id, project_id, pages_b64, mime))
+
+        # Kick off the async prepare + pipeline task. It does:
+        #   1. Rasterize (PDF) or shrink (image) in a worker thread
+        #   2. Update the doc with `pages_total` + first-page thumbnail
+        #   3. Run the analysis pipeline (AI, sheet creation, etc.)
+        asyncio.create_task(_prepare_and_run(doc_id, project_id, content, is_pdf, mime))
 
         out = {k: v for k, v in document.items() if k != "image_base64"}
         return clean(out)
+
+    async def _prepare_and_run(doc_id: str, project_id: str, content: bytes,
+                               is_pdf: bool, mime: str) -> None:
+        """Offloaded prep — rasterize/downscale in a thread so the upload
+        HTTP request returns immediately and the ingress doesn't 504 during
+        CPU-heavy work on large files."""
+        try:
+            def _prep() -> list[str]:
+                if is_pdf:
+                    return _rasterize_pdf_pages(content)
+                return [_shrink_image_bytes_to_b64(content)]
+
+            pages_b64 = await asyncio.to_thread(_prep)
+            if not pages_b64:
+                await db.documents.update_one(
+                    {"id": doc_id},
+                    {"$set": {"status": "error", "analysis": {"summary": "File had no pages / could not decode."}, "updated_at": now_iso()}},
+                )
+                return
+            thumb_b64 = pages_b64[0]
+            await db.documents.update_one(
+                {"id": doc_id},
+                {"$set": {
+                    "status": "uploaded",
+                    "image_base64": thumb_b64,
+                    "pages_total": len(pages_b64),
+                    "updated_at": now_iso(),
+                }},
+            )
+            await run_pipeline(doc_id, project_id, pages_b64, mime)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(f"prepare_and_run failed for doc {doc_id}")
+            try:
+                await db.documents.update_one(
+                    {"id": doc_id},
+                    {"$set": {"status": "error", "analysis": {"summary": f"Prep failed: {str(exc)[:200]}"}, "updated_at": now_iso()}},
+                )
+            except Exception:
+                pass
 
     return router

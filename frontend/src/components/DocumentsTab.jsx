@@ -90,22 +90,41 @@ export default function DocumentsTab() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "uploading" } : x));
-        try {
-          const fd = new FormData();
-          fd.append("file", file);
-          const { data } = await apiClient.post(
-            `/projects/${currentProjectId}/documents/upload`, fd,
-            { headers: { "Content-Type": "multipart/form-data" } },
-          );
-          setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "uploaded", docId: data.id } : x));
-        } catch (e) {
-          const detail = e.response?.data?.detail;
-          if (e.response?.status === 402) {
+        // Retry once on transient network error (ingress hiccup, TCP reset).
+        let lastErr = null;
+        let uploaded = false;
+        for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
+          try {
+            const fd = new FormData();
+            fd.append("file", file);
+            const { data } = await apiClient.post(
+              `/projects/${currentProjectId}/documents/upload`, fd,
+              {
+                headers: { "Content-Type": "multipart/form-data" },
+                // 5-minute timeout — huge PDFs can take a bit to upload over
+                // slow connections. The server itself now returns 200 fast
+                // (heavy work is background), so this is only for the transfer.
+                timeout: 300_000,
+              },
+            );
+            setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "uploaded", docId: data.id } : x));
+            uploaded = true;
+          } catch (e) {
+            lastErr = e;
+            const status = e.response?.status;
+            if (status === 402) break;  // paywall — don't retry
+            if (status && status >= 400 && status < 500) break;  // client error, don't retry
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
+        if (!uploaded) {
+          const detail = lastErr?.response?.data?.detail;
+          if (lastErr?.response?.status === 402) {
             setPaywall(typeof detail === "string" ? detail : "Quota reached — upgrade your plan.");
             setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "failed", error: "quota" } : x));
             break;
           }
-          setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "failed", error: typeof detail === "string" ? detail : e.message } : x));
+          setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "failed", error: typeof detail === "string" ? detail : (lastErr?.message || "upload failed") } : x));
         }
       }
       await refreshDocuments();
@@ -122,21 +141,22 @@ export default function DocumentsTab() {
   // Derive live per-batch stats from the current documents array.
   const batchStats = React.useMemo(() => {
     const idSet = new Set(batch.map((b) => b.docId).filter(Boolean));
-    const uploadedCount = batch.filter((b) => b.status !== "queued" && b.status !== "uploading").length;
+    // "Uploaded" = files that succeeded the POST (excluding failures).
+    const uploadedOk = batch.filter((b) => b.docId).length;
     const failedCount = batch.filter((b) => b.status === "failed").length;
     const docsInBatch = (documents || []).filter((d) => idSet.has(d.id));
     const analyzing = docsInBatch.filter((d) => !["done", "error"].includes(d.status)).length;
     const done = docsInBatch.filter((d) => d.status === "done").length;
-    const errored = docsInBatch.filter((d) => d.status === "error").length + failedCount;
+    const backendErrored = docsInBatch.filter((d) => d.status === "error").length;
     const sheetsCreated = docsInBatch.filter(
       (d) => d.status === "done" && d.synced_3d,
     ).length;
     return {
       total: batch.length,
-      uploadedCount,
+      uploadedOk,
       analyzing,
       done,
-      errored,
+      errored: failedCount + backendErrored,
       sheetsCreated,
       allSettled: batch.length > 0 && analyzing === 0 && batch.every((b) => b.status !== "queued" && b.status !== "uploading"),
     };
@@ -255,7 +275,7 @@ export default function DocumentsTab() {
               data-testid="upload-batch-headline"
               className="text-white text-sm mb-2 font-medium"
             >
-              {batchStats.uploadedCount} of {batchStats.total} uploaded ·{" "}
+              {batchStats.uploadedOk} of {batchStats.total} uploaded ·{" "}
               {batchStats.done} traced ·{" "}
               <span className="text-[#00CC66]">{batchStats.sheetsCreated} sheets</span>
               {batchStats.errored > 0 && (

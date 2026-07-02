@@ -259,6 +259,24 @@ email digest with /invite landing.
 - Schedule export to MS-Project / Primavera XML.
 - True path-traced render via three-gpu-pathtracer (current is hi-res raster).
 
+## Recent changes — 2026-07-02 (iter 37 — async upload + timeout hardening)
+### Ingress timeout / Network Error fix (P0 — Complete)
+- Root cause of "18 of 34 · 18 failed" batch upload: PDF rasterize +
+  image downscale ran SYNCHRONOUSLY inside the upload request handler,
+  blocking the async event loop and often exceeding the Kubernetes
+  ingress request timeout → client saw generic Network Error even though
+  the backend eventually completed.
+- Fix: upload endpoint now inserts a `status: queued` doc and returns 200
+  in ~100 ms. All CPU-heavy work (`_rasterize_pdf_pages`,
+  `_shrink_image_bytes_to_b64`) runs in a background `_prepare_and_run`
+  task via `asyncio.to_thread` — never blocks the event loop.
+- Frontend now retries once on transient network error (1.5 s backoff),
+  uses a 5-minute axios timeout for the transfer itself, and correctly
+  counts only successful uploads in "N of M uploaded" (was double-counting
+  failures).
+- Max file size raised 16 MB → 32 MB. Unsupported-file error message now
+  mentions HEIC.
+
 ## Recent changes — 2026-07-02 (iter 36 — bug fixes: BSON size + photo classification)
 ### DocumentTooLarge fix (P0 — Complete)
 - Root cause of batch upload failures: raw rasterized PDFs / high-res
