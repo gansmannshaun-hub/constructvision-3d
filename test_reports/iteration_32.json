@@ -1,0 +1,44 @@
+{
+  "summary": "Iter 32 — AI Exact Blueprint Replication feature. Backend: verified auth gate (401) on POST /api/projects/{id}/ai/trace-blueprint, PUT /blueprint accepts+persists `fixtures` array and GET returns it. FOUND 2 backend bugs: (a) GET /blueprint on fresh projects omits both `fixtures` and `labels` fields — get_or_create_blueprint/create_project insert only walls/doors/windows; (b) trace-blueprint consumes AI-floorplan credit BEFORE validating the document exists, so out-of-credit users get 402 instead of 404 for a missing doc and users on studio-adjacent tiers lose credits on typos. Frontend TRACE tab is present with correct testids (cad-ai-tab-trace, cad-ai-trace-empty), empty-state copy is correct, AI SKETCH regression tab still renders. Trace happy-path with real GPT-4o was NOT exercised (Pro-trial user has 0 floorplan credits, and Mongo-seed shortcut failed).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/projects/{id}/blueprint", "issue": "Response missing `fixtures` (and `labels`) fields for freshly created projects. get_or_create_blueprint() at /app/backend/routes/projects.py lines 13-24 and the create_project seed at lines 52-57 hardcode only walls/doors/windows — no fixtures/labels arrays. Frontend consumers reading bp.fixtures will get undefined until a PUT populates it. Fix: include `labels: [], fixtures: []` in both places.", "priority": "HIGH"},
+      {"endpoint": "POST /api/projects/{id}/ai/trace-blueprint", "issue": "Credit consumption runs BEFORE the document lookup (ai_tools.py lines 620-630). Out-of-credit users get 402 for a missing document instead of 404, and users WITH credits will have credits burned on a nonexistent document_id before receiving 404. Fix: swap order — validate doc exists first (line 628-633), then consume credit.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/billing/start-trial", "issue": "Pro trial does not grant any `ai_floorplan_credits`, so a fresh trial user cannot invoke /ai/trace-blueprint or /ai/floorplan without buying the 25-pack or upgrading to Studio. If the intent is for trial users to preview AI features, seed a small credit balance (e.g. 3) with the trial."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter32_ai_trace_blueprint.py",
+    "/app/test_reports/pytest/iter32_results.xml"
+  ],
+  "action_items": [
+    "Fix /app/backend/routes/projects.py get_or_create_blueprint() and create_project() to include `labels: []` and `fixtures: []` in the initial blueprint doc so GET always returns the full contract shape.",
+    "In /app/backend/routes/ai_tools.py trace_blueprint, move the `doc = await db.documents.find_one(...)` + 404 raise ABOVE the `consume_addon_credit` call so credits are never burned on invalid/missing document_ids and 404 takes precedence over 402.",
+    "(Optional) Grant N=3 ai_floorplan_credits on Pro-trial activation so trace + floorplan regression paths are testable without upgrading to Studio."
+  ],
+  "critical_code_review_comments": [
+    "routes/projects.py get_or_create_blueprint doc contract inconsistency: PUT accepts fixtures+labels+roof_* but the GET-shape on cold-read only has walls/doors/windows/id/project_id/updated_at. Frontend defensive code will hide the bug but this is a real contract regression for iter-32.",
+    "routes/ai_tools.py trace_blueprint ordering bug — credit consumption before validation. Also, `walls_out` empty raises 422 AFTER credit consumption, so a user with credits burns one on any bad image with no way to refund.",
+    "routes/documents.py — good: ANALYSIS_PROMPT_HEADER changes and _sanitize_fixture/_sanitize_label are correctly plumbed into the analyze pipeline (lines 456-460).",
+    "CadAIPanel.jsx TRACE tab UI is well-instrumented with testids (cad-ai-tab-trace, cad-ai-trace-empty, cad-ai-trace-doc-*, cad-ai-trace-submit, cad-ai-trace-replace, cad-ai-trace-result, cad-ai-trace-err) and the empty-state copy matches the request.",
+    "models/blueprint.py BlueprintIn correctly adds `fixtures: List[dict] = []`."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter32_ai_trace_blueprint.py (new)"
+  ],
+  "success_rate": {"backend": "2 passed / 2 failed / 2 skipped (33% of executed asserts)", "frontend": "TRACE tab presence + empty state + regression tabs all verified"},
+  "test_credentials": "Admin: admin@atlas.app / Open0says3me#*03#* (used only for URL check). Test users created per-run via /api/auth/register.",
+  "seed_data_creation": "Created ephemeral test users iter32_*@example.com and iter32ui_*@example.com plus TEST_UI_iter32 / TEST_trace_iter32 projects and one uploaded 1x1 PNG document per run.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two backend bugs are open: (1) fixtures/labels missing from GET /blueprint on cold-read; (2) trace-blueprint consumes credit before doc validation. Test /app/backend/tests/test_iter32_ai_trace_blueprint.py has 6 tests — TestTraceBlueprintAuth::test_missing_doc_returns_404 and TestBlueprintFixturesPersistence::test_get_blueprint_has_fixtures_field are the two that assert the bugs. After main-agent fixes, rerun `pytest tests/test_iter32_ai_trace_blueprint.py -v` — expect 4 passing (2 remaining tests skip when GPT-4o credits/AI is unavailable). Trace happy-path was not exercised end-to-end due to Pro-trial having 0 floorplan credits; to test happy-path directly, either (a) seed the test user with credits/set subscription.tier=studio, or (b) call the endpoint as admin.",
+  "rca of the issue": "Bug #1 (fixtures missing from GET): get_or_create_blueprint() and the project-create seed in /app/backend/routes/projects.py were written before the fixtures/labels fields were added to BlueprintIn — the schema change (models/blueprint.py adding fixtures list) was not mirrored in the cold-start blueprint doc. PUT works because Pydantic defaults fill missing arrays. Fix: add `labels: [], fixtures: []` to both dict literals. Bug #2 (credit burn before validation): In /app/backend/routes/ai_tools.py trace_blueprint the developer placed the require_role → subscription lookup → consume_addon_credit chain (lines 616-626) before the document lookup (lines 628-633). Swap the two blocks so the 404 path exits without touching billing. Ideally also refund on 422 (no walls) but that's a follow-up."
+}

@@ -30,31 +30,82 @@ def _llm_key() -> str:
     return os.environ.get("EMERGENT_LLM_KEY", "")
 
 
-ANALYSIS_PROMPT_HEADER = """You are an expert architectural and construction AI assistant.
-Analyze the provided image (which may be a blueprint, floor plan, site plan, construction photo, or other document) and return a STRICT JSON response — no prose, no markdown, only valid JSON — with this exact schema:
+ANALYSIS_PROMPT_HEADER = """You are an expert architectural CAD engineer.
+Your mission: TRACE THE UPLOADED BLUEPRINT EXACTLY. Do not invent, embellish,
+or "improve" the layout. If the user uploaded a floor plan, reproduce its walls,
+doors, windows, room labels, and fixtures with the same proportions and positions
+as the source drawing.
+
+Return a STRICT JSON response — no prose, no markdown, only valid JSON — with this exact schema:
 
 {
   "doc_type": "floor_plan" | "blueprint" | "site_plan" | "elevation" | "photo" | "other",
   "summary": "2-3 sentence summary of what's in the image",
+  "building_ft": {"w": 40.0, "h": 30.0},
+  "scale_confidence": "high" | "medium" | "low",
   "rooms": [{"name": "Living Room", "approx_area_sqft": 320}],
   "structural_notes": ["..."],
   "materials": [
     {"name": "2x4 Lumber", "category": "Framing", "quantity": 50, "unit": "pcs", "unit_price_usd": 8.5, "labor_unit_price_usd": 3.2, "dedup": "new"},
     {"name": "Concrete (slab)", "category": "Structural", "quantity": 4, "unit": "cu yd", "unit_price_usd": 165.0, "labor_unit_price_usd": 60.0, "dedup": "merge", "ref": 2, "rationale": "Additional wing of the same slab seen in doc #2"}
   ],
-  "walls": [{"start": [x, y], "end": [x, y], "thickness": 0.2}],
+  "walls": [{"start": [x, y], "end": [x, y], "thickness": 0.5}],
   "doors": [{"position": [x, y], "width": 3, "wall_index": 0}],
-  "windows": [{"position": [x, y], "width": 4, "wall_index": 0}]
+  "windows": [{"position": [x, y], "width": 4, "wall_index": 0}],
+  "labels": [{"position": [x, y], "text": "MASTER BEDROOM"}],
+  "fixtures": [{"kind": "toilet", "position": [x, y], "rotation_deg": 0, "size": [2, 2.5]}]
 }
 
-Coordinate rules:
-- All coordinates are normalized in the range 0-100 where (0,0) is top-left of the image and (100,100) is bottom-right.
-- Only return walls/doors/windows if doc_type is "floor_plan", "blueprint", or "site_plan".
-- For "photo" or "other", return empty arrays for walls/doors/windows.
-- Materials category MUST be one of: "Structural", "Framing", "Electrical", "Plumbing", "Finishes", "HVAC", "Insulation", "Roofing", "Doors & Windows", "Other".
-- If you cannot identify materials with confidence, still return at least 3-6 plausible inferred materials based on the building type.
-- unit_price_usd MUST be a realistic 2026 US construction trade rate (e.g. 2x4x8 lumber ~$6-9/pc, concrete ~$160-180/cu yd, drywall ~$15/sheet, copper wire ~$1.50/ft, PEX pipe ~$0.50/ft). Always include a non-zero estimate.
-- labor_unit_price_usd is the installed labor cost per unit at US average rates (e.g. drywall hang ~$0.55/sqft → ~$17/sheet, framing ~$2-4/pc, concrete pour ~$60/cu yd, wire pull ~$0.80/ft). Always include a non-zero estimate.
+COORDINATE SYSTEM (this is critical — read carefully):
+- ALL coordinates are in REAL WORLD FEET.
+- Origin (0,0) is the BOTTOM-LEFT corner of the building footprint (not the image).
+- +x = east, +y = north.
+- `building_ft.w` / `building_ft.h` is the overall building bounding box width and height in feet.
+
+HOW TO DETERMINE SCALE (in this exact priority order):
+1. If a printed scale ratio is visible (e.g. `1/4"=1'-0"`, `Scale 1:50`), use it.
+2. If dimension callouts are visible (`24'-0"`, `12ft`, `3600mm`), measure from those.
+3. If a scale bar / ruler graphic is drawn, use it.
+4. If none of the above, INFER from typical residential proportions:
+   - Standard bedroom ~ 10-14 ft on the shortest side.
+   - Standard door leaf ~ 2.67-3 ft.
+   - Standard interior corridor ~ 3-4 ft.
+   Set `scale_confidence` = "low" when inferring.
+
+TRACING FIDELITY (the reason the user uploaded this drawing):
+- Reproduce EVERY wall segment you can identify. Do not simplify by merging corridors.
+  Aim for 15-60 wall segments on a typical residential floor plan.
+- Snap each wall endpoint to a 0.5 ft grid.
+- Preserve orthogonal (X/Y axis-aligned) walls as axis-aligned. Only emit diagonal
+  segments if the source is truly diagonal.
+- Every door / window MUST reference the wall it cuts through by `wall_index`
+  (0-based into `walls`). Place `position` on that wall segment.
+- Extract EVERY room label / callout you can read (e.g. `MASTER BEDROOM`, `KITCHEN`,
+  `BATH 2`, `WIC`, `LAUNDRY`, `GARAGE`). Place its `position` at the room's centroid.
+- Extract fixtures — see next section.
+
+FIXTURES (extract ALL you can see in the source drawing):
+- `kind` MUST be one of:
+  `toilet`, `sink`, `shower`, `tub`, `vanity`, `stove`, `oven`, `refrigerator`,
+  `dishwasher`, `washer`, `dryer`, `island`, `counter`, `closet`, `stairs`,
+  `bed`, `sofa`, `dining_table`, `desk`, `fireplace`, `hvac_unit`, `water_heater`,
+  `column`, `other`.
+- `position` = [x, y] in FEET, centered on the fixture.
+- `rotation_deg` = clockwise rotation from east-facing (0 = points east, 90 = points north).
+- `size` = [width_ft, depth_ft] of the fixture footprint.
+- Use conventional US residential sizes when the drawing doesn't specify:
+  toilet 2x2.5, sink 2x1.5, shower 3x3, tub 5x2.5, vanity 4x2, stove 2.5x2,
+  refrigerator 3x2.5, dishwasher 2x2, island 6x3, stairs 3x10, bed(queen) 5x6.5.
+
+Coordinate rules for non-floorplan docs:
+- Only return walls/doors/windows/fixtures if `doc_type` is "floor_plan",
+  "blueprint", or "site_plan". Otherwise return empty arrays.
+
+Materials category MUST be one of: "Structural", "Framing", "Electrical", "Plumbing",
+"Finishes", "HVAC", "Insulation", "Roofing", "Doors & Windows", "Other".
+- If you cannot identify materials with confidence, still return 3-6 plausible inferred materials.
+- unit_price_usd MUST be a realistic 2026 US construction trade rate.
+- labor_unit_price_usd is the installed labor cost per unit at US average rates.
 
 DEDUPLICATION RULES (read carefully — this is critical):
 You will be given a list of materials ALREADY counted in this project from prior documents. The current image may show the SAME structures from a different angle, elevation, or detail view. You MUST avoid double-counting.
@@ -138,6 +189,50 @@ def _coord(p):
     return None
 
 
+VALID_FIXTURE_KINDS = {
+    "toilet", "sink", "shower", "tub", "vanity", "stove", "oven",
+    "refrigerator", "dishwasher", "washer", "dryer", "island", "counter",
+    "closet", "stairs", "bed", "sofa", "dining_table", "desk", "fireplace",
+    "hvac_unit", "water_heater", "column", "other",
+}
+
+
+def _sanitize_fixture(fx: dict) -> dict | None:
+    pos = _coord(fx.get("position"))
+    if not pos:
+        return None
+    kind = str(fx.get("kind") or "other").lower().replace("-", "_").replace(" ", "_")
+    if kind not in VALID_FIXTURE_KINDS:
+        kind = "other"
+    size = fx.get("size") or [2.0, 2.0]
+    try:
+        sw = float(size[0])
+        sh = float(size[1])
+    except (TypeError, ValueError, IndexError):
+        sw, sh = 2.0, 2.0
+    sw = max(0.5, min(sw, 40.0))
+    sh = max(0.5, min(sh, 40.0))
+    try:
+        rot = float(fx.get("rotation_deg") or 0)
+    except (TypeError, ValueError):
+        rot = 0.0
+    return {
+        "id": str(uuid.uuid4()),
+        "kind": kind,
+        "position": pos,
+        "size": [sw, sh],
+        "rotation_deg": rot % 360,
+    }
+
+
+def _sanitize_label(lbl: dict) -> dict | None:
+    pos = _coord(lbl.get("position"))
+    text = (lbl.get("text") or "").strip()[:60]
+    if not pos or not text:
+        return None
+    return {"id": str(uuid.uuid4()), "position": pos, "text": text}
+
+
 def _rasterize_pdf_pages(pdf_bytes: bytes) -> list[str]:
     """Render up to MAX_PDF_PAGES pages to base64-encoded PNGs (in order)."""
     pages_b64: list[str] = []
@@ -190,6 +285,10 @@ def _build_pipeline(db):
             walls_all: list[dict] = []
             doors_all: list[dict] = []
             windows_all: list[dict] = []
+            labels_all: list[dict] = []
+            fixtures_all: list[dict] = []
+            building_ft: dict | None = None
+            scale_confidence: str | None = None
             page_summaries: list[dict] = []
             first_doc_type: str | None = None
             first_summary: str | None = None
@@ -304,31 +403,63 @@ def _build_pipeline(db):
                     inserted += 1
                     dedup_audit.append({"name": name, "decision": "new", "page": page_idx + 1})
 
-                # Accumulate floorplan geometry from each page
+                # Accumulate floorplan geometry from each page (in feet, wall_index is
+                # scoped to THIS page — offset it when appending to the global list).
                 if doc_type in {"floor_plan", "blueprint", "site_plan"}:
+                    if building_ft is None:
+                        bf = analysis.get("building_ft") or {}
+                        try:
+                            bw = float(bf.get("w") or 0)
+                            bh = float(bf.get("h") or 0)
+                            if bw > 0 and bh > 0:
+                                building_ft = {"w": bw, "h": bh}
+                                scale_confidence = str(analysis.get("scale_confidence") or "medium")
+                        except (TypeError, ValueError):
+                            pass
+                    wall_offset = len(walls_all)
+                    page_walls_added = 0
                     for w in analysis.get("walls") or []:
                         s, e = _coord(w.get("start")), _coord(w.get("end"))
                         if s and e:
                             walls_all.append({
                                 "id": str(uuid.uuid4()), "start": s, "end": e,
-                                "thickness": float(w.get("thickness") or 0.2),
+                                "thickness": float(w.get("thickness") or 0.5),
                             })
+                            page_walls_added += 1
                     for d_item in analysis.get("doors") or []:
                         pos = _coord(d_item.get("position"))
                         if pos:
+                            try:
+                                wi_local = int(d_item.get("wall_index") or 0)
+                            except (TypeError, ValueError):
+                                wi_local = 0
+                            wi = wall_offset + wi_local if 0 <= wi_local < page_walls_added else wall_offset
                             doors_all.append({
                                 "id": str(uuid.uuid4()), "position": pos,
                                 "width": float(d_item.get("width") or 3.0),
-                                "wall_index": int(d_item.get("wall_index") or 0),
+                                "wall_index": wi,
                             })
                     for w_item in analysis.get("windows") or []:
                         pos = _coord(w_item.get("position"))
                         if pos:
+                            try:
+                                wi_local = int(w_item.get("wall_index") or 0)
+                            except (TypeError, ValueError):
+                                wi_local = 0
+                            wi = wall_offset + wi_local if 0 <= wi_local < page_walls_added else wall_offset
                             windows_all.append({
                                 "id": str(uuid.uuid4()), "position": pos,
                                 "width": float(w_item.get("width") or 4.0),
-                                "wall_index": int(w_item.get("wall_index") or 0),
+                                "wall_index": wi,
                             })
+                    for lbl in (analysis.get("labels") or [])[:60]:
+                        clean_lbl = _sanitize_label(lbl)
+                        if clean_lbl:
+                            labels_all.append(clean_lbl)
+                    for fx in (analysis.get("fixtures") or [])[:80]:
+                        clean_fx = _sanitize_fixture(fx)
+                        if clean_fx:
+                            fixtures_all.append(clean_fx)
 
             await _set_doc_status(
                 doc_id, "saving",
@@ -337,21 +468,34 @@ def _build_pipeline(db):
             )
 
             synced = False
-            if walls_all or doors_all or windows_all:
+            if walls_all or doors_all or windows_all or labels_all or fixtures_all:
                 await _set_doc_status(doc_id, "syncing", doc_type=first_doc_type, materials_count=inserted)
                 existing = await get_or_create_blueprint(db, project_id)
+                # For exact tracing, wall_indexes in doors/windows are already
+                # global (offset applied per-page in the loop above). Just append.
                 merged_walls = (existing.get("walls") or []) + walls_all
-                merged_doors = (existing.get("doors") or []) + doors_all
-                merged_windows = (existing.get("windows") or []) + windows_all
+                # Shift new door/window wall_indexes by the count of PRE-EXISTING walls.
+                existing_wall_count = len(existing.get("walls") or [])
+                shifted_doors = [{**d, "wall_index": (d.get("wall_index") or 0) + existing_wall_count} for d in doors_all]
+                shifted_windows = [{**w, "wall_index": (w.get("wall_index") or 0) + existing_wall_count} for w in windows_all]
+                merged_doors = (existing.get("doors") or []) + shifted_doors
+                merged_windows = (existing.get("windows") or []) + shifted_windows
+                merged_labels = (existing.get("labels") or []) + labels_all
+                merged_fixtures = (existing.get("fixtures") or []) + fixtures_all
+                bp_update = {
+                    "walls": merged_walls,
+                    "doors": merged_doors,
+                    "windows": merged_windows,
+                    "labels": merged_labels,
+                    "fixtures": merged_fixtures,
+                    "updated_at": now_iso(),
+                    "last_source_document_id": doc_id,
+                }
+                if building_ft:
+                    bp_update["building_ft"] = building_ft
                 await db.blueprints.update_one(
                     {"project_id": project_id},
-                    {"$set": {
-                        "walls": merged_walls,
-                        "doors": merged_doors,
-                        "windows": merged_windows,
-                        "updated_at": now_iso(),
-                        "last_source_document_id": doc_id,
-                    }},
+                    {"$set": bp_update},
                     upsert=True,
                 )
                 synced = True
@@ -364,6 +508,15 @@ def _build_pipeline(db):
                     "rooms": all_rooms,
                     "structural_notes": all_notes,
                     "page_summaries": page_summaries,
+                    "building_ft": building_ft,
+                    "scale_confidence": scale_confidence,
+                    "traced_counts": {
+                        "walls": len(walls_all),
+                        "doors": len(doors_all),
+                        "windows": len(windows_all),
+                        "labels": len(labels_all),
+                        "fixtures": len(fixtures_all),
+                    },
                 },
                 doc_type=first_doc_type,
                 materials_count=inserted,
@@ -376,7 +529,8 @@ def _build_pipeline(db):
             )
             logger.info(
                 f"Pipeline done for {doc_id}: pages={total_pages} type={first_doc_type} "
-                f"materials new={inserted} merged={merged} skipped={skipped} synced={synced}"
+                f"materials new={inserted} merged={merged} skipped={skipped} "
+                f"traced walls={len(walls_all)} fixtures={len(fixtures_all)} synced={synced}"
             )
         except Exception as exc:
             logger.exception(f"Pipeline failed for {doc_id}")

@@ -45,6 +45,34 @@ const WALL_STYLES = [
   { value: "demising",  label: "Demising · 6\" Fire",   thickness_ft: 0.5 },
 ];
 
+// Fixture symbol config — maps AI-traced `kind` to a short label + fill color.
+const FIXTURE_META = {
+  toilet:        { label: "WC",     color: "#8FA8C0" },
+  sink:          { label: "SINK",   color: "#8FA8C0" },
+  shower:        { label: "SHWR",   color: "#8FA8C0" },
+  tub:           { label: "TUB",    color: "#8FA8C0" },
+  vanity:        { label: "VAN",    color: "#8FA8C0" },
+  stove:         { label: "RANGE",  color: "#D0B090" },
+  oven:          { label: "OVEN",   color: "#D0B090" },
+  refrigerator:  { label: "FRIDGE", color: "#D0B090" },
+  dishwasher:    { label: "DW",     color: "#D0B090" },
+  washer:        { label: "WASH",   color: "#B0C0A0" },
+  dryer:         { label: "DRYR",   color: "#B0C0A0" },
+  island:        { label: "ISLAND", color: "#D0B090" },
+  counter:       { label: "COUNTER", color: "#D0B090" },
+  closet:        { label: "CLOSET", color: "#C8C8C8" },
+  stairs:        { label: "STAIRS", color: "#B8B8B8" },
+  bed:           { label: "BED",    color: "#C8B090" },
+  sofa:          { label: "SOFA",   color: "#C8B090" },
+  dining_table:  { label: "TABLE",  color: "#C8B090" },
+  desk:          { label: "DESK",   color: "#C8B090" },
+  fireplace:     { label: "FP",     color: "#A08080" },
+  hvac_unit:     { label: "HVAC",   color: "#A0A8B0" },
+  water_heater:  { label: "WH",     color: "#A0A8B0" },
+  column:        { label: "COL",    color: "#606060" },
+  other:         { label: "FIX",    color: "#B0B0B0" },
+};
+
 // Per-tool input config — drives the bottom-bar input placeholder + ↵ behavior.
 const TOOL_INPUT = {
   line:    { placeholder: "length (ft)",   unit: "ft", label: "LENGTH" },
@@ -125,6 +153,7 @@ export default function CadEditorTab() {
   const [doors, setDoors] = useState(blueprint.doors || []);
   const [windows, setWindows] = useState(blueprint.windows || []);
   const [labels, setLabels] = useState(blueprint.labels || []);
+  const [fixtures, setFixtures] = useState(blueprint.fixtures || []);
   const [selected, setSelected] = useState(null);
   const [pendingStart, setPendingStart] = useState(null);     // 2-click tools
   const [rectStart, setRectStart] = useState(null);
@@ -160,6 +189,7 @@ export default function CadEditorTab() {
     setDoors(blueprint.doors || []);
     setWindows(blueprint.windows || []);
     setLabels(blueprint.labels || []);
+    setFixtures(blueprint.fixtures || []);
     setDirty(false);
   }, [blueprint]);
 
@@ -409,6 +439,7 @@ export default function CadEditorTab() {
       if (type === "door")   setDoors((a) => a.filter((x) => x.id !== id));
       if (type === "window") setWindows((a) => a.filter((x) => x.id !== id));
       if (type === "label")  setLabels((a) => a.filter((x) => x.id !== id));
+      if (type === "fixture") setFixtures((a) => a.filter((x) => x.id !== id));
       markDirty();
       return;
     }
@@ -439,6 +470,8 @@ export default function CadEditorTab() {
       setDoors((arr) => arr.map((d) => d.id === moveFrom.id ? { ...d, position: [d.position[0] + dx, d.position[1] + dy] } : d));
     } else if (moveFrom.type === "window") {
       setWindows((arr) => arr.map((w) => w.id === moveFrom.id ? { ...w, position: [w.position[0] + dx, w.position[1] + dy] } : w));
+    } else if (moveFrom.type === "fixture") {
+      setFixtures((arr) => arr.map((f) => f.id === moveFrom.id ? { ...f, position: [f.position[0] + dx, f.position[1] + dy] } : f));
     }
     setMoveFrom(null);
     markDirty();
@@ -457,6 +490,7 @@ export default function CadEditorTab() {
         if (selected.type === "door")   setDoors((a) => a.filter((w) => w.id !== selected.id));
         if (selected.type === "window") setWindows((a) => a.filter((w) => w.id !== selected.id));
         if (selected.type === "label")  setLabels((a) => a.filter((w) => w.id !== selected.id));
+        if (selected.type === "fixture") setFixtures((a) => a.filter((w) => w.id !== selected.id));
         setSelected(null);
         markDirty();
         return;
@@ -520,12 +554,12 @@ export default function CadEditorTab() {
   // ---------- Save ----------
   const save = async () => {
     setSaving(true);
-    try { await saveBlueprint(walls, doors, windows, labels); setDirty(false); }
+    try { await saveBlueprint(walls, doors, windows, labels, { fixtures }); setDirty(false); }
     finally { setSaving(false); }
   };
   const clearAll = () => {
-    if (!window.confirm("Remove ALL walls, doors, windows, and labels?")) return;
-    setWalls([]); setDoors([]); setWindows([]); setLabels([]); markDirty();
+    if (!window.confirm("Remove ALL walls, doors, windows, labels, and fixtures?")) return;
+    setWalls([]); setDoors([]); setWindows([]); setLabels([]); setFixtures([]); markDirty();
   };
 
   // ---------- Linear Array (acts on selected wall) ----------
@@ -897,6 +931,33 @@ export default function CadEditorTab() {
               </g>
             );
           })()}
+
+          {/* AI-traced fixtures (toilets, sinks, appliances, etc.) */}
+          {fixtures.map((f) => {
+            const meta = FIXTURE_META[f.kind] || FIXTURE_META.other;
+            const [w, h] = f.size || [2, 2];
+            const rot = f.rotation_deg || 0;
+            const isSel = selected?.type === "fixture" && selected.id === f.id;
+            return (
+              <g
+                key={f.id}
+                data-testid={`cad-fixture-${f.id}`}
+                transform={`translate(${f.position[0]},${f.position[1]}) rotate(${rot})`}
+                onClick={(e) => onElementClick(e, "fixture", f.id)}
+                style={{ cursor: (tool === "select" || tool === "eraser") ? "pointer" : undefined }}
+              >
+                <rect x={-w / 2} y={-h / 2} width={w} height={h}
+                  fill={isSel ? "#FFCC00" : meta.color} fillOpacity="0.55"
+                  stroke={isSel ? "#FFCC00" : "#333"} strokeWidth="0.12" />
+                <text x={0} y={0.35} fontSize={Math.min(w, h) * 0.42}
+                  fill="#111" textAnchor="middle"
+                  fontFamily="IBM Plex Mono, monospace" fontWeight="700"
+                  pointerEvents="none">
+                  {meta.label}
+                </text>
+              </g>
+            );
+          })}
 
           {/* Text labels */}
           {labels.map((l) => {

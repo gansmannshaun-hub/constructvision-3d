@@ -23,11 +23,15 @@ import re
 import uuid
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from routes.collab import log_activity, require_role
+from routes.documents import (
+    ANALYSIS_PROMPT_HEADER, EXISTING_MATERIALS_TEMPLATE_NONE, ANALYSIS_PROMPT_FOOTER,
+    _sanitize_fixture, _sanitize_label, _coord, _strip_code_fence,
+)
 from billing import consume_addon_credit, ensure_user_subscription
 from utils import now_iso
 
@@ -99,6 +103,12 @@ Output JSON only. No markdown fences, no commentary.
 class FloorplanPromptIn(BaseModel):
     prompt: str = Field(min_length=4, max_length=600)
     replace: bool = Field(default=True, description="If true, the generated layout replaces existing walls. If false, appends.")
+
+
+class TraceBlueprintIn(BaseModel):
+    document_id: str
+    page_index: int = Field(default=0, ge=0, le=19)
+    replace: bool = Field(default=True, description="If true, blueprint geometry is replaced with the traced result. If false, appended.")
 
 
 # ============================ Schedule / Gantt ============================
@@ -594,6 +604,174 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
                 "retried": retried,
                 "clean": len(compliance) == 0,
             },
+        }
+
+    # ---------- AI Blueprint Tracer ----------
+    @router.post("/projects/{project_id}/ai/trace-blueprint")
+    async def trace_blueprint(project_id: str, payload: TraceBlueprintIn,
+                              user: dict = Depends(get_current_user)):
+        """Re-analyze a previously uploaded document with GPT-4o Vision in
+        exact-tracing mode and merge the resulting walls/doors/windows/labels/
+        fixtures into the project blueprint."""
+        await require_role(db, project_id, user, {"owner", "pm", "estimator"})
+        full_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+        full_user = await ensure_user_subscription(db, full_user)
+        sub_tier = (full_user.get("subscription") or {}).get("tier")
+        if sub_tier != "studio":
+            ok = await consume_addon_credit(db, full_user, "ai_floorplan_credits")
+            if not ok:
+                raise HTTPException(402, {
+                    "code": "floorplan_credit_required",
+                    "message": "Out of AI Floorplan credits. Buy the 25-pack on the Billing page (or upgrade to Studio for unlimited).",
+                })
+
+        doc = await db.documents.find_one({"id": payload.document_id, "project_id": project_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        b64 = doc.get("image_base64")
+        if not b64:
+            raise HTTPException(422, "This document has no cached image for re-tracing.")
+
+        if not _llm_key():
+            raise HTTPException(503, "LLM key unavailable")
+
+        # Call GPT-4o Vision with the exact-tracing analysis prompt.
+        chat = LlmChat(
+            api_key=_llm_key(),
+            session_id=f"trace-{uuid.uuid4()}",
+            system_message="You are a construction blueprint tracing expert. Output valid JSON only.",
+        ).with_model("openai", "gpt-4o")
+        prompt = (
+            ANALYSIS_PROMPT_HEADER
+            + "\n\n"
+            + EXISTING_MATERIALS_TEMPLATE_NONE  # tracing endpoint focuses on geometry, not materials dedup
+            + ANALYSIS_PROMPT_FOOTER
+        )
+        try:
+            msg = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=b64)])
+            raw = await asyncio.wait_for(chat.send_message(msg), timeout=90)
+        except asyncio.TimeoutError:
+            raise HTTPException(504, "AI tracer timed out — try again")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("trace_blueprint AI call failed")
+            raise HTTPException(502, f"AI error: {str(exc)[:200]}")
+
+        text = _strip_code_fence(raw if isinstance(raw, str) else str(raw))
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            m = re.search(r"\{[\s\S]*\}", text)
+            if not m:
+                raise HTTPException(502, "AI returned non-JSON")
+            data = json.loads(m.group(0))
+
+        # Sanitize walls / doors / windows / labels / fixtures.
+        walls_out: list[dict] = []
+        for w in (data.get("walls") or [])[:120]:
+            s, e = _coord(w.get("start")), _coord(w.get("end"))
+            if s and e:
+                walls_out.append({
+                    "id": str(uuid.uuid4()), "start": s, "end": e,
+                    "thickness": float(w.get("thickness") or 0.5),
+                })
+        doors_out: list[dict] = []
+        for d in (data.get("doors") or [])[:60]:
+            pos = _coord(d.get("position"))
+            if pos:
+                try:
+                    wi = int(d.get("wall_index") or 0)
+                except (TypeError, ValueError):
+                    wi = 0
+                doors_out.append({
+                    "id": str(uuid.uuid4()), "position": pos,
+                    "width": float(d.get("width") or 3.0),
+                    "wall_index": max(0, min(wi, len(walls_out) - 1)) if walls_out else 0,
+                })
+        windows_out: list[dict] = []
+        for w in (data.get("windows") or [])[:60]:
+            pos = _coord(w.get("position"))
+            if pos:
+                try:
+                    wi = int(w.get("wall_index") or 0)
+                except (TypeError, ValueError):
+                    wi = 0
+                windows_out.append({
+                    "id": str(uuid.uuid4()), "position": pos,
+                    "width": float(w.get("width") or 4.0),
+                    "wall_index": max(0, min(wi, len(walls_out) - 1)) if walls_out else 0,
+                })
+        labels_out: list[dict] = []
+        for lbl in (data.get("labels") or [])[:80]:
+            cl = _sanitize_label(lbl)
+            if cl:
+                labels_out.append(cl)
+        fixtures_out: list[dict] = []
+        for fx in (data.get("fixtures") or [])[:120]:
+            cf = _sanitize_fixture(fx)
+            if cf:
+                fixtures_out.append(cf)
+
+        if not walls_out:
+            raise HTTPException(422, "AI tracer returned no walls — the image may not be a clear floor plan")
+
+        # Merge / replace into the blueprint
+        bp = await db.blueprints.find_one({"project_id": project_id}, {"_id": 0}) or {}
+        existing_walls = [] if payload.replace else (bp.get("walls") or [])
+        existing_doors = [] if payload.replace else (bp.get("doors") or [])
+        existing_windows = [] if payload.replace else (bp.get("windows") or [])
+        existing_labels = [] if payload.replace else (bp.get("labels") or [])
+        existing_fixtures = [] if payload.replace else (bp.get("fixtures") or [])
+        offset = len(existing_walls)
+        shifted_doors = [{**d, "wall_index": (d.get("wall_index") or 0) + offset} for d in doors_out]
+        shifted_windows = [{**w, "wall_index": (w.get("wall_index") or 0) + offset} for w in windows_out]
+
+        new_walls = existing_walls + walls_out
+        new_doors = existing_doors + shifted_doors
+        new_windows = existing_windows + shifted_windows
+        new_labels = existing_labels + labels_out
+        new_fixtures = existing_fixtures + fixtures_out
+
+        bf = data.get("building_ft") or {}
+        try:
+            bw, bh = float(bf.get("w") or 0), float(bf.get("h") or 0)
+            building_ft = {"w": bw, "h": bh} if bw > 0 and bh > 0 else None
+        except (TypeError, ValueError):
+            building_ft = None
+
+        update = {
+            "walls": new_walls,
+            "doors": new_doors,
+            "windows": new_windows,
+            "labels": new_labels,
+            "fixtures": new_fixtures,
+            "updated_at": now_iso(),
+            "last_source_document_id": payload.document_id,
+        }
+        if building_ft:
+            update["building_ft"] = building_ft
+
+        await db.blueprints.update_one(
+            {"project_id": project_id},
+            {"$set": update},
+            upsert=True,
+        )
+
+        await log_activity(db, project_id, user["email"], "ai.blueprint_traced",
+                           target_type="document", target_id=payload.document_id,
+                           target_name=doc.get("filename") or "blueprint")
+        return {
+            "summary": str(data.get("summary") or "")[:400],
+            "doc_type": data.get("doc_type"),
+            "building_ft": building_ft,
+            "scale_confidence": str(data.get("scale_confidence") or "medium"),
+            "counts": {
+                "walls": len(walls_out),
+                "doors": len(doors_out),
+                "windows": len(windows_out),
+                "labels": len(labels_out),
+                "fixtures": len(fixtures_out),
+            },
+            "replaced": payload.replace,
         }
 
     # ---------- Schedule / Gantt ----------

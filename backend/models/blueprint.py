@@ -8,6 +8,7 @@ class BlueprintIn(BaseModel):
     doors: List[dict] = []
     windows: List[dict] = []
     labels: List[dict] = []
+    fixtures: List[dict] = []
     roof_type: Optional[str] = "gable"
     roof_pitch_deg: Optional[float] = 12.0
     wall_color: Optional[str] = "#D8D4CC"

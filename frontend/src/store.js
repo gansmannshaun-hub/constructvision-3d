@@ -21,7 +21,7 @@ export const useStore = create((set, get) => ({
   currentProjectId: null,
   documents: [],
   materials: [],
-  blueprint: { walls: [], doors: [], windows: [], labels: [] },
+  blueprint: { walls: [], doors: [], windows: [], labels: [], fixtures: [] },
   billing: null,
 
   setAuth: (token, user) => {
@@ -89,6 +89,7 @@ export const useStore = create((set, get) => ({
     const cur = get().blueprint || {};
     const body = {
       walls, doors, windows, labels,
+      fixtures: extra.fixtures ?? cur.fixtures ?? [],
       roof_type: extra.roof_type ?? cur.roof_type ?? "gable",
       roof_pitch_deg: extra.roof_pitch_deg ?? cur.roof_pitch_deg ?? 12,
       wall_color: extra.wall_color ?? cur.wall_color ?? "#D8D4CC",

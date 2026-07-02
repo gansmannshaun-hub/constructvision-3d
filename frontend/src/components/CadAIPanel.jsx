@@ -9,6 +9,7 @@ import { runCompliance } from "../lib/compliance";
  */
 export default function CadAIPanel({ projectId, onPlanLoaded }) {
   const blueprint = useStore((s) => s.blueprint);
+  const documents = useStore((s) => s.documents);
   const [tab, setTab] = useState("ai");
   const [collapsed, setCollapsed] = useState(false);
 
@@ -23,6 +24,17 @@ export default function CadAIPanel({ projectId, onPlanLoaded }) {
     "800 sqft studio cabin 24×34, one bathroom, kitchenette, sleeping loft.",
     "2,000 sqft 4-bed ranch home, 50×40, attached 2-car garage.",
   ];
+
+  // -- Trace-upload state
+  const [traceDocId, setTraceDocId] = useState("");
+  const [traceReplace, setTraceReplace] = useState(true);
+  const [traceBusy, setTraceBusy] = useState(false);
+  const [traceResult, setTraceResult] = useState(null);
+  const [traceErr, setTraceErr] = useState("");
+  // Only floor-plan / blueprint / site-plan docs are eligible
+  const traceableDocs = (documents || []).filter(
+    (d) => d.status === "done" && ["floor_plan", "blueprint", "site_plan"].includes(d.doc_type),
+  );
 
   // -- Compliance state
   const [occupancy, setOccupancy] = useState("residential");
@@ -52,6 +64,26 @@ export default function CadAIPanel({ projectId, onPlanLoaded }) {
     }
   };
 
+  const traceUpload = async () => {
+    if (!traceDocId) return;
+    setTraceBusy(true);
+    setTraceErr("");
+    setTraceResult(null);
+    try {
+      const { data } = await apiClient.post(
+        `/projects/${projectId}/ai/trace-blueprint`,
+        { document_id: traceDocId, replace: traceReplace },
+      );
+      setTraceResult(data);
+      if (onPlanLoaded) await onPlanLoaded();
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      setTraceErr(typeof d === "string" ? d : (Array.isArray(d) ? d.map((x) => x.msg).join("; ") : (e.message || "Trace failed")));
+    } finally {
+      setTraceBusy(false);
+    }
+  };
+
   if (collapsed) {
     return (
       <button
@@ -77,6 +109,19 @@ export default function CadAIPanel({ projectId, onPlanLoaded }) {
             onClick={() => setTab("ai")}
             className={`label-mono px-2 py-1 ${tab === "ai" ? "bg-[#FFCC00] text-black" : "text-neutral-400 hover:text-white"}`}
           >AI SKETCH</button>
+          <button
+            data-testid="cad-ai-tab-trace"
+            onClick={() => setTab("trace")}
+            className={`label-mono px-2 py-1 flex items-center gap-1 ${tab === "trace" ? "bg-[#FFCC00] text-black" : "text-neutral-400 hover:text-white"}`}
+            title="Exact-trace an uploaded blueprint"
+          >
+            TRACE
+            {traceableDocs.length > 0 && (
+              <span className="bg-white/15 text-[9px] px-1.5 py-0.5 rounded-full leading-none">
+                {traceableDocs.length}
+              </span>
+            )}
+          </button>
           <button
             data-testid="cad-ai-tab-code"
             onClick={() => setTab("code")}
@@ -206,6 +251,90 @@ export default function CadAIPanel({ projectId, onPlanLoaded }) {
                 </button>
               ))}
             </div>
+          </>
+        ) : tab === "trace" ? (
+          <>
+            <div className="label-mono mb-2 text-neutral-500">// EXACT BLUEPRINT TRACER</div>
+            <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
+              Point GPT-4o Vision at a floor-plan you already uploaded. It will
+              trace every wall, door, window, room label, and fixture into the
+              CAD editor at true real-world feet.
+            </p>
+
+            {traceableDocs.length === 0 ? (
+              <div data-testid="cad-ai-trace-empty" className="border border-dashed border-white/10 bg-black text-xs text-neutral-500 font-mono p-4 leading-relaxed">
+                No traceable floor-plans yet. Upload a blueprint from the DOCUMENTS tab —
+                once its status is <span className="text-[#FFCC00]">DONE</span> and its
+                type is <span className="text-[#FFCC00]">FLOOR_PLAN</span> or
+                <span className="text-[#FFCC00]"> BLUEPRINT</span>, it will show up here.
+              </div>
+            ) : (
+              <>
+                <div className="label-mono mb-1 text-neutral-500">// SELECT UPLOAD</div>
+                <div className="space-y-1 mb-3 max-h-40 overflow-y-auto">
+                  {traceableDocs.map((d) => (
+                    <button
+                      key={d.id}
+                      data-testid={`cad-ai-trace-doc-${d.id}`}
+                      onClick={() => setTraceDocId(d.id)}
+                      className={`block w-full text-left text-xs px-2 py-2 border ${
+                        traceDocId === d.id
+                          ? "border-[#FFCC00] bg-[#FFCC00]/10 text-[#FFCC00]"
+                          : "border-white/10 text-neutral-300 hover:bg-white/5"
+                      }`}
+                    >
+                      <div className="font-mono truncate">{d.filename || d.id.slice(0, 8)}</div>
+                      <div className="text-[10px] text-neutral-500 uppercase tracking-wider">
+                        {d.doc_type} · {d.pages_total || 1} page{(d.pages_total || 1) === 1 ? "" : "s"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <label className="flex items-center gap-2 text-xs mb-3">
+                  <input
+                    data-testid="cad-ai-trace-replace"
+                    type="checkbox"
+                    checked={traceReplace}
+                    onChange={(e) => setTraceReplace(e.target.checked)}
+                  />
+                  <span className="text-neutral-300">
+                    {traceReplace ? "Replace existing geometry" : "Append to current layout"}
+                  </span>
+                </label>
+
+                <button
+                  data-testid="cad-ai-trace-submit"
+                  onClick={traceUpload}
+                  disabled={traceBusy || !traceDocId}
+                  className="w-full bg-[#FFCC00] hover:bg-[#E6B800] disabled:opacity-40 text-black font-bold py-2.5 text-xs uppercase tracking-wider mb-3"
+                >
+                  {traceBusy ? "Tracing…" : "✦ Trace this blueprint exactly"}
+                </button>
+
+                {traceErr && (
+                  <div data-testid="cad-ai-trace-err" className="border border-[#FF3333]/40 bg-[#FF3333]/10 text-[#FF6666] text-xs font-mono p-3 mb-3">
+                    {traceErr}
+                  </div>
+                )}
+
+                {traceResult && (
+                  <div data-testid="cad-ai-trace-result" className="border border-[#00CC66]/40 bg-[#00CC66]/10 text-xs font-mono p-3 mb-3 space-y-1">
+                    <div className="text-[#00CC66] font-bold">Blueprint traced ✓</div>
+                    {traceResult.summary && <div className="text-neutral-300">{traceResult.summary}</div>}
+                    <div className="text-neutral-400">
+                      walls {traceResult.counts.walls} · doors {traceResult.counts.doors} · windows {traceResult.counts.windows} · labels {traceResult.counts.labels} · fixtures {traceResult.counts.fixtures}
+                    </div>
+                    {traceResult.building_ft && (
+                      <div className="text-neutral-500">
+                        building {traceResult.building_ft.w}×{traceResult.building_ft.h} ft ·
+                        scale confidence <span className="uppercase">{traceResult.scale_confidence}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </>
         ) : (
           <>

@@ -76,6 +76,7 @@ def build_projects_router(db, get_current_user) -> APIRouter:
                 "doors": payload.doors,
                 "windows": payload.windows,
                 "labels": payload.labels,
+                "fixtures": payload.fixtures,
                 "roof_type": payload.roof_type,
                 "roof_pitch_deg": payload.roof_pitch_deg,
                 "wall_color": payload.wall_color,
