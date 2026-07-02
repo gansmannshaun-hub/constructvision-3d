@@ -44,18 +44,23 @@ export default function DocumentsTab() {
 
   // Auto-refresh whenever any document is still analyzing so users see progress
   // without needing to reload the page. Stops polling once everything settles.
+  // Errors are swallowed so a transient network blip doesn't crash the UI.
   React.useEffect(() => {
     if (!currentProjectId) return;
     const active = (documents || []).some(
       (d) => d.status && !["done", "error"].includes(d.status)
     );
     if (!active) return;
+    let cancelled = false;
     const t = setInterval(async () => {
-      await refreshDocuments();
-      await refreshMaterials();
-      await refreshBlueprint();
+      if (cancelled) return;
+      try { await refreshDocuments(); } catch (_) { /* transient */ }
+      if (cancelled) return;
+      try { await refreshMaterials(); } catch (_) { /* transient */ }
+      if (cancelled) return;
+      try { await refreshBlueprint(); } catch (_) { /* transient */ }
     }, 3500);
-    return () => clearInterval(t);
+    return () => { cancelled = true; clearInterval(t); };
   }, [currentProjectId, documents, refreshDocuments, refreshMaterials, refreshBlueprint]);
 
   // Accept common blueprint / plan formats when reading a folder. Other files

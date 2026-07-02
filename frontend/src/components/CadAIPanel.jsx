@@ -31,9 +31,12 @@ export default function CadAIPanel({ projectId, onPlanLoaded }) {
   const [traceBusy, setTraceBusy] = useState(false);
   const [traceResult, setTraceResult] = useState(null);
   const [traceErr, setTraceErr] = useState("");
-  // Only floor-plan / blueprint / site-plan docs are eligible
+    // Trace tab — accept ALL documents with an image, not just those the
+  // pre-classifier labeled floor_plan/blueprint/site_plan. Users often
+  // upload phone photos of drawings that get misclassified as `photo`;
+  // this tab is the escape hatch to re-trace them anyway.
   const traceableDocs = (documents || []).filter(
-    (d) => d.status === "done" && ["floor_plan", "blueprint", "site_plan"].includes(d.doc_type),
+    (d) => d.status === "done" || d.status === "error",
   );
 
   // -- Compliance state
@@ -263,10 +266,10 @@ export default function CadAIPanel({ projectId, onPlanLoaded }) {
 
             {traceableDocs.length === 0 ? (
               <div data-testid="cad-ai-trace-empty" className="border border-dashed border-white/10 bg-black text-xs text-neutral-500 font-mono p-4 leading-relaxed">
-                No traceable floor-plans yet. Upload a blueprint from the DOCUMENTS tab —
-                once its status is <span className="text-[#FFCC00]">DONE</span> and its
-                type is <span className="text-[#FFCC00]">FLOOR_PLAN</span> or
-                <span className="text-[#FFCC00]"> BLUEPRINT</span>, it will show up here.
+                No uploads yet. Head to the DOCUMENTS tab and drop any
+                blueprint, floor plan, sketch, or even a phone photo of a
+                drawing — once it&apos;s <span className="text-[#FFCC00]">DONE</span>,
+                it will show up here and you can trace it exactly.
               </div>
             ) : (
               <>

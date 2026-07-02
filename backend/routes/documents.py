@@ -24,6 +24,39 @@ logger = logging.getLogger("documents")
 
 MAX_PDF_PAGES = 20
 PDF_RASTER_SCALE = 2.0  # 2x = ~144dpi, good balance of detail/AI cost
+# Cap the longest side of any stored blueprint image at 1600 px and re-encode
+# as JPEG so the resulting base64 fits well within MongoDB's 16 MB BSON
+# document limit and GPT-4o Vision's per-image budget. Large architectural
+# sheets (24×36 Arch-D) at 2x scale can be > 20 MB PNG which used to blow up
+# the DocumentTooLarge error and silently kill batch uploads.
+MAX_IMAGE_DIM = 1600
+JPEG_QUALITY = 85
+# Any base64 payload larger than this is refused before hitting Mongo (16 MB
+# is Mongo's hard cap; we keep a safety margin for other fields on the doc).
+MAX_STORED_B64_BYTES = 6 * 1024 * 1024
+
+
+def _shrink_and_encode(img) -> str:
+    """Downscale a PIL image to fit within MAX_IMAGE_DIM and return base64 JPEG."""
+    from PIL import Image  # local import to avoid startup cost
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    w, h = img.size
+    if max(w, h) > MAX_IMAGE_DIM:
+        scale = MAX_IMAGE_DIM / float(max(w, h))
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    # If we're STILL over the safety cap (shouldn't happen for 1600px JPEG q85),
+    # step the quality down until we fit.
+    q = JPEG_QUALITY
+    while len(b64) > MAX_STORED_B64_BYTES and q > 40:
+        q -= 15
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=q, optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    return b64
 
 
 def _llm_key() -> str:
@@ -55,6 +88,33 @@ Return a STRICT JSON response — no prose, no markdown, only valid JSON — wit
   "labels": [{"position": [x, y], "text": "MASTER BEDROOM"}],
   "fixtures": [{"kind": "toilet", "position": [x, y], "rotation_deg": 0, "size": [2, 2.5]}]
 }
+
+DOC_TYPE CLASSIFICATION (this is critical — the frontend routes on this field):
+Classify by CONTENT, not by MEDIUM. A phone photo of a printed floor plan is
+still a `floor_plan` — do NOT down-classify it to `photo` just because it
+was taken with a camera.
+
+- `floor_plan`  = Top-down view of interior room layout with walls, doors,
+                  windows, room labels. Includes hand-drawn sketches on
+                  paper/napkins/whiteboards, phone photos of printed drawings,
+                  screenshots of CAD software, PDF exports from architectural
+                  tools, or scanned drafting sheets. TRACE IT.
+- `blueprint`   = Any formal architectural/engineering sheet — plan, section,
+                  detail, or elevation with dimensions and callouts. Same
+                  guidance: phone photo of a blueprint = `blueprint`. TRACE IT.
+- `site_plan`   = Top-down of the LOT/property including building footprint,
+                  driveway, setbacks, contours. Photo of a printed site plan
+                  still counts. TRACE IT.
+- `elevation`   = Exterior side view. Return empty walls/doors/windows arrays
+                  but DO extract materials + labels.
+- `photo`       = Camera photo of an actual construction site, existing
+                  building, or 3D scene — NOT a photo of a drawing. Return
+                  empty walls/doors/windows/fixtures arrays. Return materials
+                  and structural_notes based on what you can see.
+- `other`       = Anything else (spec sheet, invoice, contract, unrelated image).
+
+If in doubt between `photo` and `floor_plan`/`blueprint`, prefer the drawing
+classification — under-tracing is much worse for the user than over-tracing.
 
 COORDINATE SYSTEM (this is critical — read carefully):
 - ALL coordinates are in REAL WORLD FEET.
@@ -244,7 +304,7 @@ def _sanitize_label(lbl: dict) -> dict | None:
 
 
 def _rasterize_pdf_pages(pdf_bytes: bytes) -> list[str]:
-    """Render up to MAX_PDF_PAGES pages to base64-encoded PNGs (in order)."""
+    """Render up to MAX_PDF_PAGES pages, downscale, JPEG-encode, base64."""
     pages_b64: list[str] = []
     pdf = pdfium.PdfDocument(io.BytesIO(pdf_bytes))
     try:
@@ -252,13 +312,18 @@ def _rasterize_pdf_pages(pdf_bytes: bytes) -> list[str]:
         for i in range(n):
             page = pdf[i]
             pil_image = page.render(scale=PDF_RASTER_SCALE).to_pil()
-            buf = io.BytesIO()
-            pil_image.save(buf, format="PNG", optimize=True)
-            pages_b64.append(base64.b64encode(buf.getvalue()).decode("utf-8"))
+            pages_b64.append(_shrink_and_encode(pil_image))
             page.close()
     finally:
         pdf.close()
     return pages_b64
+
+
+def _shrink_image_bytes_to_b64(content: bytes) -> str:
+    """Downscale a raw uploaded image file (PNG/JPG/WEBP) and return base64 JPEG."""
+    from PIL import Image
+    img = Image.open(io.BytesIO(content))
+    return _shrink_and_encode(img)
 
 
 def _build_pipeline(db):
@@ -657,7 +722,10 @@ def build_documents_router(db, get_current_user) -> APIRouter:
         return {
             "id": doc["id"],
             "filename": doc.get("filename"),
-            "mime_type": doc.get("mime_type"),
+            # Stored blueprints are re-encoded as JPEG during upload for size
+            # safety (see _shrink_and_encode) so the original mime_type is
+            # not accurate for the returned bytes.
+            "mime_type": "image/jpeg",
             "image_base64": doc.get("image_base64"),
         }
 
@@ -696,7 +764,11 @@ def build_documents_router(db, get_current_user) -> APIRouter:
             if not pages_b64:
                 raise HTTPException(400, "PDF has no pages.")
         else:
-            pages_b64 = [base64.b64encode(content).decode("utf-8")]
+            try:
+                pages_b64 = [_shrink_image_bytes_to_b64(content)]
+            except Exception as exc:
+                logger.exception("image decode failed")
+                raise HTTPException(400, f"Could not read image: {exc}") from exc
 
         # First-page b64 used as the doc thumbnail
         thumb_b64 = pages_b64[0] if pages_b64 else None

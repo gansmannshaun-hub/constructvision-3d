@@ -259,6 +259,29 @@ email digest with /invite landing.
 - Schedule export to MS-Project / Primavera XML.
 - True path-traced render via three-gpu-pathtracer (current is hi-res raster).
 
+## Recent changes — 2026-07-02 (iter 36 — bug fixes: BSON size + photo classification)
+### DocumentTooLarge fix (P0 — Complete)
+- Root cause of batch upload failures: raw rasterized PDFs / high-res
+  blueprints were stored as PNG base64 exceeding MongoDB's 16 MB BSON
+  document limit → uploads silently threw `DocumentTooLarge` and got
+  marked as network errors on the client.
+- Fix: `_shrink_and_encode` downscales every page to a max dimension of
+  1600 px and re-encodes as JPEG q85 (auto-drops quality if still over the
+  6 MB safety cap). Applied to BOTH pipeline paths (PDF rasterization AND
+  direct image uploads). A 4000×3000 photo now serializes to ~15 KB.
+- `get_document_image` returns `mime_type: image/jpeg` since blueprints are
+  always JPEG after storage.
+- Frontend polling in DocumentsTab now catches errors per-request so a
+  transient network blip doesn't crash the UI with a red overlay.
+
+### Photo-as-blueprint classification (P0 — Complete)
+- Analysis prompt now includes explicit `doc_type` classification rules:
+  a phone photo of a printed floor plan is `floor_plan` (not `photo`).
+  Applies to hand-drawn sketches, whiteboard shots, CAD screenshots too.
+- Trace tab (CAD editor) no longer filters by `doc_type` — it lists every
+  DONE / ERROR document so users can re-trace anything the pre-classifier
+  got wrong.
+
 ## Recent changes — 2026-07-02 (iter 35 — Upload folder + live batch progress)
 ### Upload folder mode (P0 — Complete)
 - New "Upload entire folder" button below the standard drop zone. Uses
