@@ -775,15 +775,11 @@ export default function CadEditorTab() {
         <button
           data-testid="cad-simplify"
           onClick={() => {
-            const r = simplifyWalls(walls, { gridFt: 0.5, minLenFt: 1.0, angleTolDeg: 3, gapFt: 0.5 });
+            const r = simplifyWalls(walls, { gridFt: 0.5, minLenFt: 1.0, angleTolDeg: 3, gapFt: 0.5, axisSnap: true });
             const before = walls.length;
             setWalls(r.walls);
             markDirty();
-            const cleanedById = new Map(r.walls.map((w) => [w.id, w]));
-            // Any wall the user had selected may have been merged out; drop selection.
             setSelected(null);
-            // Doors / windows referenced walls by index — after cleanup those
-            // indexes are stale. Remap by nearest surviving wall.
             const findNearestWallIndex = (pos) => {
               let best = 0, bestD = Infinity;
               r.walls.forEach((w, i) => {
@@ -796,20 +792,42 @@ export default function CadEditorTab() {
             };
             setDoors((arr) => arr.map((d) => ({ ...d, wall_index: findNearestWallIndex(d.position) })));
             setWindows((arr) => arr.map((w) => ({ ...w, wall_index: findNearestWallIndex(w.position) })));
-            // Suppress unused-var lint on cleanedById (kept for future use).
-            void cleanedById;
             alert(
               `Simplify complete\n\n` +
               `Walls: ${before} → ${r.walls.length}\n` +
               `• ${r.merged} merged\n` +
               `• ${r.removed} sub-1 ft slivers dropped\n` +
-              `• ${r.snapped} endpoints snapped to 6" grid`
+              `• ${r.snapped} endpoints snapped to 6" grid\n` +
+              `• ${r.straightened} walls axis-aligned`
             );
           }}
           className="h-10 px-3 text-xs uppercase tracking-wider font-bold border bg-white border-[#CCC] text-[#333] hover:bg-[#F0F0E8]"
-          title="Merge near-parallel walls, snap endpoints to 6″ grid, drop sub-1 ft slivers"
+          title="Merge near-parallel walls, snap endpoints to 6″ grid, drop sub-1 ft slivers, axis-align near-orthogonal walls"
         >
           SIMPLIFY
+        </button>
+        <button
+          data-testid="cad-straighten"
+          onClick={() => {
+            // Aggressive straighten: force every wall within 12° of an axis
+            // to be exactly axis-aligned + snap endpoints to a tight 3-inch
+            // grid. Great for making messy phone-photo traces look sharp.
+            const r = simplifyWalls(walls, { gridFt: 0.25, minLenFt: 0.5, angleTolDeg: 4, gapFt: 0.25, axisSnap: true });
+            const before = walls.length;
+            setWalls(r.walls);
+            markDirty();
+            setSelected(null);
+            alert(
+              `Straighten complete\n\n` +
+              `${r.straightened} walls forced axis-aligned\n` +
+              `${r.snapped} endpoints snapped to 3" grid\n` +
+              `${before - r.walls.length} duplicates removed`
+            );
+          }}
+          className="h-10 px-3 text-xs uppercase tracking-wider font-bold border bg-white border-[#CCC] text-[#333] hover:bg-[#F0F0E8]"
+          title="Force near-orthogonal walls to be exactly axis-aligned and snap endpoints to a 3-inch grid"
+        >
+          STRAIGHTEN
         </button>
         {underlayUrl && (
           <div className="flex items-center gap-1 h-10 px-2 border border-[#CCC] bg-white" title="Blueprint underlay controls">
@@ -942,23 +960,45 @@ export default function CadEditorTab() {
           <line x1={vb.x} y1={0} x2={vb.x + vb.w} y2={0} stroke="#FF3333" strokeWidth="0.15" opacity="0.7" />
           <line x1={0} y1={vb.y} x2={0} y2={vb.y + vb.h} stroke="#22AA22" strokeWidth="0.15" opacity="0.7" />
 
-          {/* Walls */}
+          {/* Walls — professional double-line style with poché fill.
+              We draw a thick "poché" (solid fill) rectangle following the
+              wall's axis, then two thinner black outline lines to give the
+              classic drafting look. Click target is a wider invisible line. */}
           {walls.map((w) => {
             const isSel = selected?.type === "wall" && selected.id === w.id;
             const isMoving = moveFrom?.type === "wall" && moveFrom.id === w.id;
+            const dx = w.end[0] - w.start[0];
+            const dy = w.end[1] - w.start[1];
+            const len = Math.hypot(dx, dy) || 1;
+            const nx = -dy / len;
+            const ny = dx / len;
+            const t = (w.thickness || 0.5);
+            const half = t / 2;
+            // Corner points of the poché rectangle (in world feet).
+            const p1 = [w.start[0] + nx * half, w.start[1] + ny * half];
+            const p2 = [w.end[0]   + nx * half, w.end[1]   + ny * half];
+            const p3 = [w.end[0]   - nx * half, w.end[1]   - ny * half];
+            const p4 = [w.start[0] - nx * half, w.start[1] - ny * half];
+            const fillColor = isSel ? "rgba(255,204,0,0.35)" : (w.source === "opencv" ? "rgba(50,50,60,0.55)" : "rgba(30,30,40,0.85)");
+            const strokeColor = isSel ? "#FFCC00" : isMoving ? "#0055FF" : "#0F0F14";
+            const strokeW = Math.max(0.06, t * 0.15);
             return (
-              <line
+              <g
                 key={w.id}
-                x1={w.start[0]}
-                y1={w.start[1]}
-                x2={w.end[0]}
-                y2={w.end[1]}
-                stroke={isSel ? "#FFCC00" : isMoving ? "#0055FF" : "#1a1a1a"}
-                strokeWidth={Math.max(0.5, (w.thickness || 0.2) * 2)}
-                strokeLinecap="square"
                 onClick={(e) => onElementClick(e, "wall", w.id)}
                 style={{ cursor: tool === "select" || tool === "eraser" || tool === "move" ? "pointer" : undefined }}
-              />
+              >
+                <polygon
+                  points={`${p1[0]},${p1[1]} ${p2[0]},${p2[1]} ${p3[0]},${p3[1]} ${p4[0]},${p4[1]}`}
+                  fill={fillColor} stroke={strokeColor} strokeWidth={strokeW}
+                  strokeLinejoin="miter"
+                />
+                {/* Invisible thick line for a bigger click hit-box */}
+                <line
+                  x1={w.start[0]} y1={w.start[1]} x2={w.end[0]} y2={w.end[1]}
+                  stroke="transparent" strokeWidth={Math.max(0.4, t * 1.4)}
+                />
+              </g>
             );
           })}
 

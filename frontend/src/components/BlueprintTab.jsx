@@ -169,19 +169,31 @@ export default function BlueprintTab() {
                     />
                   );
                 })()}
-                {/* Walls */}
-                {walls.map((w) => (
-                  <line
-                    key={w.id}
-                    x1={w.start[0]}
-                    y1={w.start[1]}
-                    x2={w.end[0]}
-                    y2={w.end[1]}
-                    stroke="#FFFFFF"
-                    strokeWidth={Math.max(0.4, (w.thickness || 0.2) * 2)}
-                    strokeLinecap="square"
-                  />
-                ))}
+                {/* Walls — professional double-line style on the blueprint
+                    (cyanotype) canvas. White fill (poché) + thin outline. */}
+                {walls.map((w) => {
+                  const dx = w.end[0] - w.start[0];
+                  const dy = w.end[1] - w.start[1];
+                  const len = Math.hypot(dx, dy) || 1;
+                  const nx = -dy / len;
+                  const ny = dx / len;
+                  const t = w.thickness || 0.5;
+                  const half = t / 2;
+                  const p1 = [w.start[0] + nx * half, w.start[1] + ny * half];
+                  const p2 = [w.end[0]   + nx * half, w.end[1]   + ny * half];
+                  const p3 = [w.end[0]   - nx * half, w.end[1]   - ny * half];
+                  const p4 = [w.start[0] - nx * half, w.start[1] - ny * half];
+                  return (
+                    <polygon
+                      key={w.id}
+                      points={`${p1[0]},${p1[1]} ${p2[0]},${p2[1]} ${p3[0]},${p3[1]} ${p4[0]},${p4[1]}`}
+                      fill="#F5F5F0"
+                      stroke="#FFFFFF"
+                      strokeWidth={Math.max(0.06, t * 0.18)}
+                      strokeLinejoin="miter"
+                    />
+                  );
+                })}
                 {/* Doors */}
                 {doors.map((d) => (
                   <circle
