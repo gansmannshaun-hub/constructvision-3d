@@ -259,6 +259,21 @@ email digest with /invite landing.
 - Schedule export to MS-Project / Primavera XML.
 - True path-traced render via three-gpu-pathtracer (current is hi-res raster).
 
+## Recent changes — 2026-07-02 (iter 35 — Upload folder + live batch progress)
+### Upload folder mode (P0 — Complete)
+- New "Upload entire folder" button below the standard drop zone. Uses
+  `webkitdirectory` on a hidden input to open a native folder picker. All
+  common blueprint formats (PNG / JPG / WEBP / PDF) inside the folder are
+  queued; other files (README, DS_Store, DWG) are silently skipped.
+- Live batch progress panel (`upload-batch-progress`) shows:
+  - "N of M uploaded · X traced · Y sheets created"
+  - Yellow-pulsing progress bar that turns green when settled
+  - Per-file row with running status (queued → uploading → analyzing → done)
+  - Clear button appears once every item has settled.
+- New testids: `upload-folder-btn`, `upload-folder-input`,
+  `upload-batch-progress`, `upload-batch-headline`, `upload-batch-item-<i>`,
+  `upload-batch-clear`.
+
 ## Recent changes — 2026-07-02 (iter 34 — concurrency hardening)
 ### Batch upload / multi-doc pipeline stability (P0 — Complete)
 - Per-project `asyncio.Lock` inside `_build_pipeline` — all pipelines targeting

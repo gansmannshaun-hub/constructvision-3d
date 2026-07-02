@@ -34,10 +34,13 @@ function ProgressBar({ status }) {
 export default function DocumentsTab() {
   const { currentProjectId, documents, refreshDocuments, refreshMaterials, refreshBlueprint, refreshBilling } = useStore();
   const fileRef = useRef(null);
+  const folderRef = useRef(null);
   const navigate = useNavigate();
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [paywall, setPaywall] = useState(null);
+  // Batch tracker: list of {name, docId?, status: "queued"|"uploading"|"uploaded"|"failed", error?}
+  const [batch, setBatch] = useState([]);
 
   // Auto-refresh whenever any document is still analyzing so users see progress
   // without needing to reload the page. Stops polling once everything settles.
@@ -55,33 +58,84 @@ export default function DocumentsTab() {
     return () => clearInterval(t);
   }, [currentProjectId, documents, refreshDocuments, refreshMaterials, refreshBlueprint]);
 
-  const onFiles = async (files) => {
-    if (!files?.length || !currentProjectId) return;
+  // Accept common blueprint / plan formats when reading a folder. Other files
+  // in the folder (README.txt, .DS_Store, .dwg, etc.) are silently skipped.
+  const ALLOWED_MIME = /^(image\/(png|jpe?g|webp)|application\/pdf)$/i;
+  const ALLOWED_EXT = /\.(png|jpe?g|webp|pdf)$/i;
+  const isBlueprintFile = (f) =>
+    ALLOWED_MIME.test(f.type || "") || ALLOWED_EXT.test(f.name || "");
+
+  const onFiles = async (rawFiles, { fromFolder = false } = {}) => {
+    if (!rawFiles?.length || !currentProjectId) return;
+    const files = fromFolder ? rawFiles.filter(isBlueprintFile) : rawFiles;
+    if (!files.length) {
+      alert("No blueprint files found in that folder (PNG / JPG / WEBP / PDF).");
+      return;
+    }
     setUploading(true);
     setPaywall(null);
+    // Seed the batch tracker so users see the queue immediately.
+    const initial = files.map((f, i) => ({
+      key: `${Date.now()}_${i}`,
+      name: f.name,
+      status: "queued",
+    }));
+    setBatch(initial);
     try {
-      for (const file of files) {
-        const fd = new FormData();
-        fd.append("file", file);
-        await apiClient.post(`/projects/${currentProjectId}/documents/upload`, fd, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "uploading" } : x));
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          const { data } = await apiClient.post(
+            `/projects/${currentProjectId}/documents/upload`, fd,
+            { headers: { "Content-Type": "multipart/form-data" } },
+          );
+          setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "uploaded", docId: data.id } : x));
+        } catch (e) {
+          const detail = e.response?.data?.detail;
+          if (e.response?.status === 402) {
+            setPaywall(typeof detail === "string" ? detail : "Quota reached — upgrade your plan.");
+            setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "failed", error: "quota" } : x));
+            break;
+          }
+          setBatch((b) => b.map((x, idx) => idx === i ? { ...x, status: "failed", error: typeof detail === "string" ? detail : e.message } : x));
+        }
       }
       await refreshDocuments();
       await refreshMaterials();
       await refreshBlueprint();
       await refreshBilling();
-    } catch (e) {
-      if (e.response?.status === 402) {
-        setPaywall(e.response.data?.detail || "Quota reached — upgrade your plan.");
-      } else {
-        alert(e.response?.data?.detail || "Upload failed");
-      }
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (folderRef.current) folderRef.current.value = "";
     }
   };
+
+  // Derive live per-batch stats from the current documents array.
+  const batchStats = React.useMemo(() => {
+    const idSet = new Set(batch.map((b) => b.docId).filter(Boolean));
+    const uploadedCount = batch.filter((b) => b.status !== "queued" && b.status !== "uploading").length;
+    const failedCount = batch.filter((b) => b.status === "failed").length;
+    const docsInBatch = (documents || []).filter((d) => idSet.has(d.id));
+    const analyzing = docsInBatch.filter((d) => !["done", "error"].includes(d.status)).length;
+    const done = docsInBatch.filter((d) => d.status === "done").length;
+    const errored = docsInBatch.filter((d) => d.status === "error").length + failedCount;
+    const sheetsCreated = docsInBatch.filter(
+      (d) => d.status === "done" && d.synced_3d,
+    ).length;
+    return {
+      total: batch.length,
+      uploadedCount,
+      analyzing,
+      done,
+      errored,
+      sheetsCreated,
+      allSettled: batch.length > 0 && analyzing === 0 && batch.every((b) => b.status !== "queued" && b.status !== "uploading"),
+    };
+  }, [batch, documents]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[420px_1fr] h-full" data-testid="documents-tab">
@@ -144,6 +198,105 @@ export default function DocumentsTab() {
           </div>
           <div className="label-mono mt-2 text-neutral-500">PNG · JPG · WEBP · PDF · MAX 16MB</div>
         </label>
+
+        {/* Folder upload — pick an entire directory of blueprints */}
+        <div className="mt-3">
+          <input
+            ref={folderRef}
+            data-testid="upload-folder-input"
+            type="file"
+            className="hidden"
+            multiple
+            // Non-standard but widely supported (Chrome, Edge, Safari, Firefox 111+).
+            // React doesn't know these attributes; suppress the ESLint check.
+            /* eslint-disable react/no-unknown-property */
+            webkitdirectory=""
+            directory=""
+            /* eslint-enable react/no-unknown-property */
+            onChange={(e) => onFiles(Array.from(e.target.files), { fromFolder: true })}
+          />
+          <button
+            data-testid="upload-folder-btn"
+            type="button"
+            onClick={() => folderRef.current?.click()}
+            className="w-full text-xs uppercase tracking-wider font-bold border border-white/15 text-neutral-400 hover:text-[#FFCC00] hover:border-[#FFCC00] py-2.5 transition-colors flex items-center justify-center gap-2"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+            Upload entire folder
+          </button>
+        </div>
+
+        {/* Live batch progress — appears while a multi-file upload is in flight */}
+        {batch.length > 0 && (
+          <div
+            data-testid="upload-batch-progress"
+            className="mt-4 border border-[#FFCC00]/30 bg-black/50 p-3 font-mono text-xs"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="label-mono text-[#FFCC00]">// BATCH</div>
+              {batchStats.allSettled && (
+                <button
+                  data-testid="upload-batch-clear"
+                  onClick={() => setBatch([])}
+                  className="text-[10px] text-neutral-500 hover:text-white uppercase tracking-wider"
+                >
+                  clear
+                </button>
+              )}
+            </div>
+            <div
+              data-testid="upload-batch-headline"
+              className="text-white text-sm mb-2 font-medium"
+            >
+              {batchStats.uploadedCount} of {batchStats.total} uploaded ·{" "}
+              {batchStats.done} traced ·{" "}
+              <span className="text-[#00CC66]">{batchStats.sheetsCreated} sheets</span>
+              {batchStats.errored > 0 && (
+                <> · <span className="text-[#FF6666]">{batchStats.errored} failed</span></>
+              )}
+            </div>
+            {/* Progress bar */}
+            <div className="h-1 bg-white/5 mb-3 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 ${
+                  batchStats.allSettled ? "bg-[#00CC66]" : "bg-[#FFCC00] progress-pulse"
+                }`}
+                style={{
+                  width: `${Math.max(2, Math.round(
+                    ((batchStats.done + batchStats.errored) / Math.max(1, batchStats.total)) * 100
+                  ))}%`,
+                }}
+              />
+            </div>
+            <div className="max-h-40 overflow-y-auto space-y-0.5">
+              {batch.map((b, i) => {
+                const doc = b.docId ? (documents || []).find((d) => d.id === b.docId) : null;
+                let label = b.status;
+                let color = "text-neutral-500";
+                if (b.status === "queued") { label = "queued"; }
+                else if (b.status === "uploading") { label = "uploading…"; color = "text-[#FFCC00]"; }
+                else if (b.status === "failed") { label = `failed · ${b.error || ""}`; color = "text-[#FF6666]"; }
+                else if (doc) {
+                  if (doc.status === "done") { label = doc.synced_3d ? "sheet created ✓" : "analyzed ✓"; color = "text-[#00CC66]"; }
+                  else if (doc.status === "error") { label = "error"; color = "text-[#FF6666]"; }
+                  else { label = `${doc.status}${doc.pages_total > 1 ? ` (${doc.pages_done || 0}/${doc.pages_total})` : ""}`; color = "text-[#FFCC00]"; }
+                }
+                return (
+                  <div
+                    key={b.key}
+                    data-testid={`upload-batch-item-${i}`}
+                    className="flex items-center justify-between gap-2 text-[10px]"
+                  >
+                    <span className="truncate text-neutral-300 flex-1 min-w-0">{b.name}</span>
+                    <span className={`${color} tabular-nums uppercase tracking-wider whitespace-nowrap`}>{label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="mt-8 space-y-4 text-sm">
           <div className="flex gap-3 items-start">
