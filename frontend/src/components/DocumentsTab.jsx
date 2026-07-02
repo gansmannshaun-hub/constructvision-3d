@@ -39,6 +39,22 @@ export default function DocumentsTab() {
   const [dragOver, setDragOver] = useState(false);
   const [paywall, setPaywall] = useState(null);
 
+  // Auto-refresh whenever any document is still analyzing so users see progress
+  // without needing to reload the page. Stops polling once everything settles.
+  React.useEffect(() => {
+    if (!currentProjectId) return;
+    const active = (documents || []).some(
+      (d) => d.status && !["done", "error"].includes(d.status)
+    );
+    if (!active) return;
+    const t = setInterval(async () => {
+      await refreshDocuments();
+      await refreshMaterials();
+      await refreshBlueprint();
+    }, 3500);
+    return () => clearInterval(t);
+  }, [currentProjectId, documents, refreshDocuments, refreshMaterials, refreshBlueprint]);
+
   const onFiles = async (files) => {
     if (!files?.length || !currentProjectId) return;
     setUploading(true);

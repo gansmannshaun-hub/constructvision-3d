@@ -259,7 +259,23 @@ email digest with /invite landing.
 - Schedule export to MS-Project / Primavera XML.
 - True path-traced render via three-gpu-pathtracer (current is hi-res raster).
 
-## Recent changes — 2026-07-02 (this iteration)
+## Recent changes — 2026-07-02 (iter 34 — concurrency hardening)
+### Batch upload / multi-doc pipeline stability (P0 — Complete)
+- Per-project `asyncio.Lock` inside `_build_pipeline` — all pipelines targeting
+  the same project now serialize, eliminating races on:
+    • sheet order_index / floor_level computation
+    • parent blueprint doc's active_sheet_id mirror
+    • the "existing materials" read for cross-doc dedup
+- Global `asyncio.Semaphore(3)` caps concurrent GPT-4o vision calls to prevent
+  OpenAI 429 rate-limit failures that would silently error out docs.
+- `_ai_with_retry` wraps every AI call with a 90 s timeout and up to 3 retries
+  on transient errors (429/timeout/502/503) with 1-2-4 s backoff.
+- DocumentsTab auto-polls every 3.5 s while any doc is still analyzing so users
+  see live status without a manual refresh.
+- `tests/test_iter34_batch_upload.py` — 5-concurrent-upload smoke test that
+  asserts (a) no lost docs and (b) unique sheet.order_index values.
+
+## Recent changes — 2026-07-02 (iter 33)
 ### Multi-sheet architecture (P0 — Complete)
 - Each uploaded blueprint now gets its OWN sheet (walls/doors/windows/labels/
   fixtures) with a source_document_id. Users can also create hand-drawn blank
