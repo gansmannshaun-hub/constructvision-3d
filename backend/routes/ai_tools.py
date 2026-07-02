@@ -32,6 +32,7 @@ from routes.documents import (
     ANALYSIS_PROMPT_HEADER, EXISTING_MATERIALS_TEMPLATE_NONE, ANALYSIS_PROMPT_FOOTER,
     _sanitize_fixture, _sanitize_label, _coord, _strip_code_fence,
 )
+from routes.opencv_tracer import trace_walls_from_image
 from routes.projects import _create_sheet, _mirror_active_sheet_to_blueprint, get_or_create_blueprint
 from billing import consume_addon_credit, ensure_user_subscription
 from utils import now_iso
@@ -678,6 +679,33 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
                     "id": str(uuid.uuid4()), "start": s, "end": e,
                     "thickness": float(w.get("thickness") or 0.5),
                 })
+        # Determine building_ft from AI (needed to auto-scale OpenCV walls).
+        bf_ai = data.get("building_ft") or {}
+        try:
+            bw_ai = float(bf_ai.get("w") or 0)
+            bh_ai = float(bf_ai.get("h") or 0)
+        except (TypeError, ValueError):
+            bw_ai, bh_ai = 0.0, 0.0
+
+        # OpenCV Hough-line tracing — dense deterministic wall extraction.
+        try:
+            cv_result = await asyncio.to_thread(
+                trace_walls_from_image, b64,
+                building_ft_w=bw_ai or None, building_ft_h=bh_ai or None,
+            )
+            for cw in cv_result.get("walls") or []:
+                walls_out.append({
+                    "id": str(uuid.uuid4()),
+                    "start": cw["start"], "end": cw["end"],
+                    "thickness": float(cw.get("thickness") or 0.4),
+                    "source": "opencv",
+                })
+            if (not bw_ai or not bh_ai) and cv_result.get("building_ft"):
+                bw_ai = cv_result["building_ft"]["w"]
+                bh_ai = cv_result["building_ft"]["h"]
+            logger.info(f"OpenCV traced {cv_result.get('count', 0)} walls for re-trace {doc.get('id')}")
+        except Exception:
+            logger.exception("OpenCV re-trace failed (non-fatal)")
         doors_out: list[dict] = []
         for d in (data.get("doors") or [])[:120]:
             pos = _coord(d.get("position"))
@@ -715,8 +743,8 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
             if cf:
                 fixtures_out.append(cf)
 
-        if not walls_out:
-            raise HTTPException(422, "AI tracer returned no walls — the image may not be a clear floor plan")
+        if not walls_out and not labels_out and not fixtures_out:
+            raise HTTPException(422, "Neither GPT-4o nor OpenCV could extract any walls, labels, or fixtures — the image may not be a clear floor plan")
 
         bf = data.get("building_ft") or {}
         try:
@@ -724,6 +752,9 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
             building_ft = {"w": bw, "h": bh} if bw > 0 and bh > 0 else None
         except (TypeError, ValueError):
             building_ft = None
+        # If AI didn't estimate scale but OpenCV did, use that.
+        if not building_ft and bw_ai > 0 and bh_ai > 0:
+            building_ft = {"w": bw_ai, "h": bh_ai}
         scale_confidence = str(data.get("scale_confidence") or "medium")
 
         # Baseline blueprint + sheets.

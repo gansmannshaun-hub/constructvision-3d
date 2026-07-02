@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
 
 import billing as billing_mod
+from routes.opencv_tracer import trace_walls_from_image
 from routes.projects import _create_sheet, _mirror_active_sheet_to_blueprint, get_or_create_blueprint
 from utils import clean, now_iso
 
@@ -544,6 +545,8 @@ def _build_pipeline(db):
                             pass
                     wall_offset = len(walls_all)
                     page_walls_added = 0
+                    # Add GPT-4o's walls first (usually few but high-quality
+                    # room boundaries).
                     for w in analysis.get("walls") or []:
                         s, e = _coord(w.get("start")), _coord(w.get("end"))
                         if s and e:
@@ -552,6 +555,36 @@ def _build_pipeline(db):
                                 "thickness": float(w.get("thickness") or 0.5),
                             })
                             page_walls_added += 1
+
+                    # OpenCV Hough-line tracing — deterministic dense wall
+                    # extraction. Runs in a worker thread so we don't block
+                    # the async loop. Uses AI-provided building_ft when
+                    # available (else auto-scales).
+                    try:
+                        cv_result = await asyncio.to_thread(
+                            trace_walls_from_image, b64,
+                            building_ft_w=(building_ft or {}).get("w"),
+                            building_ft_h=(building_ft or {}).get("h"),
+                        )
+                        for w in cv_result.get("walls") or []:
+                            walls_all.append({
+                                "id": str(uuid.uuid4()),
+                                "start": w["start"],
+                                "end": w["end"],
+                                "thickness": float(w.get("thickness") or 0.4),
+                                "source": "opencv",
+                            })
+                            page_walls_added += 1
+                        # If AI didn't provide building_ft, inherit from the
+                        # OpenCV auto-scale so the underlay lines up.
+                        if not building_ft and cv_result.get("building_ft"):
+                            building_ft = cv_result["building_ft"]
+                            scale_confidence = "opencv-auto"
+                        logger.info(
+                            f"OpenCV traced {cv_result.get('count', 0)} walls from doc {doc_id} page {page_idx + 1}"
+                        )
+                    except Exception:
+                        logger.exception("OpenCV wall trace failed (non-fatal)")
                     for d_item in analysis.get("doors") or []:
                         pos = _coord(d_item.get("position"))
                         if pos:

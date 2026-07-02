@@ -259,6 +259,26 @@ email digest with /invite landing.
 - Schedule export to MS-Project / Primavera XML.
 - True path-traced render via three-gpu-pathtracer (current is hi-res raster).
 
+## Recent changes — 2026-07-02 (iter 38 — dense OpenCV wall tracing)
+### AI now actually draws what it sees (P0 — Complete)
+- Root cause: GPT-4o Vision alone is poor at dense line tracing — a residential
+  floor plan often came back with 0-4 walls even when 40+ segments were visible.
+- Solution: new `/app/backend/routes/opencv_tracer.py` runs a classical CV
+  pipeline (Gaussian blur → Canny edges → probabilistic Hough transform →
+  collinear-segment merging) that extracts EVERY visible wall / dimension
+  line. Auto-scales to the AI-provided `building_ft`, or falls back to a
+  60 ft long-side estimate when no scale callout is legible.
+- Integrated into BOTH the initial upload pipeline (`documents.py`) and
+  the manual re-trace endpoint (`ai_tools.py trace-blueprint`). OpenCV
+  runs in a worker thread (`asyncio.to_thread`) so it never blocks the
+  async event loop.
+- Each OpenCV-derived wall is tagged with `source: "opencv"` so the CAD
+  editor can style / filter them independently in the future.
+- Verified on a synthetic 60×40 ft floor plan: extracted 35 clean segments
+  with correct real-world coordinates.
+- Requirements: `opencv-python-headless==4.10.0.84`, `numpy==2.4.6`
+  (pip-frozen in `/app/backend/requirements.txt`).
+
 ## Recent changes — 2026-07-02 (iter 37 — async upload + timeout hardening)
 ### Ingress timeout / Network Error fix (P0 — Complete)
 - Root cause of "18 of 34 · 18 failed" batch upload: PDF rasterize +
