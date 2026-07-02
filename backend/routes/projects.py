@@ -43,7 +43,8 @@ async def _create_sheet(db, project_id: str, *, name: str, floor_level: int = 0,
                         source_document_id: Optional[str] = None,
                         geometry: Optional[dict] = None,
                         building_ft: Optional[dict] = None,
-                        scale_confidence: Optional[str] = None) -> dict:
+                        scale_confidence: Optional[str] = None,
+                        view_type: Optional[str] = None) -> dict:
     if order_index is None:
         count = await db.blueprint_sheets.count_documents({"project_id": project_id})
         order_index = count
@@ -55,6 +56,7 @@ async def _create_sheet(db, project_id: str, *, name: str, floor_level: int = 0,
         "floor_level": floor_level,
         "order_index": order_index,
         "source_document_id": source_document_id,
+        "view_type": view_type or "floor_plan",
         "walls": geom["walls"],
         "doors": geom["doors"],
         "windows": geom["windows"],

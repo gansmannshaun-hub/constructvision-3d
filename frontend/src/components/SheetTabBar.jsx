@@ -18,6 +18,10 @@ export function SheetTabBar({
   onChangeFloor,
 }) {
   if (!sheets || sheets.length === 0) return null;
+  const REF_ONLY = new Set([
+    "framing_plan", "roof_plan", "sheathing_plan", "elevation",
+    "electrical_plan", "plumbing_plan", "hvac_plan", "detail",
+  ]);
   return (
     <div
       data-testid="cad-sheet-tabs"
@@ -25,6 +29,7 @@ export function SheetTabBar({
     >
       {sheets.map((s) => {
         const isActive = s.id === activeSheetId;
+        const isRef = REF_ONLY.has(s.view_type || "");
         return (
           <div
             key={s.id}
@@ -33,7 +38,7 @@ export function SheetTabBar({
               isActive ? "bg-[#F5F5F0] text-black" : "bg-[#1a1a1a] text-neutral-300 hover:bg-[#2a2a2a]"
             }`}
             onClick={() => onActivate(s.id)}
-            title={`Floor ${s.floor_level} · ${s.source_document_id ? "AI-traced" : "hand-drawn"}`}
+            title={`${(s.view_type || "floor_plan").replace(/_/g, " ")} · Floor ${s.floor_level} · ${s.source_document_id ? "AI-traced" : "hand-drawn"}`}
           >
             <div className="flex-1 min-w-0 py-2">
               <div className="text-xs font-mono font-bold truncate flex items-center gap-1.5">
@@ -41,17 +46,25 @@ export function SheetTabBar({
                 {s.name}
               </div>
               <div className={`text-[10px] uppercase tracking-wider flex items-center gap-1.5 ${isActive ? "text-neutral-500" : "text-neutral-500"}`}>
-                <span>Floor {s.floor_level}</span>
+                {isRef ? (
+                  <span className={isActive ? "text-[#B87400]" : "text-[#FFAA00]"} title="Not stacked as a floor in 3D — reference underlay only">
+                    REF · {(s.view_type || "").replace("_plan", "").toUpperCase()}
+                  </span>
+                ) : (
+                  <span>Floor {s.floor_level}</span>
+                )}
                 {s.source_document_id && (
                   <span className={isActive ? "text-[#B8860B]" : "text-[#FFCC00]"}>AI</span>
                 )}
-                <button
-                  data-testid={`cad-sheet-floor-${s.id}`}
-                  onClick={(e) => { e.stopPropagation(); onChangeFloor(s.id, s.floor_level); }}
-                  className={`hover:underline ${isActive ? "text-neutral-500 hover:text-black" : "text-neutral-500 hover:text-white"}`}
-                >
-                  ⇅
-                </button>
+                {!isRef && (
+                  <button
+                    data-testid={`cad-sheet-floor-${s.id}`}
+                    onClick={(e) => { e.stopPropagation(); onChangeFloor(s.id, s.floor_level); }}
+                    className={`hover:underline ${isActive ? "text-neutral-500 hover:text-black" : "text-neutral-500 hover:text-white"}`}
+                  >
+                    ⇅
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">

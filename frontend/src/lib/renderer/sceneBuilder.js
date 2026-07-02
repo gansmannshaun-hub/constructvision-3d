@@ -960,7 +960,14 @@ export function createSceneEngine(mount) {
     // Multi-sheet support: each sheet gets its own stack of layer groups
     // offset by `floor_level * (WALL_HEIGHT + SLAB_THICK + ~0.1 ft)`.  When
     // no sheets are present we fall back to legacy single-blueprint mode.
-    const sheets = Array.isArray(blueprint.sheets) && blueprint.sheets.length > 0
+    // Reference-only sheets (framing plans, roof plans, elevations, MEP
+    // overlays, details) are EXCLUDED from the 3D stack — they carry no
+    // wall geometry and only serve as CAD-tab underlay references.
+    const REF_ONLY = new Set([
+      "framing_plan", "roof_plan", "sheathing_plan", "elevation",
+      "electrical_plan", "plumbing_plan", "hvac_plan", "detail",
+    ]);
+    const allSheets = Array.isArray(blueprint.sheets) && blueprint.sheets.length > 0
       ? blueprint.sheets
       : [{
           id: "__legacy__",
@@ -968,7 +975,9 @@ export function createSceneEngine(mount) {
           doors: blueprint.doors || [],
           windows: blueprint.windows || [],
           floor_level: 0,
+          view_type: "floor_plan",
         }];
+    const sheets = allSheets.filter((s) => !REF_ONLY.has(s.view_type || "floor_plan"));
 
     // Pre-create per-layer container groups so setVisibility toggles ALL sheets.
     for (const layer of ALL_LAYERS) {

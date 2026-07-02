@@ -73,7 +73,7 @@ as the source drawing.
 Return a STRICT JSON response — no prose, no markdown, only valid JSON — with this exact schema:
 
 {
-  "doc_type": "floor_plan" | "blueprint" | "site_plan" | "elevation" | "photo" | "other",
+  "doc_type": "floor_plan" | "blueprint" | "site_plan" | "elevation" | "framing_plan" | "roof_plan" | "sheathing_plan" | "electrical_plan" | "plumbing_plan" | "hvac_plan" | "foundation_plan" | "detail" | "photo" | "other",
   "summary": "2-3 sentence summary of what's in the image",
   "building_ft": {"w": 40.0, "h": 30.0},
   "scale_confidence": "high" | "medium" | "low",
@@ -91,31 +91,41 @@ Return a STRICT JSON response — no prose, no markdown, only valid JSON — wit
 }
 
 DOC_TYPE CLASSIFICATION (this is critical — the frontend routes on this field):
-Classify by CONTENT, not by MEDIUM. A phone photo of a printed floor plan is
-still a `floor_plan` — do NOT down-classify it to `photo` just because it
-was taken with a camera.
+Classify by CONTENT, not by MEDIUM. A phone photo of a printed drawing keeps
+the drawing's content classification.
 
-- `floor_plan`  = Top-down view of interior room layout with walls, doors,
-                  windows, room labels. Includes hand-drawn sketches on
-                  paper/napkins/whiteboards, phone photos of printed drawings,
-                  screenshots of CAD software, PDF exports from architectural
-                  tools, or scanned drafting sheets. TRACE IT.
-- `blueprint`   = Any formal architectural/engineering sheet — plan, section,
-                  detail, or elevation with dimensions and callouts. Same
-                  guidance: phone photo of a blueprint = `blueprint`. TRACE IT.
-- `site_plan`   = Top-down of the LOT/property including building footprint,
-                  driveway, setbacks, contours. Photo of a printed site plan
-                  still counts. TRACE IT.
-- `elevation`   = Exterior side view. Return empty walls/doors/windows arrays
-                  but DO extract materials + labels.
-- `photo`       = Camera photo of an actual construction site, existing
-                  building, or 3D scene — NOT a photo of a drawing. Return
-                  empty walls/doors/windows/fixtures arrays. Return materials
-                  and structural_notes based on what you can see.
-- `other`       = Anything else (spec sheet, invoice, contract, unrelated image).
+- `floor_plan`      = Top-down view of interior ROOM LAYOUT with walls, doors,
+                      windows, room labels. Hand-drawn sketches, phone photos
+                      of printed plans, CAD screenshots. TRACE walls.
+- `blueprint`       = Any formal architectural sheet with room walls (like
+                      `floor_plan` but professionally drafted). TRACE walls.
+- `site_plan`       = Top-down of the LOT — building footprint, driveway,
+                      setbacks. TRACE the footprint.
+- `foundation_plan` = Top-down structural footings / slab / stem-wall layout.
+                      TRACE the foundation walls only, NOT room partitions.
+- `framing_plan`    = Top-down structural joists / rafters / studs / trusses.
+                      Do NOT trace walls — return EMPTY walls/doors/windows.
+                      DO extract structural_notes and materials (joist size,
+                      spacing, span). This is a construction detail, not a
+                      floor plan.
+- `roof_plan`       = Top-down of roof surfaces / slopes / ridges. EMPTY walls.
+                      Notes: pitch, materials, drainage.
+- `sheathing_plan`  = Panel / sheeting layout for walls or roof. EMPTY walls.
+                      Return materials + structural_notes only.
+- `elevation`       = Exterior side view. EMPTY walls/doors/windows.
+                      Materials + labels only.
+- `electrical_plan` / `plumbing_plan` / `hvac_plan` = MEP overlays.
+                      EMPTY walls/doors/windows. Return system materials only.
+- `detail`          = Small-scale construction detail (wall section, corner
+                      detail, connection detail). EMPTY walls. Materials only.
+- `photo`           = Camera photo of an actual site / building — NOT a photo
+                      of a drawing. EMPTY walls. Materials from what's visible.
+- `other`           = Anything else (spec sheet, invoice, contract).
 
 If in doubt between `photo` and `floor_plan`/`blueprint`, prefer the drawing
 classification — under-tracing is much worse for the user than over-tracing.
+When you see repeated parallel lines with joist/truss/rafter callouts, that is
+almost always a `framing_plan` / `roof_plan` — do NOT trace those as walls.
 
 COORDINATE SYSTEM (this is critical — read carefully):
 - ALL coordinates are in REAL WORLD FEET.
@@ -530,9 +540,14 @@ def _build_pipeline(db):
                     inserted += 1
                     dedup_audit.append({"name": name, "decision": "new", "page": page_idx + 1})
 
-                # Accumulate floorplan geometry from each page (in feet, wall_index is
-                # scoped to THIS page — offset it when appending to the global list).
-                if doc_type in {"floor_plan", "blueprint", "site_plan"}:
+                # Accumulate floorplan geometry from each page. Only run wall
+                # extraction on top-down plans that ACTUALLY contain walls
+                # (floor_plan / blueprint / site_plan / foundation_plan).
+                # Framing / roof / sheathing / MEP / detail / elevation sheets
+                # get tracked as reference sheets but produce no walls, so the
+                # 3D renderer doesn't build ghost rooms from a joist plan.
+                WALL_BEARING_TYPES = {"floor_plan", "blueprint", "site_plan", "foundation_plan"}
+                if doc_type in WALL_BEARING_TYPES:
                     if building_ft is None:
                         bf = analysis.get("building_ft") or {}
                         try:
@@ -628,7 +643,15 @@ def _build_pipeline(db):
 
             synced = False
             sheet_id: str | None = None
-            if walls_all or doors_all or windows_all or labels_all or fixtures_all:
+            # Reference sheet types produce no walls but STILL get a sheet so
+            # the underlay image is visible in the CAD editor (e.g. framing
+            # plans are useful as a background reference on floor sheets).
+            is_reference_only = first_doc_type in {
+                "framing_plan", "roof_plan", "sheathing_plan",
+                "electrical_plan", "plumbing_plan", "hvac_plan",
+                "elevation", "detail",
+            }
+            if walls_all or doors_all or windows_all or labels_all or fixtures_all or is_reference_only:
                 await _set_doc_status(doc_id, "syncing", doc_type=first_doc_type, materials_count=inserted)
                 # Ensure baseline blueprint doc + sheets exist.
                 await get_or_create_blueprint(db, project_id)
@@ -636,8 +659,10 @@ def _build_pipeline(db):
                 # uploaded blueprint gets its own tab in the CAD editor.
                 doc_meta = await db.documents.find_one({"id": doc_id}, {"_id": 0, "filename": 1}) or {}
                 sheet_name = (doc_meta.get("filename") or "Sheet")[:80]
-                # Determine floor_level = current sheet count (auto-stack).
-                floor_level = await db.blueprint_sheets.count_documents({"project_id": project_id})
+                # Reference sheets don't stack as floors — put them all at
+                # floor_level = -99 (rendered as a reference layer, not a
+                # story of the building).
+                floor_level = -99 if is_reference_only else await db.blueprint_sheets.count_documents({"project_id": project_id})
                 new_sheet = await _create_sheet(
                     db, project_id,
                     name=sheet_name,
@@ -652,6 +677,7 @@ def _build_pipeline(db):
                     },
                     building_ft=building_ft,
                     scale_confidence=scale_confidence,
+                    view_type=first_doc_type,
                 )
                 sheet_id = new_sheet["id"]
                 # Make the new traced sheet active so the user sees it right away.
