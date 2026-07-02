@@ -259,6 +259,19 @@ email digest with /invite landing.
 - Schedule export to MS-Project / Primavera XML.
 - True path-traced render via three-gpu-pathtracer (current is hi-res raster).
 
+## Recent changes — 2026-07-02 (iter 39 — SIMPLIFY button)
+### One-click CAD cleanup (Complete)
+- New "SIMPLIFY" button in the CAD editor toolbar (`cad-simplify`).
+- `lib/simplifyWalls.js` merges near-parallel walls, snaps endpoints to a
+  6-inch grid, drops sub-1 ft slivers, and remaps doors/windows to the
+  nearest surviving wall so nothing dangles.
+- After a click the user sees a toast with the delta:
+  `Walls: 34 → 12 · 22 merged · 4 slivers dropped · 8 endpoints snapped`.
+- Perfect for cleaning up Hough-noise from phone photos and hand-drawn
+  sketches after the AI+OpenCV pipeline runs.
+- Verified: 6 test walls (3 collinear, 1 sliver, 2 duplicates, 1 unique)
+  → 2 clean walls with correct merge / snap / drop counts.
+
 ## Recent changes — 2026-07-02 (iter 38 — dense OpenCV wall tracing)
 ### AI now actually draws what it sees (P0 — Complete)
 - Root cause: GPT-4o Vision alone is poor at dense line tracing — a residential

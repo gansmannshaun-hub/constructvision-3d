@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { formatFeetInches, wallsAabb } from "../lib/dim";
+import { simplifyWalls } from "../lib/simplifyWalls";
 import CadAIPanel from "./CadAIPanel";
 import { SheetTabBar } from "./SheetTabBar";
 
@@ -770,6 +771,45 @@ export default function CadEditorTab() {
           title="Show dimension annotations"
         >
           DIM
+        </button>
+        <button
+          data-testid="cad-simplify"
+          onClick={() => {
+            const r = simplifyWalls(walls, { gridFt: 0.5, minLenFt: 1.0, angleTolDeg: 3, gapFt: 0.5 });
+            const before = walls.length;
+            setWalls(r.walls);
+            markDirty();
+            const cleanedById = new Map(r.walls.map((w) => [w.id, w]));
+            // Any wall the user had selected may have been merged out; drop selection.
+            setSelected(null);
+            // Doors / windows referenced walls by index — after cleanup those
+            // indexes are stale. Remap by nearest surviving wall.
+            const findNearestWallIndex = (pos) => {
+              let best = 0, bestD = Infinity;
+              r.walls.forEach((w, i) => {
+                const midx = (w.start[0] + w.end[0]) / 2;
+                const midy = (w.start[1] + w.end[1]) / 2;
+                const d = Math.hypot(pos[0] - midx, pos[1] - midy);
+                if (d < bestD) { bestD = d; best = i; }
+              });
+              return best;
+            };
+            setDoors((arr) => arr.map((d) => ({ ...d, wall_index: findNearestWallIndex(d.position) })));
+            setWindows((arr) => arr.map((w) => ({ ...w, wall_index: findNearestWallIndex(w.position) })));
+            // Suppress unused-var lint on cleanedById (kept for future use).
+            void cleanedById;
+            alert(
+              `Simplify complete\n\n` +
+              `Walls: ${before} → ${r.walls.length}\n` +
+              `• ${r.merged} merged\n` +
+              `• ${r.removed} sub-1 ft slivers dropped\n` +
+              `• ${r.snapped} endpoints snapped to 6" grid`
+            );
+          }}
+          className="h-10 px-3 text-xs uppercase tracking-wider font-bold border bg-white border-[#CCC] text-[#333] hover:bg-[#F0F0E8]"
+          title="Merge near-parallel walls, snap endpoints to 6″ grid, drop sub-1 ft slivers"
+        >
+          SIMPLIFY
         </button>
         {underlayUrl && (
           <div className="flex items-center gap-1 h-10 px-2 border border-[#CCC] bg-white" title="Blueprint underlay controls">
