@@ -259,6 +259,27 @@ email digest with /invite landing.
 - Schedule export to MS-Project / Primavera XML.
 - True path-traced render via three-gpu-pathtracer (current is hi-res raster).
 
+## Recent changes — 2026-07-02 (this iteration)
+### AI Exact Blueprint Replication (P0 — Complete)
+- New endpoint `POST /api/projects/{id}/ai/trace-blueprint` (ai_tools.py) —
+  GPT-4o Vision re-analyzes a previously uploaded document in EXACT tracing
+  mode. Returns walls / doors / windows / labels / fixtures in real-world
+  feet + `building_ft` + `scale_confidence`. Credits are only consumed
+  AFTER document existence is validated (fixed iter-32 credit-burn bug).
+- Documents pipeline (`documents.py`) rewritten with a new
+  `ANALYSIS_PROMPT_HEADER` that instructs GPT-4o to trace the source drawing
+  exactly, in FEET, with (0,0) at building bottom-left, and to include all
+  fixtures (toilets, sinks, showers, tubs, appliances, closets, stairs,
+  furniture, etc.). New `_sanitize_fixture` and `_sanitize_label` helpers.
+- Blueprint schema now includes `fixtures: List[dict]` — persisted through
+  `BlueprintIn`, `PUT /projects/{id}/blueprint`, and mongo docs (both
+  `get_or_create_blueprint` and `create_project` initial docs).
+- CadEditorTab now renders fixtures as labeled rectangles (`cad-fixture-<id>`)
+  with per-kind color coding (`FIXTURE_META`). Eraser / Move / Delete work.
+- CadAIPanel gains a TRACE tab (`cad-ai-tab-trace`) that lists all
+  `doc_type=floor_plan|blueprint|site_plan` documents with status `done`
+  and lets the user re-trace any of them into the CAD editor.
+
 ## Integrations
 - **Emergent LLM Key** — GPT-4o vision (PDF + photo) + text (floorplan).
 - **Stripe** — test key from system env.

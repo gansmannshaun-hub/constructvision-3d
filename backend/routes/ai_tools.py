@@ -614,6 +614,16 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
         exact-tracing mode and merge the resulting walls/doors/windows/labels/
         fixtures into the project blueprint."""
         await require_role(db, project_id, user, {"owner", "pm", "estimator"})
+
+        # Validate document FIRST so a missing/typo document_id doesn't burn credits.
+        doc = await db.documents.find_one({"id": payload.document_id, "project_id": project_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        b64 = doc.get("image_base64")
+        if not b64:
+            raise HTTPException(422, "This document has no cached image for re-tracing.")
+
+        # Then enforce add-on credit for Free/Pro users (Studio bypasses).
         full_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
         full_user = await ensure_user_subscription(db, full_user)
         sub_tier = (full_user.get("subscription") or {}).get("tier")
@@ -624,13 +634,6 @@ def build_ai_tools_router(db, get_current_user) -> APIRouter:
                     "code": "floorplan_credit_required",
                     "message": "Out of AI Floorplan credits. Buy the 25-pack on the Billing page (or upgrade to Studio for unlimited).",
                 })
-
-        doc = await db.documents.find_one({"id": payload.document_id, "project_id": project_id}, {"_id": 0})
-        if not doc:
-            raise HTTPException(404, "Document not found")
-        b64 = doc.get("image_base64")
-        if not b64:
-            raise HTTPException(422, "This document has no cached image for re-tracing.")
 
         if not _llm_key():
             raise HTTPException(503, "LLM key unavailable")

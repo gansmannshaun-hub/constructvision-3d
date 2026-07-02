@@ -13,11 +13,15 @@ from utils import clean, now_iso
 async def get_or_create_blueprint(db, project_id: str) -> dict:
     bp = await db.blueprints.find_one({"project_id": project_id}, {"_id": 0})
     if bp:
+        # Backfill contract-shape fields on cold-reads for older blueprints
+        # that predate the labels/fixtures additions.
+        bp.setdefault("labels", [])
+        bp.setdefault("fixtures", [])
         return bp
     bp = {
         "id": str(uuid.uuid4()),
         "project_id": project_id,
-        "walls": [], "doors": [], "windows": [],
+        "walls": [], "doors": [], "windows": [], "labels": [], "fixtures": [],
         "updated_at": now_iso(),
     }
     await db.blueprints.insert_one(bp)
@@ -52,7 +56,7 @@ def build_projects_router(db, get_current_user) -> APIRouter:
         await db.blueprints.insert_one({
             "id": str(uuid.uuid4()),
             "project_id": pid,
-            "walls": [], "doors": [], "windows": [],
+            "walls": [], "doors": [], "windows": [], "labels": [], "fixtures": [],
             "updated_at": now_iso(),
         })
         return clean(doc)
