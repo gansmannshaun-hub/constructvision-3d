@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend-only testing of CAD Undo/Redo buttons+shortcuts and Sheet Tab overflow behavior. Seeded projects with 10-13 sheets via API. All required data-testids are present. Undo/redo drawing flow works correctly (button + Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z). Sheet tab compact mode, count badge, scroll arrows, and add-sheet button all render/work. One minor bug found: redo button is NOT re-disabled after switching sheets (undo IS correctly reset to disabled).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CadEditorTab", "issue": "After switching to a different sheet while redoRef has entries (i.e. you did undo before switching), the REDO button remains ENABLED on the new sheet even though history was reset. UNDO is correctly disabled — only REDO leaks. Reproduced deterministically: draw two walls on Sheet 1, click UNDO (redoRef has 1 entry, redo button enabled), click Sheet 3 tab -> undo disabled=true (correct), redo disabled=false (BUG, expected true). The [blueprint] useEffect at CadEditorTab.jsx L207-224 does `redoRef.current = []` but the canRedo computed on the re-render still sees redoRef.current.length > 0. Likely because setHistoryVersion happens BEFORE the ref mutation is observed in the next render, or the walls-effect at L229 runs an extra time. Fix suggestion: force `setHistoryVersion(v => v + 1)` to be the LAST statement after mutating both refs, or additionally recompute canRedo via a state variable (not a ref-based derivation). Alternatively, set canRedo via useState updated inside undo/redo/effects instead of reading `redoRef.current.length` during render.", "selector": "[data-testid='cad-redo']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix CadEditorTab: REDO button should be disabled after switching sheets. `redoRef.current = []` in the [blueprint] useEffect is not reflected in canRedo — consider tracking canUndo/canRedo as useState values updated inside undo/redo/effects rather than derived from ref.length at render time."
+  ],
+  "critical_code_review_comments": [
+    "CadEditorTab.jsx is 1532 lines — well over the 700-line guideline. Should be split into: history hook (useUndoRedo), tool handlers, and rendering.",
+    "canUndo/canRedo derived as `historyVersion >= 0 && historyRef.current.length > 1` — mixing refs with a version bump is fragile; useState is simpler and less race-prone.",
+    "Sheet CRUD in SheetTabBar uses window.prompt/confirm — blocks automated tests and provides poor UX. Consider a small modal component."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend only)", "frontend": "95% (18/19 assertions pass; 1 redo-reset bug)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Ephemeral projects created and DELETED at test end via /api/projects (with 10-13 seeded blueprint sheets each via POST /api/projects/{id}/blueprint/sheets).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Sheet tabs and Undo/Redo verified functional at desktop viewport. The scroll arrows correctly appear only when scrollWidth > clientWidth (tested by narrowing viewport to 1200px with 13 sheets). At 1920px with 11 sheets, no overflow occurs so arrows correctly hide. Compact mode kicks in at >8 sheets (min-width 110px). Add-sheet button uses window.prompt — Playwright must attach `page.on('dialog', d: d.accept('...'))` to test it end-to-end (test artifact, not a bug). The redo-not-reset-on-sheet-switch bug is deterministic — reproduce by drawing a wall on any sheet, click UNDO, then click a different sheet tab. UNDO becomes disabled but REDO stays enabled.",
+  "rca of the issue": "canRedo is computed at render as `historyVersion >= 0 && redoRef.current.length > 0`. The [blueprint] useEffect at L207 does `redoRef.current = []; setHistoryVersion(v => v + 1)`. In practice canUndo correctly reflects the reset but canRedo does not — likely because the walls-effect at L229 runs on the batched re-render, sees isRestoringRef=true and returns early, and by the time this effect completes an additional re-render occurs where redoRef.current has stale entries. Recommended mitigation: convert canUndo/canRedo to useState variables and update them synchronously inside undo(), redo(), the blueprint effect, and the walls-effect. This eliminates the race between refs and version bumps."
+}

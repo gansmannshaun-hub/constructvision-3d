@@ -195,15 +195,52 @@ export default function CadEditorTab() {
   const [vb, setVb] = useState({ x: 0, y: 0, w: 100, h: 100 });
   const [panning, setPanning] = useState(null);
 
-  // sync from store
+  // Undo/redo history — snapshots of {walls, doors, windows, labels, fixtures}
+  // captured on every state change. Reset per sheet.
+  const historyRef = useRef([]);
+  const redoRef = useRef([]);
+  const isRestoringRef = useRef(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const HISTORY_LIMIT = 100;
+
+  // sync from store — also seeds the history baseline for this sheet
   useEffect(() => {
+    isRestoringRef.current = true;
     setWalls(blueprint.walls || []);
     setDoors(blueprint.doors || []);
     setWindows(blueprint.windows || []);
     setLabels(blueprint.labels || []);
     setFixtures(blueprint.fixtures || []);
     setDirty(false);
+    historyRef.current = [{
+      walls: blueprint.walls || [],
+      doors: blueprint.doors || [],
+      windows: blueprint.windows || [],
+      labels: blueprint.labels || [],
+      fixtures: blueprint.fixtures || [],
+    }];
+    redoRef.current = [];
+    setHistoryVersion((v) => v + 1);
   }, [blueprint]);
+
+  // After user-initiated state changes, push a new snapshot. Skips when the
+  // change came from undo/redo restoration (React 18 batches state updates
+  // so one effect run per user action).
+  useEffect(() => {
+    if (isRestoringRef.current) {
+      isRestoringRef.current = false;
+      return;
+    }
+    const last = historyRef.current[historyRef.current.length - 1];
+    if (
+      last && last.walls === walls && last.doors === doors && last.windows === windows &&
+      last.labels === labels && last.fixtures === fixtures
+    ) return;
+    historyRef.current.push({ walls, doors, windows, labels, fixtures });
+    if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
+    redoRef.current = [];
+    setHistoryVersion((v) => v + 1);
+  }, [walls, doors, windows, labels, fixtures]);
 
   // Fetch the source blueprint image for the active sheet (if any)
   useEffect(() => {
@@ -218,6 +255,46 @@ export default function CadEditorTab() {
   }, [activeSheet?.source_document_id, fetchDocumentImage]);
 
   const markDirty = () => setDirty(true);
+
+  const undo = useCallback(() => {
+    if (historyRef.current.length < 2) return;
+    const current = historyRef.current.pop();
+    redoRef.current.push(current);
+    if (redoRef.current.length > HISTORY_LIMIT) redoRef.current.shift();
+    const prev = historyRef.current[historyRef.current.length - 1];
+    isRestoringRef.current = true;
+    setWalls(prev.walls);
+    setDoors(prev.doors);
+    setWindows(prev.windows);
+    setLabels(prev.labels);
+    setFixtures(prev.fixtures);
+    setSelected(null);
+    setPendingStart(null); setRectStart(null); setCircleCenter(null);
+    setTapeStart(null); setMoveFrom(null); setOffsetWall(null);
+    setDirty(true);
+    setHistoryVersion((v) => v + 1);
+  }, []);
+
+  const redo = useCallback(() => {
+    if (redoRef.current.length === 0) return;
+    const next = redoRef.current.pop();
+    historyRef.current.push(next);
+    isRestoringRef.current = true;
+    setWalls(next.walls);
+    setDoors(next.doors);
+    setWindows(next.windows);
+    setLabels(next.labels);
+    setFixtures(next.fixtures);
+    setSelected(null);
+    setPendingStart(null); setRectStart(null); setCircleCenter(null);
+    setTapeStart(null); setMoveFrom(null); setOffsetWall(null);
+    setDirty(true);
+    setHistoryVersion((v) => v + 1);
+  }, []);
+
+  // historyVersion is referenced so canUndo/canRedo re-evaluate on change.
+  const canUndo = historyVersion >= 0 && historyRef.current.length > 1;
+  const canRedo = historyVersion >= 0 && redoRef.current.length > 0;
 
   // ---------- Coord conversion (handles viewBox + preserveAspectRatio correctly) ----------
   const toSvgCoord = useCallback((e) => {
@@ -505,6 +582,18 @@ export default function CadEditorTab() {
   useEffect(() => {
     const h = (e) => {
       if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
+      // Undo / redo (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y — also Cmd on Mac)
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+        return;
+      }
+      if (mod && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault();
+        redo();
+        return;
+      }
       if (e.key === "Escape") {
         setPendingStart(null); setRectStart(null); setCircleCenter(null); setTapeStart(null); setMoveFrom(null); setSelected(null);
         return;
@@ -529,7 +618,7 @@ export default function CadEditorTab() {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [selected]);
+  }, [selected, undo, redo]);
 
   // ---------- Measurement input (length-aware commit while drawing) ----------
   const onMeasureSubmit = (e) => {
@@ -749,6 +838,25 @@ export default function CadEditorTab() {
         ))}
 
         <div className="w-px h-8 bg-[#CCC] mx-2" />
+
+        <button
+          data-testid="cad-undo"
+          onClick={undo}
+          disabled={!canUndo}
+          className="h-10 px-3 text-xs uppercase tracking-wider font-bold bg-white border border-[#CCC] text-[#333] hover:bg-[#FFCC00]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Undo (Ctrl+Z)"
+        >
+          ↶ UNDO
+        </button>
+        <button
+          data-testid="cad-redo"
+          onClick={redo}
+          disabled={!canRedo}
+          className="h-10 px-3 text-xs uppercase tracking-wider font-bold bg-white border border-[#CCC] text-[#333] hover:bg-[#FFCC00]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
+        >
+          ↷ REDO
+        </button>
 
         <button
           data-testid="cad-toggle-snap"
