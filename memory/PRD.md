@@ -417,6 +417,31 @@ email digest with /invite landing.
   set, so they render vector geometry in the CAD tab but do NOT extrude as
   building stories in 3D. Verified via 5/5 backend tests in iter34.
 
+### Admin bulk-delete users + Blueprint wheel-zoom + Manual refresh (2026-02-03 — Complete)
+- **Admin panel**: `POST /api/admin/users/bulk-delete` accepts
+  `{user_ids: [...], include_admins: bool}`; refactored the cascade-delete
+  path into `_cascade_delete_user()` shared by both endpoints. Admin UI
+  gained a checkbox column, header select-all (with indeterminate), a red
+  bulk-action bar (`admin-users-bulk-bar`) that appears on selection with
+  count / include-admins toggle / delete / clear controls. Self-protection
+  and admin-skip logic verified 6/6 backend tests.
+- **Blueprint tab**: independent zoom+pan state driven by the SVG viewBox.
+  Mouse-wheel zooms toward the cursor (20× in, 3× beyond fit out); click-
+  drag pans; double-click and the FIT button reset to the auto-fit view;
+  `+` / `−` overlay buttons do centred stepped zoom; zoom-% badge live.
+  State auto-resets when the active sheet changes.
+- **User manual (ManualTab)**: refreshed Documents (batch/folder upload,
+  photo-as-blueprint), Blueprint (multi-sheet tabs, pan/zoom/fit, underlay
+  opacity), CAD Editor (undo/redo, Simplify+Straighten, sheet tabs, full
+  tool table with shortcuts), Shortcuts (new Blueprint-tab keys), and a
+  new **Admin panel** section covering user management + the bulk-delete
+  flow.
+- Small defensive fix: `walls.map` in BlueprintTab now skips walls missing
+  `start`/`end` (would otherwise crash on legacy schema writes).
+- Verified via testing agent iter39 — 6/6 backend + 3/3 frontend features
+  pass 100%.
+
+
 
 ## Integrations
 - **Emergent LLM Key** — GPT-4o vision (PDF + photo) + text (floorplan).

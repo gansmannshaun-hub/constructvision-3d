@@ -276,6 +276,7 @@ export default function BlueprintTab() {
                 {/* Walls — professional double-line style on the blueprint
                     (cyanotype) canvas. White fill (poché) + thin outline. */}
                 {walls.map((w) => {
+                  if (!w.start || !w.end) return null;
                   const dx = w.end[0] - w.start[0];
                   const dy = w.end[1] - w.start[1];
                   const len = Math.hypot(dx, dy) || 1;
