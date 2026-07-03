@@ -394,6 +394,30 @@ email digest with /invite landing.
 - On-demand image fetch via `GET /api/documents/{doc_id}/image` + client-side
   base64 cache in the store.
 
+### CAD Undo/Redo + Sheet-tab overflow (2026-02-03 — Complete)
+- CadEditorTab now captures per-sheet history snapshots of
+  `{walls, doors, windows, labels, fixtures}` (limit 100 entries). History
+  resets when the active sheet changes.
+- Toolbar has `cad-undo` and `cad-redo` buttons plus Ctrl+Z / Ctrl+Shift+Z /
+  Ctrl+Y keyboard shortcuts. `canUndo`/`canRedo` are useState-backed to stay
+  correct across sheet switches.
+- SheetTabBar rewritten to gracefully handle many sheets: horizontal scroller
+  with left/right arrow buttons (`cad-sheet-scroll-left/right`), auto-scroll
+  the active tab into view, compact-mode min-widths when >8 sheets, and a
+  `cad-sheet-count` badge when >3 sheets. The `+` add-sheet button lives
+  outside the scroller so it's always reachable.
+- Verified via testing agent iter37 (initial) + iter38 (retest after redo-
+  reset fix) — 100% state assertions pass.
+
+### OpenCV traces all drawing view-types (2026-02-03 — Verified)
+- `documents.py` DRAWING_TYPES expanded to include framing/roof/sheathing/
+  MEP/elevation/detail so the OpenCV Hough-line tracer runs on every drawing
+  regardless of `view_type`. Reference-only sheets (non floor plans) still
+  land with `floor_level=-99` and are filtered by `sceneBuilder.js` REF_ONLY
+  set, so they render vector geometry in the CAD tab but do NOT extrude as
+  building stories in 3D. Verified via 5/5 backend tests in iter34.
+
+
 ## Integrations
 - **Emergent LLM Key** — GPT-4o vision (PDF + photo) + text (floorplan).
 - **Stripe** — test key from system env.
