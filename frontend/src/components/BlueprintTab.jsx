@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { formatFeetInches, wallsAabb } from "../lib/dim";
 import { SheetTabBar } from "./SheetTabBar";
@@ -42,7 +42,7 @@ export default function BlueprintTab() {
   // The Blueprint tab now uses a dynamic viewBox that fits the underlay
   // (if any) OR the walls AABB, so scanned images and traced geometry show
   // up regardless of what unit the AI produced.
-  const viewBox = useMemo(() => {
+  const baseViewBox = useMemo(() => {
     const pad = 4;
     const bf = activeSheet?.building_ft;
     if (bf?.w > 0 && bf?.h > 0) {
@@ -54,7 +54,65 @@ export default function BlueprintTab() {
     // Fallback — legacy 100×100 canvas.
     return { x: -8, y: -8, w: 116, h: 116 };
   }, [aabb, activeSheet?.building_ft]);
-  const vbStr = `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`;
+
+  // Zoom / pan state. Resets to baseViewBox whenever the fit changes
+  // (i.e. on sheet switch or when new walls arrive). Mouse-wheel zooms
+  // around the cursor; click-drag pans; double-click resets.
+  const [vb, setVb] = useState(baseViewBox);
+  const [panning, setPanning] = useState(null); // {startClient, startVb}
+  const svgRef = useRef(null);
+  const wheelRef = useRef(null);
+  useEffect(() => {
+    setVb(baseViewBox);
+  }, [baseViewBox.x, baseViewBox.y, baseViewBox.w, baseViewBox.h]);
+
+  const vbStr = `${vb.x} ${vb.y} ${vb.w} ${vb.h}`;
+  const zoomPct = Math.round((baseViewBox.w / vb.w) * 100);
+  const resetView = () => setVb(baseViewBox);
+
+  wheelRef.current = (e) => {
+    e.preventDefault();
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width;
+    const my = (e.clientY - rect.top) / rect.height;
+    const [cx, cy] = [vb.x + vb.w * mx, vb.y + vb.h * my];
+    const scale = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+    // Clamp zoom range: 20× in, 3× out beyond fit.
+    const minW = baseViewBox.w / 20;
+    const maxW = baseViewBox.w * 3;
+    const newW = Math.max(minW, Math.min(maxW, vb.w * scale));
+    const newH = newW * (vb.h / vb.w);
+    setVb({ x: cx - newW * mx, y: cy - newH * my, w: newW, h: newH });
+  };
+
+  // React onWheel is registered passive → preventDefault silently ignored.
+  // Attach manually with passive:false.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return undefined;
+    const h = (e) => wheelRef.current && wheelRef.current(e);
+    svg.addEventListener("wheel", h, { passive: false });
+    return () => svg.removeEventListener("wheel", h);
+  }, []);
+
+  const onMouseDown = (e) => {
+    // Left-drag or middle-drag both pan.
+    if (e.button === 0 || e.button === 1) {
+      setPanning({ startClient: [e.clientX, e.clientY], startVb: { ...vb } });
+    }
+  };
+  const onMouseMove = (e) => {
+    if (!panning) return;
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const dx = ((e.clientX - panning.startClient[0]) / rect.width) * panning.startVb.w;
+    const dy = ((e.clientY - panning.startClient[1]) / rect.height) * panning.startVb.h;
+    setVb({ ...panning.startVb, x: panning.startVb.x - dx, y: panning.startVb.y - dy });
+  };
+  const onMouseUp = () => setPanning(null);
 
   // A sheet has SOMETHING renderable if it has walls, an underlay image,
   // any traced labels/fixtures/doors/windows, or a source_document_id — in
@@ -139,6 +197,40 @@ export default function BlueprintTab() {
                 <span className="tabular-nums w-9 text-right">{Math.round(underlayOpacity * 100)}%</span>
               </div>
             )}
+            {hasRenderableContent && (
+              <div
+                data-testid="blueprint-zoom-controls"
+                className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-black/70 border border-white/20 rounded px-2 py-1 text-white text-[10px] font-mono uppercase tracking-wider"
+              >
+                <button
+                  data-testid="blueprint-zoom-out"
+                  onClick={() => setVb((v) => {
+                    const newW = Math.min(baseViewBox.w * 3, v.w * 1.25);
+                    const newH = newW * (v.h / v.w);
+                    return { x: v.x + (v.w - newW) / 2, y: v.y + (v.h - newH) / 2, w: newW, h: newH };
+                  })}
+                  className="w-6 h-6 flex items-center justify-center border border-white/20 hover:bg-white/10"
+                  title="Zoom out"
+                >−</button>
+                <span data-testid="blueprint-zoom-pct" className="tabular-nums w-10 text-center">{zoomPct}%</span>
+                <button
+                  data-testid="blueprint-zoom-in"
+                  onClick={() => setVb((v) => {
+                    const newW = Math.max(baseViewBox.w / 20, v.w / 1.25);
+                    const newH = newW * (v.h / v.w);
+                    return { x: v.x + (v.w - newW) / 2, y: v.y + (v.h - newH) / 2, w: newW, h: newH };
+                  })}
+                  className="w-6 h-6 flex items-center justify-center border border-white/20 hover:bg-white/10"
+                  title="Zoom in"
+                >+</button>
+                <button
+                  data-testid="blueprint-zoom-reset"
+                  onClick={resetView}
+                  className="ml-1 px-2 h-6 flex items-center border border-white/20 hover:bg-white/10"
+                  title="Fit to view (or double-click canvas)"
+                >FIT</button>
+              </div>
+            )}
             {!hasRenderableContent ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center text-blue-200/40 font-mono">
@@ -147,7 +239,19 @@ export default function BlueprintTab() {
                 </div>
               </div>
             ) : (
-              <svg viewBox={vbStr} className="w-full h-full" preserveAspectRatio="xMidYMid meet" data-testid="blueprint-svg">
+              <svg
+                ref={svgRef}
+                viewBox={vbStr}
+                className={`w-full h-full ${panning ? "cursor-grabbing" : "cursor-grab"}`}
+                style={{ touchAction: "none" }}
+                preserveAspectRatio="xMidYMid meet"
+                data-testid="blueprint-svg"
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+                onMouseLeave={onMouseUp}
+                onDoubleClick={resetView}
+              >
                 {/* Blueprint underlay — falls back to a 100×100 ft canvas
                     when we don't yet have building_ft or wall geometry,
                     so a scanned image ALWAYS renders, not a blank page. */}

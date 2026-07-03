@@ -180,23 +180,124 @@ function Overview({ data }) {
 function Users({ users, reload }) {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+  const [includeAdmins, setIncludeAdmins] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const filtered = useMemo(() =>
     users.filter((u) => !q || u.email?.toLowerCase().includes(q.toLowerCase()) || u.name?.toLowerCase().includes(q.toLowerCase())),
   [users, q]);
 
+  const toggleOne = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleIds = filtered.map((u) => u.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selected.has(id));
+  const toggleAllVisible = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
+
+  const bulkDelete = async () => {
+    if (selected.size === 0) return;
+    const ids = [...selected];
+    const adminCount = users.filter((u) => ids.includes(u.id) && u.is_admin).length;
+    const warn =
+      `Permanently delete ${ids.length} user account${ids.length === 1 ? "" : "s"} and ALL their projects, blueprints, uploads, and billing history?\n\n` +
+      (adminCount > 0
+        ? `⚠️ ${adminCount} admin account${adminCount === 1 ? " is" : "s are"} in this selection — ${includeAdmins ? "they WILL be deleted" : "they will be skipped"}.\n\n`
+        : "") +
+      `This cannot be undone.`;
+    if (!window.confirm(warn)) return;
+    setBulkBusy(true);
+    try {
+      const { data } = await apiClient.post("/admin/users/bulk-delete", {
+        user_ids: ids,
+        include_admins: includeAdmins,
+      });
+      const msg =
+        `Deleted ${data.deleted} user${data.deleted === 1 ? "" : "s"}.` +
+        (data.skipped_admin_ids?.length ? `\nSkipped ${data.skipped_admin_ids.length} admin(s).` : "") +
+        (data.skipped_self ? `\nYour own account was skipped.` : "") +
+        (data.not_found?.length ? `\n${data.not_found.length} not found.` : "");
+      alert(msg);
+      clearSelection();
+      await reload();
+    } catch (e) {
+      alert(`Bulk delete failed: ${e?.response?.data?.detail || e?.message || "unknown error"}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <input
-        data-testid="admin-users-search"
-        placeholder="Search by email or name…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        className="w-full md:w-96 bg-[#141414] border border-white/10 px-4 py-2 font-mono text-sm"
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          data-testid="admin-users-search"
+          placeholder="Search by email or name…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="w-full md:w-96 bg-[#141414] border border-white/10 px-4 py-2 font-mono text-sm"
+        />
+        {selected.size > 0 && (
+          <div
+            data-testid="admin-users-bulk-bar"
+            className="flex flex-wrap items-center gap-3 px-3 py-2 bg-[#1a1010] border border-[#FF3333]/40 font-mono text-xs"
+          >
+            <span data-testid="admin-users-selected-count" className="text-[#FF6666]">
+              {selected.size} selected
+            </span>
+            <label className="flex items-center gap-1.5 cursor-pointer text-neutral-300">
+              <input
+                data-testid="admin-users-include-admins"
+                type="checkbox"
+                checked={includeAdmins}
+                onChange={(e) => setIncludeAdmins(e.target.checked)}
+              />
+              Include admins
+            </label>
+            <button
+              data-testid="admin-users-bulk-delete"
+              onClick={bulkDelete}
+              disabled={bulkBusy}
+              className="label-mono px-3 py-1 bg-[#FF3333] hover:bg-[#FF5555] text-white disabled:opacity-40"
+            >
+              {bulkBusy ? "Deleting…" : `Delete ${selected.size}`}
+            </button>
+            <button
+              data-testid="admin-users-clear-selection"
+              onClick={clearSelection}
+              className="label-mono text-neutral-400 hover:text-white"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
       <div className="border border-white/10 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-[#0F0F0F] label-mono">
             <tr>
+              <th className="p-3 w-8">
+                <input
+                  data-testid="admin-users-select-all"
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  ref={(el) => { if (el) el.indeterminate = !allVisibleSelected && someVisibleSelected; }}
+                  onChange={toggleAllVisible}
+                  aria-label="Select all visible users"
+                />
+              </th>
               <th className="text-left p-3">Email</th>
               <th className="text-left p-3">Name</th>
               <th className="text-left p-3">Plan</th>
@@ -210,6 +311,15 @@ function Users({ users, reload }) {
           <tbody>
             {filtered.map((u) => (
               <tr key={u.id} className="border-t border-white/5 hover:bg-white/[0.02]" data-testid={`admin-user-row-${u.id}`}>
+                <td className="p-3">
+                  <input
+                    data-testid={`admin-user-select-${u.id}`}
+                    type="checkbox"
+                    checked={selected.has(u.id)}
+                    onChange={() => toggleOne(u.id)}
+                    aria-label={`Select ${u.email}`}
+                  />
+                </td>
                 <td className="p-3 font-mono text-xs">{u.email}</td>
                 <td className="p-3">{u.name}</td>
                 <td className="p-3 font-mono uppercase">{u.subscription?.tier || "free"}</td>
@@ -229,7 +339,7 @@ function Users({ users, reload }) {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan="8" className="p-6 text-center text-neutral-500 font-mono">No users.</td></tr>
+              <tr><td colSpan="9" className="p-6 text-center text-neutral-500 font-mono">No users.</td></tr>
             )}
           </tbody>
         </table>

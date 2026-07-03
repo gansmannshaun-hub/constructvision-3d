@@ -17,7 +17,7 @@ import secrets
 import string
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -70,6 +70,27 @@ async def _seed_default_project(db, user_id: str) -> str:
         "updated_at": now_iso(),
     })
     return pid
+
+
+async def _cascade_delete_user(db, user_id: str) -> None:
+    """Remove a user and every downstream document (projects, blueprints,
+    sheets, materials, documents, usage, payments, sessions). Called by
+    both the single-delete and bulk-delete endpoints."""
+    project_ids = [
+        p["id"] for p in await db.projects.find({"user_id": user_id}, {"id": 1}).to_list(2000)
+    ]
+    if project_ids:
+        await db.documents.delete_many({"project_id": {"$in": project_ids}})
+        await db.materials.delete_many({"project_id": {"$in": project_ids}})
+        await db.blueprints.delete_many({"project_id": {"$in": project_ids}})
+        await db.blueprint_sheets.delete_many({"project_id": {"$in": project_ids}})
+    await db.projects.delete_many({"user_id": user_id})
+    await db.usage_periods.delete_many({"user_id": user_id})
+    await db.payment_transactions.delete_many({"user_id": user_id})
+    await db.sessions.delete_many({"user_id": user_id})
+    await db.users.delete_one({"id": user_id})
+
+
 
 
 async def seed_admin(db) -> Optional[dict]:
@@ -217,6 +238,11 @@ class UpdateUserIn(BaseModel):
     is_admin: Optional[bool] = None
     suspended: Optional[bool] = None
     name: Optional[str] = None
+
+
+class BulkDeleteIn(BaseModel):
+    user_ids: List[str]
+    include_admins: bool = False   # safety — must explicitly opt in to delete admin accounts
 
 
 class UpdateSystemSettingsIn(BaseModel):
@@ -373,18 +399,40 @@ def build_admin_router(db, get_current_user) -> APIRouter:
         u = await db.users.find_one({"id": user_id})
         if not u:
             raise HTTPException(404, "User not found")
-        # Cascade delete user's data
-        await db.projects.delete_many({"user_id": user_id})
-        await db.documents.delete_many({"project_id": {"$in": [p["id"] for p in await db.projects.find({"user_id": user_id}, {"id": 1}).to_list(1000)]}})
-        await db.materials.delete_many({"project_id": {"$in": [p["id"] for p in await db.projects.find({"user_id": user_id}, {"id": 1}).to_list(1000)]}})
-        await db.blueprints.delete_many({"project_id": {"$in": [p["id"] for p in await db.projects.find({"user_id": user_id}, {"id": 1}).to_list(1000)]}})
-        await db.blueprint_sheets.delete_many({"project_id": {"$in": [p["id"] for p in await db.projects.find({"user_id": user_id}, {"id": 1}).to_list(1000)]}})
-        await db.usage_periods.delete_many({"user_id": user_id})
-        await db.payment_transactions.delete_many({"user_id": user_id})
-        await db.sessions.delete_many({"user_id": user_id})
-        await db.users.delete_one({"id": user_id})
+        await _cascade_delete_user(db, user_id)
         await audit(db, admin["id"], "admin.user.delete", target=user_id, meta={"email": u.get("email")})
         return {"ok": True}
+
+    @api.post("/users/bulk-delete")
+    async def bulk_delete_users(payload: BulkDeleteIn, admin: dict = Depends(require_admin)):
+        ids = [uid for uid in (payload.user_ids or []) if uid and uid != admin["id"]]
+        if not ids:
+            return {"ok": True, "deleted": 0, "skipped_self": (admin["id"] in (payload.user_ids or [])), "not_found": []}
+        # Prevent deleting other admins unless explicitly opted-in.
+        found = await db.users.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "email": 1, "is_admin": 1}).to_list(len(ids))
+        found_ids = {u["id"] for u in found}
+        not_found = [uid for uid in ids if uid not in found_ids]
+        skipped_admin = []
+        if not payload.include_admins:
+            skipped_admin = [u["id"] for u in found if u.get("is_admin")]
+        deletable_ids = [u["id"] for u in found if u["id"] not in skipped_admin]
+        for uid in deletable_ids:
+            await _cascade_delete_user(db, uid)
+        await audit(db, admin["id"], "admin.user.bulk_delete", target=None, meta={
+            "requested": len(payload.user_ids or []),
+            "deleted": len(deletable_ids),
+            "skipped_admin_ids": skipped_admin,
+            "not_found": not_found,
+        })
+        return {
+            "ok": True,
+            "deleted": len(deletable_ids),
+            "deleted_ids": deletable_ids,
+            "skipped_admin_ids": skipped_admin,
+            "not_found": not_found,
+            "skipped_self": (admin["id"] in (payload.user_ids or [])),
+        }
+
 
     @api.get("/projects")
     async def list_all_projects(limit: int = 200, admin: dict = Depends(require_admin)):

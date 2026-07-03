@@ -1,0 +1,25 @@
+{
+  "summary": "Iter 39: Tested (1) admin bulk-delete users backend endpoint, (2) Admin panel Users UI checkboxes + bulk bar, (3) Blueprint tab mouse-wheel zoom + pan + FIT, (4) User Manual new sections. All three features working end-to-end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter39_bulk_delete.py",
+    "/app/test_reports/pytest/iter39_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "BlueprintTab.jsx wall renderers (lines 278, 359) directly access w.end[0]/w.start[0] with no defensive guard for the main polygon map — if any wall document lacks start/end arrays (e.g., legacy schema {x1,y1,x2,y2} or partial writes) the entire Blueprint tab throws 'Cannot read properties of undefined (reading 0)' and shows the runtime-error overlay. Recommend adding `if (!w.start || !w.end) return null;` to the polygon map for defense-in-depth (the dimension map at line 359 already has this guard). Not user-triggerable via current UI but easy to hit via API and blocks the whole tab."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter39_bulk_delete.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (all 3 features verified)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* — worked as documented.",
+  "seed_data_creation": "Created ~4 throw-away TEST_ users via /api/auth/register (2 were deleted by the UI bulk-delete flow; 1 leftover with prefix TEST_ui_bulk_4f26630b, and 1 leftover TEST_admin2_* from backend suite). Created + deleted a TEST_iter39_bp project.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend bulk-delete regression suite is at /app/backend/tests/test_iter39_bulk_delete.py — reusable. UI tabs use data-testid `tab-blueprint` and `tab-manual` (not literal text 'BLUEPRINT'). Project selector is a plain <select>. Wall schema for /api/projects/{pid}/blueprint PUT requires {start:[x,y], end:[x,y], thickness, id} — legacy x1/y1/x2/y2 crashes the Blueprint tab.",
+  "rca of the issue": "N/A — no bugs to reproduce. Only latent concern noted in critical_code_review_comments."
+}
