@@ -200,8 +200,13 @@ export default function CadEditorTab() {
   const historyRef = useRef([]);
   const redoRef = useRef([]);
   const isRestoringRef = useRef(false);
-  const [historyVersion, setHistoryVersion] = useState(0);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const HISTORY_LIMIT = 100;
+  const refreshHistoryFlags = () => {
+    setCanUndo(historyRef.current.length > 1);
+    setCanRedo(redoRef.current.length > 0);
+  };
 
   // sync from store — also seeds the history baseline for this sheet
   useEffect(() => {
@@ -220,7 +225,7 @@ export default function CadEditorTab() {
       fixtures: blueprint.fixtures || [],
     }];
     redoRef.current = [];
-    setHistoryVersion((v) => v + 1);
+    refreshHistoryFlags();
   }, [blueprint]);
 
   // After user-initiated state changes, push a new snapshot. Skips when the
@@ -239,7 +244,7 @@ export default function CadEditorTab() {
     historyRef.current.push({ walls, doors, windows, labels, fixtures });
     if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
     redoRef.current = [];
-    setHistoryVersion((v) => v + 1);
+    refreshHistoryFlags();
   }, [walls, doors, windows, labels, fixtures]);
 
   // Fetch the source blueprint image for the active sheet (if any)
@@ -272,7 +277,7 @@ export default function CadEditorTab() {
     setPendingStart(null); setRectStart(null); setCircleCenter(null);
     setTapeStart(null); setMoveFrom(null); setOffsetWall(null);
     setDirty(true);
-    setHistoryVersion((v) => v + 1);
+    refreshHistoryFlags();
   }, []);
 
   const redo = useCallback(() => {
@@ -289,12 +294,11 @@ export default function CadEditorTab() {
     setPendingStart(null); setRectStart(null); setCircleCenter(null);
     setTapeStart(null); setMoveFrom(null); setOffsetWall(null);
     setDirty(true);
-    setHistoryVersion((v) => v + 1);
+    refreshHistoryFlags();
   }, []);
 
-  // historyVersion is referenced so canUndo/canRedo re-evaluate on change.
-  const canUndo = historyVersion >= 0 && historyRef.current.length > 1;
-  const canRedo = historyVersion >= 0 && redoRef.current.length > 0;
+  // canUndo / canRedo are useState-backed so they update deterministically
+  // on sheet switch and after every mutation.
 
   // ---------- Coord conversion (handles viewBox + preserveAspectRatio correctly) ----------
   const toSvgCoord = useCallback((e) => {

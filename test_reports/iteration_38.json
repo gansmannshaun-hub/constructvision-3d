@@ -1,0 +1,24 @@
+{
+  "summary": "Retested the REDO reset-on-sheet-switch bug from iteration_37. The fix (canUndo/canRedo converted to useState updated via refreshHistoryFlags() in undo, redo, [blueprint] effect, and [walls...] effect) is verified working. All 8 state transitions passed: draw→2 walls, undo, sheet switch (both disabled ✓), draw again on new sheet, undo/redo buttons + Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z shortcuts all behave correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CadEditorTab.jsx is still ~1500 lines (over 700-line guideline). Consider extracting the undo/redo history into a useUndoRedo hook alongside the SheetTabBar split already done.",
+    "SheetTabBar / CadEditorTab still use window.prompt/confirm for sheet name, floor level, delete confirmation, array count/spacing, and simplify alerts — blocks Playwright unless dialog handler is attached. A shadcn modal would improve UX and testability.",
+    "The redo reset via useState is now correct; consider extracting `refreshHistoryFlags` as a helper and calling it once in a shared effect to avoid the current pattern of calling it in 4 places."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend only)", "frontend": "100% (8/8 state assertions pass)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Ephemeral project 'iter38-redo-retest2' with 3 additional blueprint sheets (Sheet A/B/C) created via API and deleted at test end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Undo/Redo now fully correct on sheet switch. Deterministic state matrix verified: (1) draw 2 walls -> undo enabled, redo disabled ✓ (2) undo once -> both enabled ✓ (3) switch to different sheet -> BOTH DISABLED ✓ (the bug fix) (4) draw+undo+redo on new sheet with buttons AND Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z all work. Test script inline (not saved to file since it's a one-shot retest); if regression needed re-run the playwright block using data-testid='cad-sheet-tab-{id}' for tab switching and page.on('dialog', d.accept()) for the unsaved-changes confirm.",
+  "rca of the issue": "Root cause was canUndo/canRedo being derived from historyRef.current.length at render time — the ref mutation in the [blueprint] effect was not always observed on the same render as the setHistoryVersion bump, leaving canRedo=true after switching sheets. Fix: convert canUndo/canRedo to useState and update them synchronously via refreshHistoryFlags() in undo(), redo(), [blueprint] sync effect, and [walls,doors,windows,labels,fixtures] change effect. Verified via UI test that after undo→sheet-switch both buttons are now correctly disabled."
+}
