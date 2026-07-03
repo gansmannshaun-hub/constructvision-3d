@@ -146,6 +146,13 @@ const SECTIONS = [
         ["Zoom", "Z", "Click to zoom in; Shift+click zooms out"],
       ]},
       { kind: "tip", text: "Mouse-wheel zooming toward the cursor works with ANY tool active — you don't need to switch to the Zoom tool." },
+      { kind: "h2", text: "Editing labels" },
+      { kind: "p", text: "Room labels (BEDROOM, KITCHEN, etc.) can be resized, renamed, or deleted after they're placed." },
+      { kind: "ul", items: [
+        "Double-click any label to edit the text inline. Save empty text to delete.",
+        "Click a label with the Select tool to reveal a floating toolbar above it: Edit (opens the inline editor), A− / A+ (shrink or grow the text 0.25 ft at a time, clamped between 0.6 and 6 ft), and ✕ (delete).",
+        "The white bounding box auto-resizes to match the text length + font size — new labels default to 1.5 ft tall.",
+      ]},
       { kind: "h2", text: "AI SKETCH — text to floorplan" },
       { kind: "p", text: "Top-right floating panel. Type a brief (e.g. '1,200 sqft 3-bed ADU on a 40×80 lot') and GPT-4o sketches walls, doors, windows, labels. You then refine. Costs 1 AI Floorplan credit (or unlimited on Studio)." },
       { kind: "h2", text: "CODE — live compliance check" },

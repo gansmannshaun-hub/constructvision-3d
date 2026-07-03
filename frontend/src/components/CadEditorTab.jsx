@@ -1270,14 +1270,39 @@ export default function CadEditorTab() {
           {/* Text labels */}
           {labels.map((l) => {
             const isSel = selected?.type === "label" && selected.id === l.id;
+            const fs = l.font_size || 1.5;
+            const textLen = String(l.text || "").length;
+            const rectW = textLen * fs * 0.62 + fs * 0.8;
+            const rectH = fs * 1.55;
             return (
-              <g key={l.id} onClick={(e) => onElementClick(e, "label", l.id)} style={{ cursor: (tool === "select" || tool === "eraser") ? "pointer" : undefined }}>
-                <rect x={l.position[0] - (String(l.text || "").length * 0.45 + 0.6)} y={l.position[1] - 1.1}
-                  width={String(l.text || "").length * 0.9 + 1.2} height={2.2}
-                  fill={isSel ? "#FFCC00" : "rgba(255,255,255,0.85)"} stroke="#333" strokeWidth="0.08" />
-                <text x={l.position[0]} y={l.position[1] + 0.55}
-                  fontSize="1.5" fill="#1a1a1a" textAnchor="middle"
-                  fontFamily="IBM Plex Mono, monospace" fontWeight="600">
+              <g
+                key={l.id}
+                data-testid={`cad-label-${l.id}`}
+                onClick={(e) => onElementClick(e, "label", l.id)}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  setTextEditor({ position: l.position, value: l.text || "", editingId: l.id, fontSize: fs });
+                }}
+                style={{ cursor: (tool === "select" || tool === "eraser") ? "pointer" : undefined }}
+              >
+                <rect
+                  x={l.position[0] - rectW / 2}
+                  y={l.position[1] - rectH / 2}
+                  width={rectW}
+                  height={rectH}
+                  fill={isSel ? "#FFCC00" : "rgba(255,255,255,0.85)"}
+                  stroke={isSel ? "#000" : "#333"}
+                  strokeWidth={isSel ? "0.15" : "0.08"}
+                />
+                <text
+                  x={l.position[0]}
+                  y={l.position[1] + fs * 0.38}
+                  fontSize={fs}
+                  fill="#1a1a1a"
+                  textAnchor="middle"
+                  fontFamily="IBM Plex Mono, monospace"
+                  fontWeight="600"
+                >
                   {l.text}
                 </text>
               </g>
@@ -1388,51 +1413,123 @@ export default function CadEditorTab() {
           </div>
         )}
 
-        {/* Text label inline editor */}
-        {textEditor && (
-          <form
-            data-testid="cad-text-editor"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const v = (textEditor.value || "").trim();
-              if (v) {
-                setLabels((arr) => [...arr, { id: cryptoId(), position: textEditor.position, text: v.slice(0, 40) }]);
-                markDirty();
+        {/* Text label inline editor — handles both new labels and editing an existing one */}
+        {textEditor && (() => {
+          const commit = (raw) => {
+            const v = (raw || "").trim().slice(0, 40);
+            if (textEditor.editingId) {
+              if (!v) {
+                // empty text on edit → delete the label
+                setLabels((arr) => arr.filter((x) => x.id !== textEditor.editingId));
+              } else {
+                setLabels((arr) => arr.map((x) => x.id === textEditor.editingId ? { ...x, text: v } : x));
               }
-              setTextEditor(null);
-            }}
-            className="absolute"
-            style={{
-              left: `${((textEditor.position[0] - vb.x) / vb.w) * 100}%`,
-              top: `${((textEditor.position[1] - vb.y) / vb.h) * 100}%`,
-              transform: "translate(-50%, -50%)",
-            }}
-          >
-            <input
-              autoFocus
-              data-testid="cad-text-input"
-              value={textEditor.value}
-              onChange={(e) => setTextEditor({ ...textEditor, value: e.target.value })}
-              onBlur={(e) => {
-                const v = (e.target.value || "").trim();
-                if (v) {
-                  setLabels((arr) => [...arr, { id: cryptoId(), position: textEditor.position, text: v.slice(0, 40) }]);
+              markDirty();
+            } else if (v) {
+              setLabels((arr) => [...arr, {
+                id: cryptoId(),
+                position: textEditor.position,
+                text: v,
+                font_size: textEditor.fontSize || 1.5,
+              }]);
+              markDirty();
+            }
+            setTextEditor(null);
+          };
+          return (
+            <form
+              data-testid="cad-text-editor"
+              onSubmit={(e) => { e.preventDefault(); commit(textEditor.value); }}
+              className="absolute"
+              style={{
+                left: `${((textEditor.position[0] - vb.x) / vb.w) * 100}%`,
+                top: `${((textEditor.position[1] - vb.y) / vb.h) * 100}%`,
+                transform: "translate(-50%, -50%)",
+              }}
+            >
+              <input
+                autoFocus
+                data-testid="cad-text-input"
+                value={textEditor.value}
+                onChange={(e) => setTextEditor({ ...textEditor, value: e.target.value })}
+                onBlur={(e) => commit(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setTextEditor(null);
+                    e.stopPropagation();
+                  }
+                }}
+                placeholder={textEditor.editingId ? "(empty to delete)" : "Type label…"}
+                maxLength={40}
+                className="bg-white border-2 border-[#FFCC00] px-2 py-1 text-sm font-mono text-black shadow-md w-44"
+              />
+            </form>
+          );
+        })()}
+
+        {/* Floating action bar for a selected label — Edit / font size / Delete */}
+        {selected?.type === "label" && tool === "select" && !textEditor && (() => {
+          const l = labels.find((x) => x.id === selected.id);
+          if (!l) return null;
+          const fs = l.font_size || 1.5;
+          const resize = (delta) => {
+            const next = Math.max(0.6, Math.min(6, +(fs + delta).toFixed(2)));
+            setLabels((arr) => arr.map((x) => x.id === l.id ? { ...x, font_size: next } : x));
+            markDirty();
+          };
+          return (
+            <div
+              data-testid={`cad-label-toolbar-${l.id}`}
+              className="absolute z-20 flex items-center gap-1 bg-black/85 border border-[#FFCC00] rounded px-1 py-1 shadow-lg"
+              style={{
+                left: `${((l.position[0] - vb.x) / vb.w) * 100}%`,
+                top: `${((l.position[1] - vb.y) / vb.h) * 100}%`,
+                transform: "translate(-50%, calc(-100% - 16px))",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                data-testid={`cad-label-edit-${l.id}`}
+                onClick={() => setTextEditor({ position: l.position, value: l.text || "", editingId: l.id, fontSize: fs })}
+                className="h-6 px-2 text-[10px] font-mono uppercase tracking-wider text-white hover:bg-[#FFCC00] hover:text-black rounded"
+                title="Edit text (or double-click the label)"
+              >
+                Edit
+              </button>
+              <div className="w-px h-4 bg-white/20" />
+              <button
+                data-testid={`cad-label-shrink-${l.id}`}
+                onClick={() => resize(-0.25)}
+                className="h-6 w-6 text-white text-[13px] hover:bg-[#FFCC00] hover:text-black rounded font-bold"
+                title="Shrink text"
+              >
+                A−
+              </button>
+              <span className="text-[10px] font-mono text-[#FFCC00] tabular-nums w-8 text-center">{fs.toFixed(2)}</span>
+              <button
+                data-testid={`cad-label-grow-${l.id}`}
+                onClick={() => resize(0.25)}
+                className="h-6 w-6 text-white text-[13px] hover:bg-[#FFCC00] hover:text-black rounded font-bold"
+                title="Grow text"
+              >
+                A+
+              </button>
+              <div className="w-px h-4 bg-white/20" />
+              <button
+                data-testid={`cad-label-delete-${l.id}`}
+                onClick={() => {
+                  setLabels((arr) => arr.filter((x) => x.id !== l.id));
+                  setSelected(null);
                   markDirty();
-                }
-                setTextEditor(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setTextEditor(null);
-                  e.stopPropagation();
-                }
-              }}
-              placeholder="Type label…"
-              maxLength={40}
-              className="bg-white border-2 border-[#FFCC00] px-2 py-1 text-sm font-mono text-black shadow-md w-44"
-            />
-          </form>
-        )}
+                }}
+                className="h-6 px-2 text-[10px] font-mono uppercase tracking-wider text-[#FF6666] hover:bg-[#FF3333] hover:text-white rounded"
+                title="Delete label"
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })()}
 
         {currentProjectId && (
           <CadAIPanel
