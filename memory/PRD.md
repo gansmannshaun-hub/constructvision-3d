@@ -441,6 +441,21 @@ email digest with /invite landing.
 - Verified via testing agent iter39 — 6/6 backend + 3/3 frontend features
   pass 100%.
 
+### CAD label editing / resizing (2026-02-03 — Complete)
+- Labels now carry an optional `font_size` field (default 1.5 ft, clamped 0.6–6).
+  The rendered white bounding box auto-fits text length × font_size.
+- New floating toolbar (`cad-label-toolbar-<id>`) appears above a selected
+  label with Select tool active: **Edit** (opens inline editor pre-filled),
+  **A−** / **A+** buttons to shrink/grow the font by 0.25 ft with the
+  current size shown, and **✕** to delete.
+- Double-clicking any label opens the inline editor pre-filled. Submitting
+  empty text deletes the label. Undo/redo captures all label mutations.
+- `font_size` persists through the existing blueprint save endpoint (labels
+  are `List[dict]` so the extra field passes through unchanged). Manual
+  updated with an "Editing labels" subsection. Testing agent iter40: 100%
+  pass, verified `font_size=2.1` persists across a full page reload.
+
+
 
 
 ## Integrations
