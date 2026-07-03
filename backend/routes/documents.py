@@ -540,14 +540,16 @@ def _build_pipeline(db):
                     inserted += 1
                     dedup_audit.append({"name": name, "decision": "new", "page": page_idx + 1})
 
-                # Accumulate floorplan geometry from each page. Only run wall
-                # extraction on top-down plans that ACTUALLY contain walls
-                # (floor_plan / blueprint / site_plan / foundation_plan).
-                # Framing / roof / sheathing / MEP / detail / elevation sheets
-                # get tracked as reference sheets but produce no walls, so the
-                # 3D renderer doesn't build ghost rooms from a joist plan.
-                WALL_BEARING_TYPES = {"floor_plan", "blueprint", "site_plan", "foundation_plan"}
-                if doc_type in WALL_BEARING_TYPES:
+                # Every "drawing" doc type gets its geometry traced so the
+                # user sees the AI-extracted lines overlaying the underlay,
+                # regardless of view_type. The `view_type` field still steers
+                # the 3D renderer (reference sheets don't stack as floors).
+                DRAWING_TYPES = {
+                    "floor_plan", "blueprint", "site_plan", "foundation_plan",
+                    "framing_plan", "roof_plan", "sheathing_plan", "elevation",
+                    "electrical_plan", "plumbing_plan", "hvac_plan", "detail",
+                }
+                if doc_type in DRAWING_TYPES:
                     if building_ft is None:
                         bf = analysis.get("building_ft") or {}
                         try:
