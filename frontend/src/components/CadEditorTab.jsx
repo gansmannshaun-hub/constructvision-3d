@@ -194,6 +194,8 @@ export default function CadEditorTab() {
   // viewbox state (pan/zoom)
   const [vb, setVb] = useState({ x: 0, y: 0, w: 100, h: 100 });
   const [panning, setPanning] = useState(null);
+  // Drag-to-move a label with Select tool: {id, offset:[dx,dy], moved:bool, origPos}
+  const [labelDrag, setLabelDrag] = useState(null);
 
   // Undo/redo history — snapshots of {walls, doors, windows, labels, fixtures}
   // captured on every state change. Reset per sheet.
@@ -383,13 +385,28 @@ export default function CadEditorTab() {
       setVb({ ...panning.startVb, x: panning.startVb.x - dxPx * s, y: panning.startVb.y - dyPx * s });
       return;
     }
+    if (labelDrag) {
+      const raw = toSvgCoord(e);
+      const { p } = snappedPoint(raw);
+      const nextPos = [p[0] + labelDrag.offset[0], p[1] + labelDrag.offset[1]];
+      setLabels((arr) => arr.map((x) => x.id === labelDrag.id ? { ...x, position: nextPos } : x));
+      if (!labelDrag.moved) setLabelDrag({ ...labelDrag, moved: true });
+      return;
+    }
     const raw = toSvgCoord(e);
     const { p, inf } = snappedPoint(raw);
     setHover(p);
     setInference(inf);
   };
 
-  const onMouseUp = () => setPanning(null);
+  const onMouseUp = () => {
+    setPanning(null);
+    if (labelDrag) {
+      // If we dragged, mark dirty (history effect already snapshots the new state).
+      if (labelDrag.moved) markDirty();
+      setLabelDrag(null);
+    }
+  };
 
   // Keep `onWheel` in a ref so the native listener (which we attach below) can
   // always call the latest closure (capturing the current vb / tool state).
@@ -1278,12 +1295,30 @@ export default function CadEditorTab() {
               <g
                 key={l.id}
                 data-testid={`cad-label-${l.id}`}
-                onClick={(e) => onElementClick(e, "label", l.id)}
+                onMouseDown={(e) => {
+                  if (tool !== "select") return;
+                  e.stopPropagation();
+                  const raw = toSvgCoord(e);
+                  // offset = current label center minus click point (world-space);
+                  // preserved as we drag so the label doesn't jump under cursor.
+                  setLabelDrag({
+                    id: l.id,
+                    offset: [l.position[0] - raw[0], l.position[1] - raw[1]],
+                    moved: false,
+                    origPos: [...l.position],
+                  });
+                  setSelected({ type: "label", id: l.id });
+                }}
+                onClick={(e) => {
+                  // Skip the parent onElementClick if we actually dragged.
+                  if (labelDrag?.moved) { e.stopPropagation(); return; }
+                  onElementClick(e, "label", l.id);
+                }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   setTextEditor({ position: l.position, value: l.text || "", editingId: l.id, fontSize: fs });
                 }}
-                style={{ cursor: (tool === "select" || tool === "eraser") ? "pointer" : undefined }}
+                style={{ cursor: tool === "select" ? (labelDrag?.id === l.id ? "grabbing" : "grab") : (tool === "eraser" ? "pointer" : undefined) }}
               >
                 <rect
                   x={l.position[0] - rectW / 2}
