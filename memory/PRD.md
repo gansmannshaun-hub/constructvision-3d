@@ -521,6 +521,22 @@ email digest with /invite landing.
   mocks since those surfaces don't have a stand-alone in-app view yet.
 - Deleted the now-unused MockAtlasCad.jsx and MockAtlas3D.jsx mocks.
 
+### CAD grid spacing + zoom −/+ buttons (2026-02-04 — Complete)
+- New **STEP** dropdown (`cad-grid-step`) in the CAD toolbar offers grid
+  spacing options 6", 1', 2', 5', 10'. Selection persists per browser via
+  `localStorage['atlas-cad-grid-step']`. Grid density updates instantly;
+  every draw / snap uses the current step. At extreme zoom the visual grid
+  auto-coarsens ×5 so we never render thousands of hair lines.
+- New **⊞ FIT GRID** button (`cad-snap-to-grid`) one-click snaps every
+  wall endpoint, door, window, label and fixture to the current step —
+  useful for aligning AI-traced blueprints. Undo/redo captures it as a
+  single snapshot.
+- New **−** and **+** buttons (`cad-zoom-out` / `cad-zoom-in`) sit next to
+  the existing ⌂ FIT button. Zoom is clamped to viewBox width [2, 400] and
+  preserves center. Scroll-wheel + drag pan + double-click reset all still
+  work.
+- Verified 11/11 by testing agent iter44.
+
 
 
 
