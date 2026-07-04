@@ -488,6 +488,23 @@ email digest with /invite landing.
   sub-tests pass) and iter42 verified the label drag-undo fix (5/6 pass +
   the save-undo fix applied post-report).
 
+### /apps/:id case-study microsites (2026-02-04 — Complete)
+- New route `/apps/:id` renders a per-app case-study page. Landing hub
+  cards now navigate to `/apps/atlas` (not `/signin`) so each app has its
+  own marketing surface. **NOTE: notify form is CLIENT-ONLY (MOCKED)** —
+  no backend endpoint yet.
+- App catalog lives in `/app/frontend/src/data/apps.js` — Landing + AppDetail
+  both read from it. Adding a new app = one entry in that file.
+- Atlas detail page: hero with brand-mark + headline + 6 bullets + dual
+  CTA, stats band (1200+/94%/8hrs/$0), 7 alternating chapter rows (each
+  with a hand-authored SVG visual — CAD editor, blueprint AI, 3D render,
+  map placement, pay-app, field logs, activity feed), CTA strip, and a
+  "Also in the studio" related grid at the bottom.
+- Coming-soon variant: massive muted brandmark, tagline, notify-me form
+  (email → success pill client-side), plus the same related-apps grid.
+- Invalid slug (`/apps/nonexistent`) redirects to `/#apps` — no white
+  screen. Verified 100% by testing agent iter43.
+
 
 
 
