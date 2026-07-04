@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Landing from "@/pages/Landing";
+import AppDetail from "@/pages/AppDetail";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Billing from "@/pages/Billing";
@@ -47,6 +48,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route path="/apps/:id" element={<AppDetail />} />
         <Route path="/signin" element={<SignInRoute />} />
         <Route path="/app" element={<Protected><Dashboard /></Protected>} />
         <Route path="/billing" element={<Protected><Billing /></Protected>} />

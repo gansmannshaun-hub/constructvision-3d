@@ -1,0 +1,51 @@
+{
+  "summary": "Frontend-only verification of new /apps/:id case-study route. Atlas (live), app-02 (soon), Landing card links, and invalid slug redirect all verified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "atlas_live": {
+      "root_data-testid_app-detail-atlas": "PASS",
+      "hero+brand_mark_'Atlas.'": "PASS",
+      "hero_bullets_count": "6 (PASS)",
+      "primary_cta_href": "/signin?mode=register (PASS)",
+      "secondary_cta_href": "/signin (PASS)",
+      "stats_tiles": "4 (PASS)",
+      "chapters_01_to_07": "all 7 present with alternating layout (PASS)",
+      "footer_cta_href": "/signin?mode=register (PASS)",
+      "related_grid_links": "3 links → /apps/app-02, /apps/app-03, /apps/app-04 (PASS)",
+      "ALL_APPS_backlink": "/#apps (PASS)"
+    },
+    "app02_soon": {
+      "root_data-testid_app-detail-app-02": "PASS",
+      "app-detail-soon": "PASS",
+      "brand_mark_'In the shop'": "PASS",
+      "notify_form_email_submit": "PASS",
+      "submit_valid_email_swaps_to_notify-success": "PASS (form removed, success pill visible)",
+      "related_grid_links": "3 links → /apps/atlas, /apps/app-03, /apps/app-04 (PASS)"
+    },
+    "landing_cards": {
+      "app-card-atlas": "href=/apps/atlas (PASS)",
+      "app-card-app-02": "href=/apps/app-02 (PASS)",
+      "app-card-app-03": "href=/apps/app-03 (PASS)",
+      "app-card-app-04": "href=/apps/app-04 (PASS)"
+    },
+    "invalid_slug": "/apps/nonexistent redirected to /#apps, Landing renders (PASS, no white screen)"
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AppDetail.jsx is 446 lines and is fine, but PayAppLarge/FieldLarge/CollabLarge/ChapterVisual could be moved into /components/appdetail/* if the file grows further.",
+    "SoonDetail notify form is client-only (MOCKED, no backend). Emails are discarded — expected per PRD but worth noting in landing copy.",
+    "Email validation is `email.includes('@')` only — the required HTML5 type='email' does the heavier lift, but consider a stricter regex if this ever wires to a backend."
+  ],
+  "updated_files": [],
+  "success_rate": {"frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New AppDetail page at /apps/:id fully working. Live variant (atlas) has hero/stats/chapters(7)/CTA-strip/related; soon variants (app-02/03/04) show SoonDetail with client-only notify form. Landing cards now link to /apps/:id. Invalid slug uses <Navigate to='/#apps'> which lands on Landing correctly."
+}

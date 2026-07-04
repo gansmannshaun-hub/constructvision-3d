@@ -6,6 +6,7 @@ import {
   Wand2, ScanLine, Ruler, LineChart, Cloud, Lock, HardHat,
 } from "lucide-react";
 import { useStore } from "@/store";
+import { APPS } from "@/data/apps";
 import HeroCanvas from "@/components/landing/HeroCanvas";
 import MockAtlasCad from "@/components/landing/MockAtlasCad";
 import MockAtlas3D from "@/components/landing/MockAtlas3D";
@@ -429,47 +430,12 @@ function FeaturesSection() {
 }
 
 // =====================================================================
-// APPS HUB
+// APPS HUB — cards navigate to /apps/:id case-study page
 // =====================================================================
-const APPS = [
-  {
-    id: "atlas",
-    status: "live",
-    number: "01",
-    name: "Atlas",
-    tag: "Construction OS",
-    tagline: "Blueprints, 3D models, pay apps, field ops — one workspace.",
-    href: "/signin",
-    accent: PRIMARY,
-  },
-  {
-    id: "app-02",
-    status: "soon",
-    number: "02",
-    name: "In the shop",
-    tag: "App · 02",
-    tagline: "Taking shape. Something we needed and couldn't find.",
-  },
-  {
-    id: "app-03",
-    status: "soon",
-    number: "03",
-    name: "Sketched",
-    tag: "App · 03",
-    tagline: "An idea worth building. Watch this space.",
-  },
-  {
-    id: "app-04",
-    status: "soon",
-    number: "04",
-    name: "TBD",
-    tag: "App · 04",
-    tagline: "The next one lands here.",
-  },
-];
 
 function AppCard({ app }) {
   const isLive = app.status === "live";
+  const to = `/apps/${app.id}`;
   const Body = (
     <>
       <div className="flex items-baseline justify-between">
@@ -487,17 +453,13 @@ function AppCard({ app }) {
       </div>
       <div className={`mt-3 label-mono ${isLive ? "text-[#FFCC00]" : "text-neutral-700"}`}>{app.tag}</div>
       <p className={`mt-6 text-sm leading-relaxed ${isLive ? "text-neutral-400" : "text-neutral-600"}`}>
-        {app.tagline}
+        {app.hub_tagline || app.tagline}
       </p>
 
       <div className="mt-auto pt-10 flex items-center justify-between">
-        {isLive ? (
-          <span className="inline-flex items-center gap-2 text-[#FFCC00] text-sm font-semibold group-hover:gap-3 transition-all">
-            Open Atlas <ArrowUpRight size={16} />
-          </span>
-        ) : (
-          <span className="label-mono text-neutral-700">// SOON</span>
-        )}
+        <span className={`inline-flex items-center gap-2 text-sm font-semibold group-hover:gap-3 transition-all ${isLive ? "text-[#FFCC00]" : "text-neutral-500 group-hover:text-white"}`}>
+          {isLive ? "Explore Atlas" : "Read more"} <ArrowUpRight size={16} />
+        </span>
       </div>
 
       {/* Corner marks */}
@@ -511,7 +473,7 @@ function AppCard({ app }) {
   return isLive ? (
     <motion.div variants={fadeUp} className="col-span-12 lg:col-span-6">
       <Link
-        to={app.href}
+        to={to}
         data-testid={`app-card-${app.id}`}
         className={`${base} border border-[#262626] hover:border-[#FFCC00] hover:shadow-[0_0_80px_-20px_rgba(255,204,0,0.4)] hover:-translate-y-1`}
       >
@@ -519,12 +481,14 @@ function AppCard({ app }) {
       </Link>
     </motion.div>
   ) : (
-    <motion.div
-      variants={fadeUp}
-      data-testid={`app-card-${app.id}`}
-      className={`col-span-12 sm:col-span-6 lg:col-span-2 ${base} border border-dashed border-neutral-800 hover:border-neutral-600`}
-    >
-      {Body}
+    <motion.div variants={fadeUp} className="col-span-12 sm:col-span-6 lg:col-span-2">
+      <Link
+        to={to}
+        data-testid={`app-card-${app.id}`}
+        className={`${base} border border-dashed border-neutral-800 hover:border-neutral-600 hover:-translate-y-0.5`}
+      >
+        {Body}
+      </Link>
     </motion.div>
   );
 }
