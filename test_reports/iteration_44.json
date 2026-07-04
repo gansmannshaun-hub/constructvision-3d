@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend-only verification of the 3 CAD Editor additions (STEP dropdown, FIT GRID, zoom-out/in buttons). All 11 test steps passed on Demo · Villa Atlas.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "STEP_dropdown_data-testid_cad-grid-step": "PASS — <select> present, options [0.5,1,2,5,10] rendered as [6\",1',2',5',10'], default=2",
+    "grid_density_scales_with_step": "PASS — SVG <line> counts: step=0.5 → 460 lines, step=2 → 160 lines, step=10 → 80 lines (monotonic)",
+    "localStorage_key_atlas-cad-grid-step": "PASS — writes on change; value 5 persists across full page reload",
+    "cad-zoom-out_1.25x": "PASS — ratio 1.2500 exactly, viewBox center preserved (drift < 0.5)",
+    "cad-zoom-in_1/1.25": "PASS — ratio 0.8000 exactly",
+    "zoom-out_cap_400": "PASS — repeated clicks plateau at w=400.0",
+    "zoom-in_floor_2": "PASS — repeated clicks plateau at w=2.0",
+    "cad-reset-view_FIT_button": "PASS — restores initial viewBox 0 0 100 100",
+    "gridStep_change_does_not_mark_dirty": "PASS — SAVE stayed disabled before AND after changing STEP alone (regression protected)",
+    "cad-snap-to-grid_FIT_GRID_dirties_sheet": "PASS — SAVE went from disabled→enabled after click",
+    "Ctrl+Z_reverts_FIT_GRID_in_one_snapshot": "PASS — geometry hash after single Ctrl+Z matched pre-FIT hash exactly",
+    "L_tool_draw_wall_still_works": "PASS — activation + click flow reachable (endpoints snap via snappedPoint using current gridStep)"
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CadEditorTab.jsx is 1,769 lines — well over the 700-line soft cap. Consider extracting toolbar (~200 lines around 900-1100), gridLines useMemo, and drawing tool handlers into sub-modules.",
+    "FIT GRID marks the sheet dirty even when no coordinates actually changed (e.g. walls already on the step grid). Minor UX nit — could compare pre/post state before calling markDirty().",
+    "gridStep useState initializer touches localStorage on every render of the parent tree; safe here but keep in mind if the component gets remounted heavily."
+  ],
+  "updated_files": [],
+  "success_rate": {"frontend": "100%"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — used existing Demo · Villa Atlas project",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All three requested CAD features (grid STEP dropdown, FIT GRID snap-all, zoom-out/in) are wired correctly with data-testids cad-grid-step / cad-snap-to-grid / cad-zoom-out / cad-zoom-in / cad-reset-view. GridStep persists via localStorage key 'atlas-cad-grid-step'. Zoom clamps to [2, 400] and preserves center. FIT GRID captured in undo history. gridStep change alone does NOT mark the sheet dirty (regression preserved).",
+  "rca of the issue": "N/A — no issues found"
+}

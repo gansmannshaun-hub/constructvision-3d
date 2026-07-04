@@ -146,6 +146,15 @@ const SECTIONS = [
         ["Zoom", "Z", "Click to zoom in; Shift+click zooms out"],
       ]},
       { kind: "tip", text: "Mouse-wheel zooming toward the cursor works with ANY tool active — you don't need to switch to the Zoom tool." },
+      { kind: "h2", text: "Grid spacing + snap-to-grid" },
+      { kind: "p", text: "The STEP dropdown in the CAD toolbar sets how far apart the grid squares are — pick between 6\" and 10'. Every drawing/snap operation respects the current step, and your choice is remembered per browser." },
+      { kind: "ul", items: [
+        "Change STEP → grid updates instantly. New walls, doors, and windows snap to the new spacing.",
+        "Click ⊞ FIT GRID to re-snap every existing wall endpoint, door, window, label and fixture to the current step — a one-click way to align an imported blueprint to a clean grid.",
+        "At extreme zooms the visual grid auto-coarsens (×5) so you never see a solid grey wall of lines.",
+      ]},
+      { kind: "h2", text: "Zoom controls" },
+      { kind: "p", text: "The toolbar has three zoom buttons next to STRAIGHTEN: − (zoom out), + (zoom in), and ⌂ FIT (reset to auto-fit). Scroll wheel still zooms toward the cursor with any tool active, click-drag pans, and double-click resets." },
       { kind: "h2", text: "Editing labels" },
       { kind: "p", text: "Room labels (BEDROOM, KITCHEN, etc.) can be resized, renamed, or deleted after they're placed." },
       { kind: "ul", items: [

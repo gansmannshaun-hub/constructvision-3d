@@ -16,7 +16,8 @@ import { SheetTabBar } from "./SheetTabBar";
 
 const VIEWBOX_MIN = 0;
 const VIEWBOX_MAX = 100;
-const GRID_STEP = 2; // major grid step in coord units
+const GRID_STEP_DEFAULT = 2; // major grid step in coord units (feet)
+const GRID_STEP_OPTIONS = [0.5, 1, 2, 5, 10]; // feet per grid square
 const SNAP_THRESHOLD = 3; // distance in coord units within which we snap
 const CIRCLE_SEGMENTS = 16;
 
@@ -194,6 +195,16 @@ export default function CadEditorTab() {
   // viewbox state (pan/zoom)
   const [vb, setVb] = useState({ x: 0, y: 0, w: 100, h: 100 });
   const [panning, setPanning] = useState(null);
+  // User-configurable grid spacing in feet. Snapping + drawing all respect
+  // this. Persisted per browser via localStorage so setup carries across
+  // sheet switches.
+  const [gridStep, setGridStep] = useState(() => {
+    const v = parseFloat(localStorage.getItem("atlas-cad-grid-step") || "");
+    return GRID_STEP_OPTIONS.includes(v) ? v : GRID_STEP_DEFAULT;
+  });
+  useEffect(() => {
+    localStorage.setItem("atlas-cad-grid-step", String(gridStep));
+  }, [gridStep]);
   // Drag-to-move a label with Select tool: {id, offset:[dx,dy], moved:bool, origPos}
   const [labelDrag, setLabelDrag] = useState(null);
 
@@ -360,8 +371,8 @@ export default function CadEditorTab() {
     if (bestEdge) return bestEdge;
 
     // grid snap
-    const gx = Math.round(p[0] / GRID_STEP) * GRID_STEP;
-    const gy = Math.round(p[1] / GRID_STEP) * GRID_STEP;
+    const gx = Math.round(p[0] / gridStep) * gridStep;
+    const gy = Math.round(p[1] / gridStep) * gridStep;
     if (Math.abs(gx - p[0]) < SNAP_THRESHOLD / 2 && Math.abs(gy - p[1]) < SNAP_THRESHOLD / 2) {
       return { type: "grid", point: [gx, gy] };
     }
@@ -798,17 +809,24 @@ export default function CadEditorTab() {
 
   // viewBox string
   const vbStr = `${vb.x} ${vb.y} ${vb.w} ${vb.h}`;
-  // grid lines based on viewbox
+  // grid lines based on viewbox + current gridStep. Cap the line count to
+  // avoid millions of tiny SVG elements at extreme zoom levels.
   const gridLines = useMemo(() => {
     const lines = [];
-    const sx = Math.floor(vb.x / GRID_STEP) * GRID_STEP;
+    // Coarsen the visual step if we'd emit more than ~400 lines per axis.
+    let step = gridStep;
+    while (Math.max(vb.w, vb.h) / step > 400) step *= 5;
+    const sx = Math.floor(vb.x / step) * step;
     const ex = vb.x + vb.w;
-    const sy = Math.floor(vb.y / GRID_STEP) * GRID_STEP;
+    const sy = Math.floor(vb.y / step) * step;
     const ey = vb.y + vb.h;
-    for (let x = sx; x <= ex; x += GRID_STEP) lines.push({ k: `v${x}`, x1: x, y1: vb.y, x2: x, y2: vb.y + vb.h, major: x % (GRID_STEP * 5) === 0 });
-    for (let y = sy; y <= ey; y += GRID_STEP) lines.push({ k: `h${y}`, x1: vb.x, y1: y, x2: vb.x + vb.w, y2: y, major: y % (GRID_STEP * 5) === 0 });
+    // Guard against float-precision infinite loops
+    const majorEvery = step * 5;
+    const isMajor = (v) => Math.abs(Math.round(v / majorEvery) * majorEvery - v) < step * 0.001;
+    for (let x = sx; x <= ex; x += step) lines.push({ k: `v${x.toFixed(2)}`, x1: x, y1: vb.y, x2: x, y2: vb.y + vb.h, major: isMajor(x) });
+    for (let y = sy; y <= ey; y += step) lines.push({ k: `h${y.toFixed(2)}`, x1: vb.x, y1: y, x2: vb.x + vb.w, y2: y, major: isMajor(y) });
     return lines;
-  }, [vb]);
+  }, [vb, gridStep]);
 
   const cursorClass = {
     select: "cursor-pointer",
@@ -916,6 +934,39 @@ export default function CadEditorTab() {
         >
           GRID
         </button>
+        {/* Grid spacing picker + snap-all-to-grid */}
+        <div className="flex items-center gap-1 border border-[#CCC] bg-white h-10 px-2" title="Grid spacing (feet)">
+          <span className="text-[9px] uppercase font-mono text-[#666]">STEP</span>
+          <select
+            data-testid="cad-grid-step"
+            value={gridStep}
+            onChange={(e) => setGridStep(parseFloat(e.target.value))}
+            className="text-xs font-mono bg-white text-[#111] border-0 focus:outline-none tabular-nums cursor-pointer"
+          >
+            {GRID_STEP_OPTIONS.map((g) => (
+              <option key={g} value={g}>{g < 1 ? `${g * 12}"` : `${g}'`}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          data-testid="cad-snap-to-grid"
+          onClick={() => {
+            const step = gridStep;
+            const snap = (v) => Math.round(v / step) * step;
+            const snapWall = (w) => ({ ...w, start: w.start ? [snap(w.start[0]), snap(w.start[1])] : w.start, end: w.end ? [snap(w.end[0]), snap(w.end[1])] : w.end });
+            const snapPos = (o) => (o.position ? { ...o, position: [snap(o.position[0]), snap(o.position[1])] } : o);
+            setWalls((arr) => arr.map(snapWall));
+            setDoors((arr) => arr.map(snapPos));
+            setWindows((arr) => arr.map(snapPos));
+            setLabels((arr) => arr.map(snapPos));
+            setFixtures((arr) => arr.map(snapPos));
+            markDirty();
+          }}
+          className="h-10 px-3 text-xs uppercase tracking-wider font-bold bg-white border border-[#CCC] text-[#333] hover:bg-[#FFCC00]/30"
+          title="Snap every wall endpoint, door, window, label and fixture to the current grid spacing"
+        >
+          ⊞ FIT GRID
+        </button>
         <button
           data-testid="cad-toggle-dim"
           onClick={() => setShowDimensions((s) => !s)}
@@ -1008,6 +1059,32 @@ export default function CadEditorTab() {
             </span>
           </div>
         )}
+        <button
+          data-testid="cad-zoom-out"
+          onClick={() => setVb((v) => {
+            const scale = 1.25;
+            const newW = Math.min(400, v.w * scale);
+            const newH = newW * (v.h / v.w);
+            return { x: v.x + (v.w - newW) / 2, y: v.y + (v.h - newH) / 2, w: newW, h: newH };
+          })}
+          className="h-10 w-10 text-lg font-bold bg-white border border-[#CCC] text-[#333] hover:bg-[#FFCC00]/30"
+          title="Zoom out"
+        >
+          −
+        </button>
+        <button
+          data-testid="cad-zoom-in"
+          onClick={() => setVb((v) => {
+            const scale = 1 / 1.25;
+            const newW = Math.max(2, v.w * scale);
+            const newH = newW * (v.h / v.w);
+            return { x: v.x + (v.w - newW) / 2, y: v.y + (v.h - newH) / 2, w: newW, h: newH };
+          })}
+          className="h-10 w-10 text-lg font-bold bg-white border border-[#CCC] text-[#333] hover:bg-[#FFCC00]/30"
+          title="Zoom in"
+        >
+          +
+        </button>
         <button
           data-testid="cad-reset-view"
           onClick={resetView}
