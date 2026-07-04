@@ -455,6 +455,39 @@ email digest with /invite landing.
   updated with an "Editing labels" subsection. Testing agent iter40: 100%
   pass, verified `font_size=2.1` persists across a full page reload.
 
+### CAD label drag-to-move + undo hardening (2026-02-04 — Complete)
+- Labels can now be dragged with the mouse when the Select tool is active
+  (mousedown on label → drag → release). Short click without movement still
+  selects and opens the floating toolbar.
+- Undo/redo hardening: introduced `dragInProgressRef` that suppresses the
+  per-mousemove history snapshots during a continuous drag, and pushes
+  exactly one snapshot on drag end. This means one Ctrl+Z fully reverts a
+  drag (iter41 residual: 230 px → iter42 residual: 0 px).
+- Added `savingRef` so the blueprint-prop sync effect no longer clobbers
+  the undo stack when the parent refreshes the blueprint after a Save &
+  Sync. Users can now Ctrl+Z past a save. Iter42 flagged this as a
+  MEDIUM-priority follow-up, fixed in the same session.
+
+### Landing page + apps hub — Gonzo Labs (2026-02-04 — Complete)
+- New public marketing page at `/` (previously the sign-in page). The
+  sign-in flow moved to `/signin` (+ `?mode=register` support).
+- Design language: Instrument Serif editorial headlines paired with IBM
+  Plex Mono utility labels, deep-black base (#0A0A0A) with primary yellow
+  (#FFCC00) and cyan (#00E5FF) accents. Framer-motion driven stagger
+  reveals + scroll-triggered card entries.
+- Sections: fixed glass nav, cinematic hero (with animated canvas backdrop
+  in `HeroCanvas.jsx`), 4-tile stats band, bento "Atlas features" grid
+  showing 7 major capabilities with hand-authored SVG mocks (CAD, 3D
+  render, blueprint AI, map placement, pay-app, field, collab), apps hub
+  grid (Atlas live + 3 wireframe "coming soon" slots designed to look
+  intentional at 1 or 12 apps), pricing tease, and a massive brand-mark
+  footer.
+- Signed-in users see a "Welcome back → Enter Atlas" pill at the top of
+  the hero.
+- Testing agent iter41 verified all landing structure + routing (11/12
+  sub-tests pass) and iter42 verified the label drag-undo fix (5/6 pass +
+  the save-undo fix applied post-report).
+
 
 
 

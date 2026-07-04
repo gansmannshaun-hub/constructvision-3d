@@ -205,6 +205,9 @@ export default function CadEditorTab() {
   // Suppresses per-mousemove snapshots during a continuous drag; one final
   // snapshot is pushed manually on drag end.
   const dragInProgressRef = useRef(false);
+  // Skips the blueprint-prop history reset for a brief window after a save,
+  // so Ctrl+Z after Save & Sync still walks back through the pre-save edits.
+  const savingRef = useRef(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const HISTORY_LIMIT = 100;
@@ -213,8 +216,14 @@ export default function CadEditorTab() {
     setCanRedo(redoRef.current.length > 0);
   };
 
-  // sync from store — also seeds the history baseline for this sheet
+  // sync from store — also seeds the history baseline for this sheet.
+  // If the blueprint refresh was triggered by our own save (savingRef=true),
+  // we keep the current undo/redo history so users can still Ctrl+Z past a save.
   useEffect(() => {
+    if (savingRef.current) {
+      savingRef.current = false;
+      return;
+    }
     isRestoringRef.current = true;
     setWalls(blueprint.walls || []);
     setDoors(blueprint.doors || []);
@@ -701,6 +710,7 @@ export default function CadEditorTab() {
   // ---------- Save ----------
   const save = async () => {
     setSaving(true);
+    savingRef.current = true;
     try { await saveBlueprint(walls, doors, windows, labels, { fixtures }); setDirty(false); }
     finally { setSaving(false); }
   };
