@@ -1,0 +1,29 @@
+{
+  "summary": "Retest of CAD label drag-undo fix from iter41. Primary bug is FIXED: after a multi-step mousemove drag, a single Ctrl+Z now fully reverts the label to its original position (dx=0.0 from origin vs iter41's dx=230 residual). Redo restores the dragged position. Dirty flag turns on. Save & Sync persists across reload. However, requirement (f) 'undoing after Save & Sync also fully reverts' FAILS — after clicking Save & Sync in the same session, Ctrl+Z no longer reverts the drag because the useEffect on [blueprint] (line 216) rebuilds historyRef to a single snapshot whenever the blueprint prop refreshes post-save.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CadEditorTab.jsx (undo after Save & Sync)", "issue": "After a label drag → click Save & Sync → Ctrl+Z: label stays at the dragged position (dx=-154.9 from origin, expected 0). Root cause: the useEffect at line 216 that reacts to the `blueprint` prop resets `historyRef.current` to a single-item array whenever the parent refreshes the blueprint (which happens after Save & Sync). This wipes the undo history for the just-completed drag. The fix should skip the history rebuild when the blueprint update is a no-op refresh triggered by our own save (e.g., compare shallow-equal or track a savingRef and skip rebuilding history if we initiated the save).", "selector": "[data-testid^=\"cad-label-\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_42.json"],
+  "action_items": [
+    "The primary drag-undo granularity fix (dragInProgressRef + single snapshot on mouseup) is working correctly — no further action needed for (a)(b)(c)(d)(e).",
+    "For (f), decide whether undo after Save & Sync should still revert. If yes: prevent the [blueprint] useEffect at line 216 from clobbering historyRef when the incoming blueprint matches the currently-loaded state (or add a savingRef to gate the reset). Suggested: keep the current history and only rebuild if the incoming blueprint differs from the last-saved snapshot."
+  ],
+  "critical_code_review_comments": [
+    "CadEditorTab.jsx is now 1682 lines — still exceeds the 700-line guideline. Consider extracting: history/undo hook (useCadHistory), pointer/drag handlers, and the AI Sketch/Trace side panel into separate modules.",
+    "The [blueprint]-effect at line 216 unconditionally resets historyRef whenever the parent re-renders/refreshes the blueprint. This is fragile — save-triggered blueprint refreshes wipe user history.",
+    "The save button's data-testid is `cad-save-button`, not `cad-save-sync`. Iter41 test report referenced the wrong id — worth adding both aliases or documenting for future testers."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "~83% (5/6 sub-requirements pass; (f) fails)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Used existing BEDROOM label on TEST_iter39_bp. Label position was moved during testing and Save & Sync was invoked twice; final position is offset ~150-190px right from iter39 origin. Not restored.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The iter41 HIGH bug (drag-undo granularity) is now fully resolved: mousedown-drag-200px + one Ctrl+Z reverts to origin. Redo restores to dragged position. Persistence across reload confirmed via a PUT /api/projects/{id}/blueprint 200 response. The only remaining issue is that clicking Save & Sync wipes the undo stack because the [blueprint] prop effect at CadEditorTab.jsx:216 unconditionally re-initializes historyRef. This is orthogonal to the drag fix.",
+  "rca_of_the_issue": "Fix verified: dragInProgressRef gates the history useEffect during a drag; onMouseUp pushes exactly one snapshot representing the post-drag state, then releases the guard. Measured undo delta went from 230px residual (iter41) to 0.0px residual (iter42). Redo restores 192.8px vs 192.1px dragged (rounding, PASS). The [blueprint]-prop useEffect still resets historyRef post-save; this is a separate pre-existing behavior newly-surfaced by requirement (f)."
+}

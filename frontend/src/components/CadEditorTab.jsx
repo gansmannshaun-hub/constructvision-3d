@@ -202,6 +202,9 @@ export default function CadEditorTab() {
   const historyRef = useRef([]);
   const redoRef = useRef([]);
   const isRestoringRef = useRef(false);
+  // Suppresses per-mousemove snapshots during a continuous drag; one final
+  // snapshot is pushed manually on drag end.
+  const dragInProgressRef = useRef(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const HISTORY_LIMIT = 100;
@@ -238,6 +241,8 @@ export default function CadEditorTab() {
       isRestoringRef.current = false;
       return;
     }
+    // Skip during continuous drags — we push exactly one snapshot on drag end.
+    if (dragInProgressRef.current) return;
     const last = historyRef.current[historyRef.current.length - 1];
     if (
       last && last.walls === walls && last.doors === doors && last.windows === windows &&
@@ -402,8 +407,16 @@ export default function CadEditorTab() {
   const onMouseUp = () => {
     setPanning(null);
     if (labelDrag) {
-      // If we dragged, mark dirty (history effect already snapshots the new state).
-      if (labelDrag.moved) markDirty();
+      // Push exactly one snapshot representing the post-drag state,
+      // then release the drag guard so the standard history effect resumes.
+      if (labelDrag.moved) {
+        historyRef.current.push({ walls, doors, windows, labels, fixtures });
+        if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
+        redoRef.current = [];
+        refreshHistoryFlags();
+        markDirty();
+      }
+      dragInProgressRef.current = false;
       setLabelDrag(null);
     }
   };
@@ -1301,6 +1314,7 @@ export default function CadEditorTab() {
                   const raw = toSvgCoord(e);
                   // offset = current label center minus click point (world-space);
                   // preserved as we drag so the label doesn't jump under cursor.
+                  dragInProgressRef.current = true;
                   setLabelDrag({
                     id: l.id,
                     offset: [l.position[0] - raw[0], l.position[1] - raw[1]],
