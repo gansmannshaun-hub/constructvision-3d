@@ -8,9 +8,8 @@ import {
 import { useStore } from "@/store";
 import { APPS } from "@/data/apps";
 import HeroCanvas from "@/components/landing/HeroCanvas";
-import MockAtlasCad from "@/components/landing/MockAtlasCad";
-import MockAtlas3D from "@/components/landing/MockAtlas3D";
 import MockAtlasBlueprint from "@/components/landing/MockAtlasBlueprint";
+import { AppScreenshot } from "@/components/landing/AppScreenshot";
 
 // ---------- Design tokens (from /app/design_guidelines.json) ----------
 const BG = "#0A0A0A";
@@ -304,61 +303,24 @@ function FeatureCard({ f, i }) {
 }
 
 function FeatureVisual({ kind, isHero }) {
-  if (kind === "extract") return <MockAtlasBlueprint variant="extract" />;
-  if (kind === "cad") return <MockAtlasCad />;
-  if (kind === "render") return <MockAtlas3D />;
+  if (kind === "extract") {
+    return <AppScreenshot src="/screenshots/atlas-blueprint.jpg" alt="Atlas — Live Blueprint" caption="// ATLAS · BLUEPRINT TAB" />;
+  }
+  if (kind === "cad") {
+    return <AppScreenshot src="/screenshots/atlas-cad.jpg" alt="Atlas — 2D CAD Editor" caption="// ATLAS · 2D CAD EDITOR" crop="center" />;
+  }
+  if (kind === "render") {
+    return <AppScreenshot src="/screenshots/atlas-3d.jpg" alt="Atlas — 3D Renderer" caption="// ATLAS · 3D RENDERER" crop="center" />;
+  }
   if (kind === "map") return <MockAtlasBlueprint variant="map" />;
-  if (kind === "payapp") return <PayAppMock />;
-  if (kind === "field") return <FieldMock />;
+  if (kind === "payapp") {
+    return <AppScreenshot src="/screenshots/atlas-payapps.jpg" alt="Atlas — Pay Apps" caption="// ATLAS · PAY APPS · AIA G702" />;
+  }
+  if (kind === "field") {
+    return <AppScreenshot src="/screenshots/atlas-field.jpg" alt="Atlas — Field logs" caption="// ATLAS · FIELD · DAILY LOG" />;
+  }
   if (kind === "collab") return <CollabMock />;
   return null;
-}
-
-function PayAppMock() {
-  return (
-    <div className="w-full h-full bg-[#F5F5F0] text-black relative p-4 font-mono text-[10px]">
-      <div className="flex justify-between items-baseline">
-        <div>
-          <div className="text-[8px] tracking-[0.2em] text-neutral-500">AIA G702</div>
-          <div className="font-serif-editorial text-lg leading-none mt-1">Application for Payment</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[8px] text-neutral-500">PERIOD ENDING</div>
-          <div>02 / 28 / 2026</div>
-        </div>
-      </div>
-      <div className="mt-4 border-t-2 border-black grid grid-cols-3 text-[9px]">
-        {["ORIG. CONTRACT", "TOTAL COMPLETED", "BALANCE"].map((l) => (
-          <div key={l} className="py-2 border-b border-neutral-300">
-            <div className="text-neutral-500">{l}</div>
-            <div className="text-base font-semibold mt-1 tabular-nums">${(Math.random() * 800 + 200).toFixed(0)}K</div>
-          </div>
-        ))}
-      </div>
-      <div className="absolute bottom-3 right-3 text-[8px] label-mono text-neutral-500">// PAGE 1 / 3</div>
-    </div>
-  );
-}
-
-function FieldMock() {
-  return (
-    <div className="w-full h-full bg-[#0A0A0A] p-4 relative">
-      <div className="label-mono text-[#00E5FF] text-[9px]">// DAILY LOG · 02.28.2026</div>
-      <div className="mt-2 space-y-1 text-xs text-neutral-300 font-mono">
-        <div className="flex justify-between"><span>Weather</span><span className="text-[#FFCC00]">48°F · Clear · W 6mph</span></div>
-        <div className="flex justify-between"><span>Crew</span><span>7</span></div>
-        <div className="flex justify-between"><span>Phase</span><span>WALL SHEET</span></div>
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-1">
-        {["#4a5a4a", "#6a5a4a", "#3a4a5a"].map((c, i) => (
-          <div key={i} className="aspect-square border border-[#262626] relative overflow-hidden" style={{ background: c }}>
-            <div className="absolute bottom-1 left-1 text-[8px] text-white/70 font-mono">IMG {i + 1}</div>
-            <div className="absolute top-1 right-1 text-[8px] text-[#00E5FF] font-mono">78%</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function CollabMock() {

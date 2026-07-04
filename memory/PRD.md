@@ -505,6 +505,22 @@ email digest with /invite landing.
 - Invalid slug (`/apps/nonexistent`) redirects to `/#apps` — no white
   screen. Verified 100% by testing agent iter43.
 
+### Real Atlas UI screenshots on marketing surfaces (2026-02-04 — Complete)
+- Seeded a "Demo · Villa Atlas" project via `/app/backend/tests/seed_demo_villa.py`
+  (10 walls, 6 doors, 6 windows, 7 labels, 4 fixtures — a tidy 3BR/2BA
+  40x28 floor plan). Idempotent — re-running just refreshes it.
+- Captured screenshots via `/app/backend/tests/capture_screenshots.py`
+  (playwright) into `/app/frontend/public/screenshots/`:
+  atlas-blueprint.jpg, atlas-cad.jpg, atlas-3d.jpg, atlas-materials.jpg,
+  atlas-field.jpg, atlas-payapps.jpg.
+- Created `AppScreenshot` framed image component that renders the real
+  UI with a dark top gradient (hides the header chrome) and a small
+  monochrome caption.
+- Landing FeatureVisual + AppDetail ChapterVisual now use real screenshots
+  for INGEST / EDIT / RENDER / PAY / FIELD. Kept the map + collab SVG
+  mocks since those surfaces don't have a stand-alone in-app view yet.
+- Deleted the now-unused MockAtlasCad.jsx and MockAtlas3D.jsx mocks.
+
 
 
 

@@ -4,9 +4,8 @@ import { motion } from "framer-motion";
 import { ArrowUpRight, ArrowLeft, Mail } from "lucide-react";
 import { useStore } from "@/store";
 import { getApp, APPS } from "@/data/apps";
-import MockAtlasCad from "@/components/landing/MockAtlasCad";
-import MockAtlas3D from "@/components/landing/MockAtlas3D";
 import MockAtlasBlueprint from "@/components/landing/MockAtlasBlueprint";
+import { AppScreenshot } from "@/components/landing/AppScreenshot";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -200,92 +199,18 @@ function ChapterRow({ chapter, i }) {
 }
 
 function ChapterVisual({ n }) {
-  // Map chapter number → best visual we already ship
-  if (n === "01") return <MockAtlasBlueprint variant="extract" />;
-  if (n === "02") return <MockAtlasCad />;
-  if (n === "03") return <MockAtlas3D />;
+  // Real Atlas UI screenshots for the first three chapters (blueprint AI,
+  // CAD editor, 3D renderer). Map + Pay + Field + Share fall back to
+  // hand-authored or dedicated mocks since they don't have a single
+  // stand-alone screenshot yet.
+  if (n === "01") return <AppScreenshot src="/screenshots/atlas-blueprint.jpg" alt="Atlas — Live Blueprint" caption="// ATLAS · BLUEPRINT · AI-TRACED" />;
+  if (n === "02") return <AppScreenshot src="/screenshots/atlas-cad.jpg" alt="Atlas — 2D CAD Editor" caption="// ATLAS · 2D CAD EDITOR" crop="center" />;
+  if (n === "03") return <AppScreenshot src="/screenshots/atlas-3d.jpg" alt="Atlas — 3D Renderer" caption="// ATLAS · 3D RENDERER" crop="center" />;
   if (n === "04") return <MockAtlasBlueprint variant="map" />;
-  if (n === "05") return <PayAppLarge />;
-  if (n === "06") return <FieldLarge />;
+  if (n === "05") return <AppScreenshot src="/screenshots/atlas-payapps.jpg" alt="Atlas — Pay Apps" caption="// ATLAS · PAY APPS · AIA G702" />;
+  if (n === "06") return <AppScreenshot src="/screenshots/atlas-field.jpg" alt="Atlas — Field logs" caption="// ATLAS · FIELD · DAILY LOG" />;
   if (n === "07") return <CollabLarge />;
   return null;
-}
-
-function PayAppLarge() {
-  return (
-    <div className="w-full h-full bg-[#F5F5F0] text-black p-6 font-mono text-xs">
-      <div className="flex justify-between items-baseline pb-2 border-b-2 border-black">
-        <div>
-          <div className="text-[9px] tracking-[0.25em] text-neutral-500">AIA G702</div>
-          <div className="font-serif-editorial text-2xl leading-none mt-1">Application for Payment</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[9px] text-neutral-500">PERIOD ENDING</div>
-          <div>02 / 28 / 2026</div>
-        </div>
-      </div>
-      <div className="mt-4 grid grid-cols-3 gap-x-4">
-        {[
-          ["ORIG. CONTRACT", "$943,000"],
-          ["NET CHANGE ORDERS", "+$26,400"],
-          ["CONTRACT SUM TO DATE", "$969,400"],
-          ["TOTAL COMPLETED & STORED", "$611,220"],
-          ["RETAINAGE (10%)", "$61,122"],
-          ["BALANCE TO FINISH", "$419,302"],
-        ].map(([k, v], i) => (
-          <div key={i} className="py-2 border-b border-neutral-300">
-            <div className="text-[9px] text-neutral-500 uppercase">{k}</div>
-            <div className="text-base font-semibold tabular-nums">{v}</div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-4 bg-[#FFCC00]/25 border border-[#FFCC00] p-3">
-        <div className="text-[9px] text-neutral-600 uppercase tracking-widest">CURRENT PAYMENT DUE</div>
-        <div className="text-2xl font-semibold tabular-nums text-black">$88,470.00</div>
-      </div>
-      <div className="mt-3 text-[9px] label-mono text-neutral-500 flex justify-between">
-        <span>// PAGE 1 / 3 · G702</span>
-        <span>ATLAS · CONSTRUCTION OS</span>
-      </div>
-    </div>
-  );
-}
-
-function FieldLarge() {
-  return (
-    <div className="w-full h-full bg-[#0A0A0A] p-6">
-      <div className="flex justify-between items-baseline">
-        <div>
-          <div className="label-mono text-[#00E5FF]">// DAILY LOG</div>
-          <div className="font-serif-editorial text-white text-2xl mt-1">02.28.2026</div>
-        </div>
-        <div className="label-mono text-[#FFCC00]">WALL SHEET PHASE</div>
-      </div>
-      <div className="mt-6 grid grid-cols-2 gap-3 font-mono text-xs">
-        <div className="border border-[#262626] p-3">
-          <div className="text-neutral-500 text-[10px] uppercase">Weather · NOAA</div>
-          <div className="text-white mt-2 text-base">48°F · Clear · W 6mph</div>
-        </div>
-        <div className="border border-[#262626] p-3">
-          <div className="text-neutral-500 text-[10px] uppercase">Crew</div>
-          <div className="text-white mt-2 text-base">7 · Full shift</div>
-        </div>
-      </div>
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {[
-          { c: "#4a5a4a", pct: 78, tag: "SHEATHING" },
-          { c: "#6a5a4a", pct: 42, tag: "TRIM" },
-          { c: "#3a4a5a", pct: 91, tag: "WINDOWS" },
-        ].map((x, i) => (
-          <div key={i} className="aspect-[4/3] border border-[#262626] relative overflow-hidden" style={{ background: x.c }}>
-            <div className="absolute top-1.5 right-1.5 text-[10px] font-mono text-[#00E5FF]">{x.pct}%</div>
-            <div className="absolute bottom-1.5 left-1.5 text-[9px] font-mono text-white/80">{x.tag}</div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 text-[10px] font-mono text-neutral-500">// AI PHASE ESTIMATE · GPT-4o VISION</div>
-    </div>
-  );
 }
 
 function CollabLarge() {
