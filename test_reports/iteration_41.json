@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend-only test of new Landing page (/) + /signin routing + CAD label drag-to-move. Landing page routing, structure (nav, hero, features, apps, pricing, footer), hero-welcome-back for authed users, /signin auth redirect, /signin?mode=register default, and protected /app bounce all PASS. CAD label drag: click-only select, drag-to-move reposition, dirty flag, redo, and Save & Sync + reload persistence all PASS. Undo after drag FAILS to fully revert — only reverts the last mousemove step because the history effect snapshots on every setLabels call during drag.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CadEditorTab.jsx (label drag undo)", "issue": "Ctrl+Z after a label drag only reverts a tiny incremental step (dx changed from 268 to 230 after one undo, expected ~0). Root cause: the history useEffect on [walls,doors,windows,labels,fixtures] pushes a new snapshot on every setLabels call during mousemove, so the drag produces N snapshots and one undo pops only one. Redo + persistence work fine — this only affects undo granularity for drags.", "selector": "[data-testid^=\"cad-label-\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_41.json"],
+  "action_items": [
+    "Fix label-drag undo granularity in CadEditorTab.jsx: snapshot history once at drag start (onMouseDown before setLabels updates) or gate the history useEffect while labelDrag is active and push a single snapshot on mouseup. Suggested approach: add a ref `dragInProgressRef.current = true` in the label onMouseDown, in the history useEffect early-return if it's true, then on mouseup (after `setLabelDrag(null)`) push a single manual snapshot capturing the post-drag state and set the ref back to false."
+  ],
+  "critical_code_review_comments": [
+    "CadEditorTab.jsx now 1668 lines — over 700-line guideline, still not split.",
+    "History snapshots are taken on every state mutation via useEffect diff. This is a general risk for any continuous interaction (drag/resize). Consider a debounced or explicit commit pattern.",
+    "Landing.jsx nav CTA `landing-nav-try-free` and hero CTAs work but the 4 hero stat tiles do not have individual data-testids (only 4 divs under the grid). Adding `hero-stat-<i>` would help future regression tests — minor."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "~92% (11/12 sub-tests pass, 1 undo bug)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Reused existing BEDROOM label on TEST_iter39_bp project. Label position was moved by ~268px x / 134px y and Save & Sync persisted across reload. Position was NOT restored at end of test (label now sits at the dragged location) — main agent or next tester may want to reset.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Landing page fully passes. All requested data-testids exist and render. Framer motion works without console errors. /signin?mode=register correctly defaults form to Register (FULL NAME field visible). Auth redirects both directions work. Only remaining issue is CAD label drag undo not fully reverting due to per-mousemove history snapshots. Redo + reload persistence confirmed working — data flow to backend is fine. Fix should be isolated to the history capture strategy in CadEditorTab.jsx around lines 236-250 and label mousedown/up handlers around lines 388-410.",
+  "rca_of_the_issue": "In CadEditorTab.jsx, the useEffect at line 236 pushes a snapshot on every change to `labels` (among other arrays). During label drag (line 392), setLabels fires on every mousemove, so N intermediate snapshots are pushed. Ctrl+Z pops only one, reverting one mousemove of movement, not the whole drag. Reproduction: activate Select tool, mousedown on any cad-label, drag ~250px, release, press Ctrl+Z once → label barely moves back. Mitigation: gate the history effect using a `dragInProgressRef` set true in label onMouseDown and cleared in the parent onMouseUp AFTER manually pushing exactly one snapshot representing the post-drag state."
+}

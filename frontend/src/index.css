@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Chivo:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Chivo:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -65,6 +65,11 @@ body {
     font-family: "Chivo", sans-serif;
     font-weight: 900;
     letter-spacing: -0.04em;
+}
+.font-serif-editorial {
+    font-family: "Instrument Serif", "Times New Roman", serif;
+    font-weight: 400;
+    letter-spacing: -0.02em;
 }
 .font-mono {
     font-family: "IBM Plex Mono", monospace;

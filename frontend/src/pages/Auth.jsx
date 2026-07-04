@@ -1,11 +1,13 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient, useStore } from "../store";
 
 export default function Auth() {
   const navigate = useNavigate();
   const setAuth = useStore((s) => s.setAuth);
-  const [mode, setMode] = useState("login");
+  const [searchParams] = useSearchParams();
+  const initialMode = searchParams.get("mode") === "register" ? "register" : "login";
+  const [mode, setMode] = useState(initialMode);
   const [form, setForm] = useState({ email: "", password: "", name: "" });
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);

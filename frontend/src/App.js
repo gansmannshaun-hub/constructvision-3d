@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import Landing from "@/pages/Landing";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Billing from "@/pages/Billing";
@@ -18,13 +19,13 @@ import "@/index.css";
 function Protected({ children }) {
   const token = useStore((s) => s.token);
   const user = useStore((s) => s.user);
-  if (!token) return <Navigate to="/" replace />;
+  if (!token) return <Navigate to="/signin" replace />;
   // Force legal acceptance before any protected route
   if (user?.needs_legal_acceptance) return <Navigate to="/accept-terms" replace />;
   return children;
 }
 
-function HomeRedirect() {
+function SignInRoute() {
   const token = useStore((s) => s.token);
   if (token) return <Navigate to="/app" replace />;
   return <Auth />;
@@ -45,7 +46,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<HomeRedirect />} />
+        <Route path="/" element={<Landing />} />
+        <Route path="/signin" element={<SignInRoute />} />
         <Route path="/app" element={<Protected><Dashboard /></Protected>} />
         <Route path="/billing" element={<Protected><Billing /></Protected>} />
         <Route path="/settings" element={<Protected><Settings /></Protected>} />
