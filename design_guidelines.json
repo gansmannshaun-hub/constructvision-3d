@@ -1,104 +1,120 @@
 {
-  "theme_and_archetype": {
-    "archetype": "Archetype 4 (Swiss & High-Contrast)",
-    "theme": "Dark",
-    "rationale": "For an engineering/CAD construction management tool, a high-contrast dark mode ensures precision, clarity, and authority while reducing eye strain during long modeling sessions. Avoids the 'SaaS purple' look."
-  },
+  "theme": "dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) + Industrial/Blueprint Twist",
   "typography": {
-    "strategy": "Swiss Brutalist (Tech)",
-    "fonts": {
-      "headings": "Chivo",
-      "body": "IBM Plex Sans",
-      "mono": "IBM Plex Mono"
-    },
+    "headings": "Instrument Serif, serif",
+    "body": "Inter, sans-serif",
+    "labels": "'IBM Plex Mono', monospace",
     "hierarchy": {
-      "h1": "text-4xl sm:text-5xl font-black tracking-tighter",
-      "h2": "text-2xl sm:text-3xl font-bold tracking-tight",
-      "h3": "text-xl font-semibold",
-      "h4": "text-lg font-medium",
-      "body": "text-sm sm:text-base leading-relaxed text-neutral-300",
-      "labels": "text-xs font-bold uppercase tracking-[0.2em] text-neutral-400 font-mono",
-      "metrics": "text-3xl font-mono tracking-tight"
+      "h1": "text-5xl md:text-6xl lg:text-7xl font-normal tracking-tighter leading-none",
+      "h2": "text-4xl sm:text-5xl font-normal tracking-tight leading-tight",
+      "h3": "text-2xl sm:text-3xl font-normal",
+      "body": "text-base lg:text-lg text-neutral-400 leading-relaxed",
+      "labels": "text-xs tracking-[0.2em] uppercase font-mono text-cyan-400"
     },
-    "rules": [
-      "No Inter or Space Grotesk.",
-      "Use IBM Plex Mono for all dimensions, file sizes, and structural notes.",
-      "Headings left-aligned by default."
-    ]
+    "notes": "Do not center headings by default. Embrace asymmetry. Use Instrument Serif for a high-end, editorial magazine cover feel, contrasted heavily with technical IBM Plex Mono for overlines and labels."
   },
   "colors": {
-    "backgrounds": {
-      "page": "bg-[#0A0A0A]",
-      "surface": "bg-[#141414]",
-      "surface_hover": "bg-[#1E1E1E]",
-      "panel": "bg-black/80 backdrop-blur-xl"
-    },
-    "text": {
-      "primary": "text-white",
-      "secondary": "text-[#A0A0A0]",
-      "muted": "text-[#666666]",
-      "inverse": "text-black"
-    },
-    "borders": {
-      "default": "border-white/10",
-      "focus": "border-[#0055FF]",
-      "grid": "border-white/5"
-    },
-    "accents": {
-      "primary": "bg-[#0055FF] text-white hover:bg-[#0044CC]", 
-      "blueprint_blue": "#0055FF",
-      "warning": "bg-[#FFCC00] text-black hover:bg-[#E6B800]",
-      "safety_yellow": "#FFCC00",
-      "danger": "bg-[#FF3333] text-white hover:bg-[#CC0000]",
-      "success": "bg-[#00CC66] text-black hover:bg-[#00A352]"
-    },
-    "rules": [
-      "Use 'Safety Yellow' (#FFCC00) for AI extraction badges and progress bars.",
-      "Use 'Blueprint Blue' (#0055FF) for active states, tabs, and primary actions.",
-      "No gradients. Flat colors only. Use 1px borders to separate elements."
-    ]
+    "background": "#0A0A0A",
+    "surface": "#141414",
+    "surface_hover": "#1E1E1E",
+    "primary": "#FFCC00",
+    "primary_hover": "#E6B800",
+    "accent": "#00E5FF",
+    "accent_subtle": "rgba(0, 229, 255, 0.1)",
+    "text_main": "#FFFFFF",
+    "text_muted": "#A3A3A3",
+    "border": "#262626"
   },
-  "spacing_and_layout": {
-    "grid_system": "Control Room Grid",
-    "structure": {
-      "gap": "gap-1 sm:gap-4",
-      "padding": "p-4 sm:p-6 lg:p-8"
-    },
-    "surfaces": "Grid Borders ('Technical' Look) - border-collapse style layout, sharp edges.",
-    "border_radius": "rounded-none",
-    "rules": [
-      "Go cardless. Use flat rectangular layouts with dense spacing.",
-      "Panels should use `border-r border-white/10` rather than floating cards.",
-      "Grid children must be direct children.",
-      "Mobile images must not exceed max-h-[80vh]."
-    ]
+  "layout_and_spacing": {
+    "container": "w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-24",
+    "section_padding": "py-24 md:py-32 lg:py-48",
+    "grid_system": "Use wide gap strategy (gap-8 to gap-12). Implement Mode A 'Tetris' Grid for features: mix col-span-8, col-span-4 to create asymmetry and tension.",
+    "borders": "Sharp corners only (rounded-none). 1px solid border-neutral-800 or border-[#262626] to expose the grid."
   },
   "components": {
-    "buttons": "Sharp corners (`rounded-none`). 1px solid border. Hover states lighten the background slightly.",
-    "badges": "Square borders, uppercase mono text (`text-[10px] tracking-wider`), vibrant accent colors.",
-    "tabs": "Override Shadcn tabs to have `rounded-none`. Active tab gets a bottom border of Blueprint Blue or Safety Yellow.",
-    "forms": "Inputs use `rounded-none`, `bg-[#141414]`, 1px border. Focus state outlines in Blueprint Blue.",
-    "panels": "Collapsible side panels for layers/materials with a thin scrollbar. No gutters.",
-    "icons": "Phosphor Icons (@phosphor-icons/react). Use 'duotone' or 'regular' weights."
+    "buttons": {
+      "primary": "bg-[#FFCC00] text-black font-semibold rounded-none px-6 py-3 hover:bg-[#E6B800] transition-transform duration-300 hover:-translate-y-1",
+      "secondary": "bg-transparent border border-neutral-700 text-white rounded-none px-6 py-3 hover:bg-neutral-900 hover:border-neutral-500 transition-all duration-300"
+    },
+    "cards": "bg-[#141414] border border-[#262626] rounded-none p-8 hover:border-[#00E5FF]/50 hover:shadow-[0_0_20px_rgba(0,229,255,0.05)] transition-all duration-500",
+    "navigation": "Fixed header, z-50, backdrop-blur-xl bg-[#0A0A0A]/80 border-b border-[#262626]. Must have explicitly defined alignment."
   },
-  "motion_and_interaction": {
-    "philosophy": "Minimalist, snappy, hardware-accelerated.",
-    "hover": "Subtle background brightness increase. DO NOT rely on inheritance (e.g. `hover:bg-[#1E1E1E] hover:text-white`).",
-    "transitions": "transition-all duration-150 ease-out",
-    "progress": "Real-time AI pipeline should use a snappy progress bar (width animated) without bouncy easing. Linear and precise.",
-    "accessibility": "Respect prefers-reduced-motion."
+  "motion": {
+    "library": "framer-motion",
+    "hero": "Staggered reveal: Titles slide up from translateY(20px) with opacity 0 to 1 over 0.8s ease-out. Use staggerChildren.",
+    "features": "Scroll-triggered entrance with viewport once: true. Subtle micro-interactions on cards: hover scales image or adds a subtle glow.",
+    "apps_grid": "Tempting exhibition pieces. Hover applies magnetic pull or scale(1.02) to the image container, text shifts slightly."
   },
-  "images_and_assets": {
-    "auth_background": "https://images.unsplash.com/photo-1542621334-a254cf47733d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxibHVlcHJpbnQlMjBwbGFucyUyMGFyY2hpdGVjdHVyZXxlbnwwfHx8fDE3ODExMjU0Mjl8MA&ixlib=rb-4.1.0&q=85",
-    "empty_state_blueprint": "https://images.unsplash.com/photo-1721244654392-9c912a6eb236?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwyfHxibHVlcHJpbnQlMjBwbGFucyUyMGFyY2hpdGVjdHVyZXxlbnwwfHx8fDE3ODExMjU0Mjl8MA&ixlib=rb-4.1.0&q=85",
-    "construction_placeholder": "https://images.unsplash.com/photo-1599707254554-027aeb4deacd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBjb25zdHJ1Y3Rpb24lMjBzaXRlfGVufDB8fHx8MTc4MTEyNTQyOXww&ixlib=rb-4.1.0&q=85"
+  "sections_blueprint": [
+    {
+      "name": "Navigation",
+      "content": "Brand Logo (Gonzo Labs / Atlas), Links (Features, Studio Apps, Pricing). CTA: 'Enter Atlas' (if auth token exists) or 'Sign In'.",
+      "visuals": "Crystal glassmorphism over #0A0A0A, 1px bottom border."
+    },
+    {
+      "name": "Hero Section",
+      "content": "Cinematic headline (e.g., 'Build the future, pixel by pixel.'). Subtitle explaining the studio. CTAs: 'Enter the app' (Primary), 'Try free' (Secondary).",
+      "visuals": "Massive Instrument Serif typography. Asymmetrical layout (text left-aligned, right side empty or floating 3D/blueprint abstract). Dark blueprint background texture."
+    },
+    {
+      "name": "Stats & Trust Band",
+      "content": "Metrics: '// 1200+ BLUEPRINTS TRACED', '// 8 HOURS SAVED PER PROJECT'.",
+      "visuals": "Monospace ticker or stark, brutalist grid row with neon cyan accents. High-contrast text."
+    },
+    {
+      "name": "Atlas Features Showcase",
+      "content": "Highlight 5-6 features: AI blueprint extraction, 2D CAD editor, 3D render, Pay-app generation, Field execution, B2B portals.",
+      "visuals": "Bento 'Tetris' grid. Large cards (col-span-8) for major features (3D render, CAD), small cards (col-span-4) for lists/logs. Use styled divs (bg-neutral-900 border-neutral-800) as mock placeholders for screenshots."
+    },
+    {
+      "name": "Apps Hub Grid",
+      "content": "Gallery of apps. 1 Live (Atlas), 3 'Coming Soon'.",
+      "visuals": "Atlas card is vibrant and clickable. 'Coming Soon' cards use wireframe/blueprint styling (border-dashed border-neutral-700 text-neutral-600) but maintain the exact same grid dimensions. Feels like an art exhibition."
+    },
+    {
+      "name": "Pricing Tease",
+      "content": "Tiers: Free / Pro $49 / Studio $149.",
+      "visuals": "Grid borders (Technical look). Exposed skeleton grid layout. Clean typography."
+    },
+    {
+      "name": "Footer",
+      "content": "Massive Gonzo Labs mark, sitemap, contact.",
+      "visuals": "Massive typography (text-[10vw]). Deep dark surface. Contrast shift from main body."
+    }
+  ],
+  "media_urls": {
+    "backgrounds": [
+      {
+        "url": "https://images.unsplash.com/photo-1633259584604-afdc243122ea?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGRhcmslMjBibHVlcHJpbnQlMjB0ZXh0dXJlfGVufDB8fHx8MTc4MzE4MDg2M3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract Blue and Black Texture",
+        "category": "hero_background"
+      }
+    ],
+    "testimonials": [
+      {
+        "url": "https://images.pexels.com/photos/37556458/pexels-photo-37556458.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Construction Worker Portrait",
+        "category": "trust_section"
+      }
+    ],
+    "logos": [
+      {
+        "url": "https://images.unsplash.com/photo-1660792734675-63a875d406b3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwyfHxjb21wYW55JTIwbG9nbyUyMHdoaXRlJTIwdHJhbnNwYXJlbnR8ZW58MHx8fHwxNzgzMTgwODU3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Placeholder White Logo",
+        "category": "partner_logos"
+      }
+    ]
   },
-  "testing": {
-    "data_testid": "ALL interactive elements MUST include a `data-testid` attribute in kebab-case, role-based. Example: `data-testid='upload-blueprint-button'`, `data-testid='ai-progress-bar'`."
-  },
-  "libraries_and_packages": {
-    "icons": "yarn add @phosphor-icons/react",
-    "3d": "yarn add three @react-three/fiber @react-three/drei (for 3D viewer)",
-    "state": "Use robust context or zustand for cross-tab real-time sync."
-  }
+  "instructions_to_main_agent": [
+    "Install required dependencies: `yarn add framer-motion lucide-react`.",
+    "Add font imports to `index.css`: `@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap');`",
+    "Update `tailwind.config.js` with the custom fonts and color palette defined in these guidelines.",
+    "Route Architecture: In `App.js`, create a new `<Landing />` page at `/`. Move the existing Auth/Sign-in logic to `/signin`. Signed-in users at `/signin` should redirect to `/app`.",
+    "Implement the Layout: Use pure HTML/Tailwind for the marketing layout. Avoid Shadcn for macro layouts; use raw divs to achieve the necessary asymmetry and bento grids.",
+    "Component Rules: Ensure EVERY interactive element (buttons, links) has a unique `data-testid` attribute using kebab-case role-based naming (e.g., `data-testid=\"hero-try-free-cta\"`).",
+    "Mock Images: For Atlas screenshots, build placeholder divs using `bg-neutral-900 border border-neutral-800` to indicate exactly where the user should drop their real screenshots later. Do not use generic stock photos for UI screens.",
+    "Aesthetics: Absolutely NO standard Vercel/Stripe purple gradients. Stick strictly to #0A0A0A base, #FFCC00 primary, and #00E5FF accents. Do not center everything; use left-aligned tension.",
+    "Motion: Use framer-motion for the Hero staggered entrance and scroll-triggered reveals for the features and apps grid."
+  ]
 }
