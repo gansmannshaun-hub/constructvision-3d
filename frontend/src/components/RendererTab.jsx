@@ -136,10 +136,15 @@ export default function RendererTab() {
       walls, doors, windows,
       roof_type: roofType, roof_pitch_deg: roofPitch,
       wall_color: wallColor, roof_color: roofColor,
+      // Pass through sheets so the renderer can piece the building
+      // together from elevation + roof-plan assembly data.
+      sheets: blueprint.sheets || [],
+      wall_height_ft: blueprint.wall_height_ft,
+      manual_override: blueprint.manual_override,
     });
     engineRef.current.setVisibility(visibleLayers);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [walls, doors, windows, roofType, roofPitch, wallColor, roofColor]);
+  }, [walls, doors, windows, roofType, roofPitch, wallColor, roofColor, blueprint.sheets, blueprint.wall_height_ft, blueprint.manual_override]);
 
   // 3) Apply visibility on phase/layer changes
   useEffect(() => {
@@ -1180,6 +1185,61 @@ export default function RendererTab() {
 
         <div className="label-mono mb-2">// ROOF & FINISH</div>
         <div className="space-y-3 mb-6">
+          {(() => {
+            const sheets = blueprint.sheets || [];
+            const elevs = sheets.filter((s) => s.view_type === "elevation" && s.assembly_data);
+            const roofSheets = sheets.filter((s) => s.view_type === "roof_plan" && s.assembly_data);
+            const wallTopFt = (() => {
+              const heights = elevs.map((s) => Number(s.assembly_data?.wall_top_ft || 0)).filter((v) => v > 3 && v < 100);
+              if (!heights.length) return null;
+              heights.sort((a, b) => a - b);
+              return heights[Math.floor(heights.length / 2)];
+            })();
+            const active = (elevs.length || roofSheets.length) && !blueprint.manual_override;
+            if (!active && !elevs.length && !roofSheets.length) return null;
+            return (
+              <div data-testid="renderer-assembly-panel" className="border border-white/10 p-3 bg-black/40 space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <span className="label-mono text-[#00E5FF]">// ASSEMBLY</span>
+                  <span className={`label-mono ${active ? "text-[#FFCC00]" : "text-neutral-500"}`}>{active ? "ACTIVE" : "OVERRIDE"}</span>
+                </div>
+                <div className="text-xs text-neutral-300 leading-relaxed">
+                  {active ? (
+                    <>Building assembled from{" "}
+                      <span className="text-white">{elevs.length}</span> elevation{elevs.length === 1 ? "" : "s"}
+                      {roofSheets.length > 0 && <> + <span className="text-white">{roofSheets.length}</span> roof plan{roofSheets.length === 1 ? "" : "s"}</>}.</>
+                  ) : (
+                    <>Manual override active — AI-extracted assembly data is ignored.</>
+                  )}
+                </div>
+                {wallTopFt && (
+                  <div className="text-[10px] font-mono text-neutral-500">// wall height: {wallTopFt.toFixed(1)} ft</div>
+                )}
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input
+                    data-testid="renderer-manual-override"
+                    type="checkbox"
+                    checked={!!blueprint.manual_override}
+                    onChange={(e) => updateCfg({ manual_override: e.target.checked })}
+                  />
+                  <span>Force manual values</span>
+                </label>
+              </div>
+            );
+          })()}
+          <label className="block">
+            <div className="label-mono mb-1 flex justify-between">
+              <span>Wall height (ft)</span>
+              <span className="text-[#FFCC00]">{blueprint.wall_height_ft || 10} ft</span>
+            </div>
+            <input
+              data-testid="renderer-wall-height"
+              type="range" min="6" max="30" step="0.5"
+              value={blueprint.wall_height_ft ?? 10}
+              onChange={(e) => updateCfg({ wall_height_ft: Number(e.target.value) })}
+              className="w-full accent-[#FFCC00]"
+            />
+          </label>
           <label className="block">
             <div className="label-mono mb-1">Roof type</div>
             <select

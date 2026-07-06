@@ -9,7 +9,11 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 // ---------- Constants ----------
-export const WALL_HEIGHT = 3.05;   // ~10 ft default
+// WALL_HEIGHT can be overridden per-build from elevation-sheet assembly
+// data or a manual blueprint.wall_height_ft. Kept as `let` so all builder
+// functions in this module see the same up-to-date value.
+export let WALL_HEIGHT = 3.05;    // ~10 ft default (meters)
+const DEFAULT_WALL_HEIGHT = 3.05;
 export const SCALE = 0.3048;        // 1 blueprint unit (ft) -> meters
 export const SLAB_THICK = 0.18;
 export const FOOTING_DEPTH = 0.45;
@@ -944,9 +948,61 @@ export function createSceneEngine(mount) {
   }
 
   function build(blueprint) {
+    // ---------- Building assembly from all sheets ----------
+    // Aggregate assembly_data from every elevation + roof_plan sheet in the
+    // project so we can override defaults with data extracted by GPT-4o.
+    const sheetsRaw = Array.isArray(blueprint.sheets) ? blueprint.sheets : [];
+    const elevations = sheetsRaw.filter((s) => s.view_type === "elevation" && s.assembly_data);
+    const roofPlans  = sheetsRaw.filter((s) => s.view_type === "roof_plan" && s.assembly_data);
+    const manualOverride = !!blueprint.manual_override;
+
+    // Wall height (feet → meters). Precedence:
+    //   1. Manual override on blueprint.wall_height_ft (when manual_override=true)
+    //   2. Median wall_top_ft across all elevation sheets
+    //   3. Manual blueprint.wall_height_ft (when set, no elevations available)
+    //   4. DEFAULT_WALL_HEIGHT (10 ft in meters)
+    let wallTopFt = 0;
+    if (elevations.length && !manualOverride) {
+      const heights = elevations
+        .map((s) => Number(s.assembly_data?.wall_top_ft || 0))
+        .filter((v) => v > 3 && v < 100);
+      if (heights.length) {
+        heights.sort((a, b) => a - b);
+        wallTopFt = heights[Math.floor(heights.length / 2)];
+      }
+    }
+    if (!wallTopFt && blueprint.wall_height_ft) {
+      wallTopFt = Number(blueprint.wall_height_ft) || 0;
+    }
+    WALL_HEIGHT = wallTopFt > 0 ? wallTopFt * SCALE : DEFAULT_WALL_HEIGHT;
+
+    // Roof: precedence = manual_override > roof_plan > elevation median > blueprint defaults
+    let roofType  = blueprint.roof_type || DEFAULT_CFG.roof_type;
+    let roofPitch = blueprint.roof_pitch_deg ?? DEFAULT_CFG.roof_pitch_deg;
+    if (!manualOverride) {
+      if (roofPlans.length) {
+        const rp = roofPlans[0].assembly_data;
+        if (rp.roof_shape && rp.roof_shape !== "unknown") roofType = rp.roof_shape;
+        const p = Number(rp.primary_slope_deg || 0);
+        if (p > 0 && p < 60) roofPitch = p;
+      } else if (elevations.length) {
+        const pitches = elevations
+          .map((s) => Number(s.assembly_data?.roof_pitch_deg || 0))
+          .filter((v) => v > 0 && v < 60);
+        if (pitches.length) {
+          pitches.sort((a, b) => a - b);
+          roofPitch = pitches[Math.floor(pitches.length / 2)];
+        }
+        const shapes = elevations
+          .map((s) => s.assembly_data?.roof_shape)
+          .filter((s) => s && s !== "unknown");
+        if (shapes.length) roofType = shapes[0];
+      }
+    }
+
     CFG = {
-      roof_type: blueprint.roof_type || DEFAULT_CFG.roof_type,
-      roof_pitch_deg: blueprint.roof_pitch_deg ?? DEFAULT_CFG.roof_pitch_deg,
+      roof_type: roofType,
+      roof_pitch_deg: roofPitch,
       wall_color: blueprint.wall_color || DEFAULT_CFG.wall_color,
       roof_color: blueprint.roof_color || DEFAULT_CFG.roof_color,
     };

@@ -264,6 +264,85 @@ async def _analyze_image_with_ai(b64: str, existing_materials: list[dict]) -> di
         return json.loads(match.group(0))
 
 
+ELEVATION_PROMPT = """You are a construction expert. This blueprint image shows an EXTERIOR ELEVATION view of a building (a straight-on view of one side / face). Extract the vertical / height data needed to assemble the building in 3D.
+
+Return ONLY valid JSON with this exact schema (units in feet, no strings):
+{
+  "view_kind": "elevation",
+  "facing_hint": "front" | "back" | "left" | "right" | "unknown",
+  "building_width_ft": number,   // horizontal span visible in the elevation
+  "overall_height_ft": number,   // ground to ridge / roof peak
+  "wall_top_ft": number,         // ground to top-of-wall (bottom of roof)
+  "floor_heights_ft": [number],  // list of floor-to-floor heights, ground-up (e.g. [10] single story, [10,9] two-story)
+  "roof_pitch_deg": number,      // 0 for flat, else pitch angle in degrees (e.g. 26.6 for 6:12)
+  "roof_shape": "gable" | "hip" | "shed" | "flat" | "gambrel" | "unknown",
+  "openings": [
+    { "type": "door" | "window", "x_ft": number, "sill_ft": number, "width_ft": number, "height_ft": number }
+    // x_ft = horizontal position from the LEFT edge of the elevation
+    // sill_ft = vertical position of the bottom of the opening from ground
+  ],
+  "confidence": "high" | "medium" | "low"
+}
+
+Rules:
+- If a dimension is not visible/inferable, use 0 for numbers and "unknown" for the string.
+- Prefer explicit dimension callouts over pixel measurement.
+- floor_heights_ft must sum to <= wall_top_ft.
+- Guess facing_hint only if a label/note (e.g. 'FRONT ELEV', 'NORTH ELEV', 'A-201') makes it obvious; otherwise "unknown".
+Return ONLY the JSON, no prose."""
+
+
+ROOF_PLAN_PROMPT = """You are a construction expert. This blueprint image shows a ROOF PLAN — a top-down view of the roof (NOT the floor below it). Extract roof-assembly data.
+
+Return ONLY valid JSON:
+{
+  "view_kind": "roof_plan",
+  "building_width_ft": number,      // roof footprint width
+  "building_depth_ft": number,      // roof footprint depth
+  "roof_shape": "gable" | "hip" | "shed" | "flat" | "gambrel" | "unknown",
+  "primary_slope_deg": number,      // main pitch in degrees (0 if flat)
+  "overhang_ft": number,            // eave overhang beyond wall (typical 1-2 ft)
+  "ridge_lines": [                  // in roof-plan coord space (0,0) = top-left
+    { "start": [x_ft, y_ft], "end": [x_ft, y_ft] }
+  ],
+  "confidence": "high" | "medium" | "low"
+}
+
+Return ONLY JSON, no prose."""
+
+
+async def _analyze_view_structure(b64: str, view_type: str) -> dict | None:
+    """Second, targeted AI call for non-floor-plan drawing views that carry
+    3D assembly data (elevations, roof plans). Returns None on failure — the
+    pipeline should treat assembly_data as optional."""
+    if view_type == "elevation":
+        prompt = ELEVATION_PROMPT
+        sys_msg = "You are a construction elevation-view extraction expert. Output only valid JSON."
+    elif view_type == "roof_plan":
+        prompt = ROOF_PLAN_PROMPT
+        sys_msg = "You are a construction roof-plan extraction expert. Output only valid JSON."
+    else:
+        return None
+    try:
+        chat = LlmChat(
+            api_key=_llm_key(),
+            session_id=f"assembly-{uuid.uuid4()}",
+            system_message=sys_msg,
+        ).with_model("openai", "gpt-4o")
+        message = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=b64)])
+        response = await chat.send_message(message)
+        raw = response if isinstance(response, str) else str(response)
+        cleaned = _strip_code_fence(raw)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            match = re.search(r"\{[\s\S]*\}", cleaned)
+            return json.loads(match.group(0)) if match else None
+    except Exception:
+        logger.exception(f"assembly extraction failed for view_type={view_type}")
+        return None
+
+
 def _coord(p):
     if isinstance(p, list) and len(p) >= 2:
         return [float(p[0]), float(p[1])]
@@ -653,6 +732,54 @@ def _build_pipeline(db):
                 "electrical_plan", "plumbing_plan", "hvac_plan",
                 "elevation", "detail",
             }
+            # Non-floor-plan views that carry 3D-assembly data: run a targeted
+            # second AI pass to extract heights / roof shape / opening layout
+            # so the 3D renderer can piece the building together across sheets.
+            assembly_data: dict | None = None
+            auto_facing: str | None = None
+            if first_doc_type in {"elevation", "roof_plan"}:
+                try:
+                    assembly_data = await _analyze_view_structure(b64, first_doc_type)
+                    logger.info(
+                        f"assembly extraction ok for doc {doc_id} type={first_doc_type}"
+                    )
+                except Exception:
+                    logger.exception("assembly extraction failed (non-fatal)")
+                # Auto-detect front-or-side axis by comparing the elevation
+                # width to the project's existing floor-plan footprint.
+                if assembly_data and first_doc_type == "elevation":
+                    try:
+                        el_w = float(assembly_data.get("building_width_ft") or 0)
+                    except (TypeError, ValueError):
+                        el_w = 0.0
+                    if el_w > 0:
+                        # Grab any existing floor_plan sheet's footprint as
+                        # the reference building dimensions.
+                        ref = await db.blueprint_sheets.find_one(
+                            {"project_id": project_id, "view_type": {"$in": [None, "floor_plan", "blueprint"]}},
+                            {"_id": 0, "building_ft": 1},
+                            sort=[("order_index", 1)],
+                        )
+                        bft = (ref or {}).get("building_ft") or {}
+                        try:
+                            fw = float(bft.get("w") or 0)
+                            fh = float(bft.get("h") or 0)
+                        except (TypeError, ValueError):
+                            fw = fh = 0.0
+                        if fw > 0 and fh > 0:
+                            # Within 15% match to a footprint side = that axis
+                            tol = 0.15
+                            match_long  = fw > 0 and abs(el_w - fw) / fw < tol
+                            match_short = fh > 0 and abs(el_w - fh) / fh < tol
+                            if match_long and not match_short:
+                                auto_facing = "front"  # default long-side elevation
+                            elif match_short and not match_long:
+                                auto_facing = "left"
+                            elif match_long and match_short:
+                                # Square-ish footprint — leave unknown
+                                auto_facing = None
+                    if assembly_data:
+                        assembly_data["auto_facing"] = auto_facing
             if walls_all or doors_all or windows_all or labels_all or fixtures_all or is_reference_only:
                 await _set_doc_status(doc_id, "syncing", doc_type=first_doc_type, materials_count=inserted)
                 # Ensure baseline blueprint doc + sheets exist.
@@ -680,6 +807,7 @@ def _build_pipeline(db):
                     building_ft=building_ft,
                     scale_confidence=scale_confidence,
                     view_type=first_doc_type,
+                    assembly_data=assembly_data,
                 )
                 sheet_id = new_sheet["id"]
                 # Make the new traced sheet active so the user sees it right away.

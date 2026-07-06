@@ -44,7 +44,9 @@ async def _create_sheet(db, project_id: str, *, name: str, floor_level: int = 0,
                         geometry: Optional[dict] = None,
                         building_ft: Optional[dict] = None,
                         scale_confidence: Optional[str] = None,
-                        view_type: Optional[str] = None) -> dict:
+                        view_type: Optional[str] = None,
+                        assembly_data: Optional[dict] = None,
+                        facing_override: Optional[str] = None) -> dict:
     if order_index is None:
         count = await db.blueprint_sheets.count_documents({"project_id": project_id})
         order_index = count
@@ -64,6 +66,8 @@ async def _create_sheet(db, project_id: str, *, name: str, floor_level: int = 0,
         "fixtures": geom["fixtures"],
         "building_ft": building_ft,
         "scale_confidence": scale_confidence,
+        "assembly_data": assembly_data,          # elevation / roof-plan structured data (see documents.py)
+        "facing_override": facing_override,       # user-chosen "front" | "back" | "left" | "right"
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
@@ -249,6 +253,8 @@ def build_projects_router(db, get_current_user) -> APIRouter:
                 "roof_pitch_deg": payload.roof_pitch_deg,
                 "wall_color": payload.wall_color,
                 "roof_color": payload.roof_color,
+                "wall_height_ft": payload.wall_height_ft,
+                "manual_override": bool(payload.manual_override),
                 "updated_at": now_iso(),
             }},
             upsert=True,
@@ -285,6 +291,10 @@ def build_projects_router(db, get_current_user) -> APIRouter:
             update["floor_level"] = payload.floor_level
         if payload.order_index is not None:
             update["order_index"] = payload.order_index
+        if payload.facing_override is not None:
+            update["facing_override"] = None if payload.facing_override == "clear" else payload.facing_override
+        if payload.assembly_data is not None:
+            update["assembly_data"] = payload.assembly_data
         result = await db.blueprint_sheets.update_one(
             {"id": sheet_id, "project_id": project_id},
             {"$set": update},

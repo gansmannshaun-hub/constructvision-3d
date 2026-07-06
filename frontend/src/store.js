@@ -101,6 +101,8 @@ export const useStore = create((set, get) => ({
       roof_pitch_deg: extra.roof_pitch_deg ?? cur.roof_pitch_deg ?? 12,
       wall_color: extra.wall_color ?? cur.wall_color ?? "#D8D4CC",
       roof_color: extra.roof_color ?? cur.roof_color ?? "#4A5C6E",
+      wall_height_ft: extra.wall_height_ft ?? cur.wall_height_ft ?? null,
+      manual_override: extra.manual_override ?? cur.manual_override ?? false,
     };
     const { data } = await apiClient.put(`/projects/${id}/blueprint`, body);
     set({ blueprint: data });
@@ -134,6 +136,17 @@ export const useStore = create((set, get) => ({
       await get().refreshBlueprint();
     } catch (e) {
       console.warn("renameSheet failed:", e?.message);
+    }
+  },
+  setSheetFacing: async (sheetId, facing) => {
+    // facing: "front" | "back" | "left" | "right" | "clear" (unset — use AI hint)
+    const id = get().currentProjectId;
+    if (!id) return;
+    try {
+      await apiClient.patch(`/projects/${id}/blueprint/sheets/${sheetId}`, { facing_override: facing });
+      await get().refreshBlueprint();
+    } catch (e) {
+      console.warn("setSheetFacing failed:", e?.message);
     }
   },
   deleteSheet: async (sheetId) => {
