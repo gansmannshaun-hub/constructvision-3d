@@ -416,8 +416,27 @@ def build_admin_router(db, get_current_user) -> APIRouter:
         if not payload.include_admins:
             skipped_admin = [u["id"] for u in found if u.get("is_admin")]
         deletable_ids = [u["id"] for u in found if u["id"] not in skipped_admin]
-        for uid in deletable_ids:
-            await _cascade_delete_user(db, uid)
+
+        # BATCHED cascade — one query per collection regardless of user count.
+        # The previous per-user loop timed out on production once the pod had
+        # 50+ accounts (8 delete_many calls × N users = 400+ round-trips).
+        if deletable_ids:
+            project_ids = [
+                p["id"] for p in await db.projects.find(
+                    {"user_id": {"$in": deletable_ids}}, {"_id": 0, "id": 1}
+                ).to_list(None)
+            ]
+            if project_ids:
+                await db.documents.delete_many({"project_id": {"$in": project_ids}})
+                await db.materials.delete_many({"project_id": {"$in": project_ids}})
+                await db.blueprints.delete_many({"project_id": {"$in": project_ids}})
+                await db.blueprint_sheets.delete_many({"project_id": {"$in": project_ids}})
+            await db.projects.delete_many({"user_id": {"$in": deletable_ids}})
+            await db.usage_periods.delete_many({"user_id": {"$in": deletable_ids}})
+            await db.payment_transactions.delete_many({"user_id": {"$in": deletable_ids}})
+            await db.sessions.delete_many({"user_id": {"$in": deletable_ids}})
+            await db.users.delete_many({"id": {"$in": deletable_ids}})
+
         await audit(db, admin["id"], "admin.user.bulk_delete", target=None, meta={
             "requested": len(payload.user_ids or []),
             "deleted": len(deletable_ids),
