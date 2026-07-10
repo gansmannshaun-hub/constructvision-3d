@@ -864,6 +864,29 @@ def build_documents_router(db, get_current_user) -> APIRouter:
     router = APIRouter(prefix="/api")
     run_pipeline = _build_pipeline(db)
 
+    # -----------------------------------------------------------------
+    # Boot-time recovery: any doc left in a transient state
+    # (queued / uploaded / analyzing / syncing) is from a previous pod
+    # that died mid-processing. Flag them as errored so the UI can offer
+    # a RETRY. Runs once at import time.
+    # -----------------------------------------------------------------
+    async def _recover_stuck_docs() -> None:
+        try:
+            transient = ["queued", "uploaded", "analyzing", "syncing"]
+            res = await db.documents.update_many(
+                {"status": {"$in": transient}},
+                {"$set": {
+                    "status": "error",
+                    "analysis": {"summary": "Processing was interrupted. Click RETRY to re-run the AI pipeline."},
+                    "updated_at": now_iso(),
+                }},
+            )
+            if res.modified_count:
+                logger.warning(f"Recovered {res.modified_count} stuck documents on startup")
+        except Exception:
+            logger.exception("stuck-doc recovery failed")
+    asyncio.create_task(_recover_stuck_docs())
+
     @router.delete("/documents/{doc_id}")
     async def delete_document(doc_id: str, user: dict = Depends(get_current_user)):
         doc = await db.documents.find_one({"id": doc_id}, {"_id": 0})
@@ -1018,5 +1041,47 @@ def build_documents_router(db, get_current_user) -> APIRouter:
                 )
             except Exception:
                 pass
+
+    @router.post("/documents/{doc_id}/retry")
+    async def retry_document(doc_id: str, user: dict = Depends(get_current_user)):
+        """Re-run the analysis pipeline for a document whose earlier run
+        errored or was interrupted. Only rehydrates pages_b64 from the
+        stored thumbnail (single-page docs) unless the original file is
+        still cached; for multi-page PDFs the user needs to re-upload the
+        original file (we don't hold the raw bytes past processing)."""
+        doc = await db.documents.find_one({"id": doc_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        proj = await db.projects.find_one({"id": doc["project_id"], "user_id": user["id"]})
+        if not proj:
+            raise HTTPException(403, "Forbidden")
+        # Only allow retry on terminal / stuck states — never on a doc that's
+        # already actively processing (would spawn a duplicate pipeline).
+        allowed_from = {"error", "queued", "uploaded", "analyzing", "syncing", "done"}
+        if doc.get("status") not in allowed_from:
+            raise HTTPException(400, f"Cannot retry from status={doc.get('status')}")
+        thumb = doc.get("image_base64")
+        if not thumb:
+            raise HTTPException(400, "Original page data no longer cached. Please re-upload the file.")
+        # For PDFs we only kept a single-page thumbnail; a retry on a PDF
+        # will therefore only re-analyze the first page. Log a warning so
+        # the user knows to re-upload if they need multi-page re-analysis.
+        if doc.get("is_pdf") and (doc.get("pages_total") or 1) > 1:
+            logger.warning(f"Retrying multi-page PDF {doc_id} — only first page will be re-analyzed")
+        await db.documents.update_one(
+            {"id": doc_id},
+            {"$set": {
+                "status": "queued",
+                "analysis": None,
+                "materials_count": 0,
+                "materials_merged": 0,
+                "materials_skipped": 0,
+                "synced_3d": False,
+                "pages_done": 0,
+                "updated_at": now_iso(),
+            }},
+        )
+        asyncio.create_task(run_pipeline(doc_id, doc["project_id"], [thumb], doc.get("mime_type") or "image/jpeg"))
+        return {"ok": True, "retrying": True, "doc_id": doc_id}
 
     return router

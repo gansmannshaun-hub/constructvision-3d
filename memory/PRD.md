@@ -521,6 +521,40 @@ email digest with /invite landing.
   mocks since those surfaces don't have a stand-alone in-app view yet.
 - Deleted the now-unused MockAtlasCad.jsx and MockAtlas3D.jsx mocks.
 
+### Multi-view AI assembly (Phase 1 + 2) + upload retry (2026-02-05 — Complete backend + partial frontend)
+- Backend: new GPT-4o targeted extraction for `elevation` and `roof_plan`
+  view types (`ELEVATION_PROMPT` / `ROOF_PLAN_PROMPT` / `_analyze_view_structure`
+  in `documents.py`). Returns structured `{wall_top_ft, roof_pitch_deg,
+  roof_shape, openings, facing_hint, ...}` and stores on the sheet as
+  `assembly_data`.
+- Backend: auto-facing detection compares elevation width to the floor
+  plan's building_ft.w/h with 15% tolerance → tags `auto_facing` as
+  "front" or "left". User can override via `facing_override` on the sheet.
+- Backend: `Sheet.SheetPatchIn` accepts `facing_override` + `assembly_data`;
+  `BlueprintIn` accepts `wall_height_ft` + `manual_override` for manual
+  building shape override.
+- Renderer: `sceneBuilder.WALL_HEIGHT` is now module-level `let`, computed
+  each build from median elevation `wall_top_ft` (unless manual_override).
+  Roof type + pitch derived from roof_plan → elevation median → blueprint
+  defaults.
+- 3D tab: new **Assembly** panel (`renderer-assembly-panel`) shows which
+  sheets contribute + a `Force manual values` checkbox + a **Wall height**
+  slider (`renderer-wall-height`, 6–30 ft).
+
+### Frozen-upload recovery (2026-02-05 — Complete)
+- On boot, any doc left in `queued` / `uploaded` / `analyzing` / `syncing`
+  from a previous pod is auto-flagged as `error` with the summary
+  "Processing was interrupted. Click RETRY to re-run the AI pipeline."
+  Prevents documents from hanging forever if the container is recycled.
+- New endpoint `POST /api/documents/{id}/retry` re-runs the pipeline
+  against the cached page thumbnail. Multi-page PDFs re-process only the
+  first page (raw bytes aren't retained past upload — surfaced as a warning).
+- Documents tab now shows a **↻ RETRY** button (`document-retry-<id>`) on
+  any error card. One click resubmits the pipeline; the existing polling
+  loop takes over.
+- Verified endpoint: HTTP 200 with `{ok, retrying, doc_id}` on real docs;
+  404 on unknown ids; 400 on active pipelines.
+
 ### CAD grid spacing + zoom −/+ buttons (2026-02-04 — Complete)
 - New **STEP** dropdown (`cad-grid-step`) in the CAD toolbar offers grid
   spacing options 6", 1', 2', 5', 10'. Selection persists per browser via

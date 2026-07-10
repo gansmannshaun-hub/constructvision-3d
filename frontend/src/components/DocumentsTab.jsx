@@ -488,6 +488,26 @@ function DocCard({ doc }) {
           </p>
         )}
 
+        {error && (
+          <button
+            data-testid={`document-retry-${doc.id}`}
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                await apiClient.post(`/documents/${doc.id}/retry`);
+                // status update handled by the tab's polling loop
+              } catch (err) {
+                const msg = err?.response?.data?.detail || err?.message || "Retry failed";
+                alert(`Retry failed: ${msg}${msg.includes("re-upload") ? "\n\nTip: for multi-page PDFs, please re-upload the file." : ""}`);
+              }
+            }}
+            className="mt-3 label-mono px-3 py-1.5 bg-[#FFCC00] text-black hover:bg-[#E6B800] transition-colors"
+            title="Re-run the AI analysis pipeline on this document"
+          >
+            ↻ RETRY
+          </button>
+        )}
+
         {done && (
           <div className="flex flex-wrap gap-1 mt-3">
             <Badge>✓ Analyzed</Badge>
