@@ -11,6 +11,7 @@ import {
   DEFAULT_CFG,
 } from "../lib/renderer/sceneBuilder";
 import SitePickerModal from "./SitePickerModal";
+import AutonomousExtractPanel from "./AutonomousExtractPanel";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -1182,6 +1183,27 @@ export default function RendererTab() {
             PICK SITE FROM MAP
           </button>
         )}
+
+        {/* Autonomous validation-gated extraction pipeline. */}
+        <div className="mb-6">
+          <AutonomousExtractPanel
+            onLayout={(layout) => {
+              // Seed the current session with the validated walls so the
+              // 3D scene rebuilds from the extracted layout. Non-persistent
+              // — user can Save & Sync from the CAD tab to make it stick.
+              if (!layout?.walls?.length) return;
+              const walls = layout.walls.map((w, i) => ({
+                id: w.id || `auto-w${i + 1}`,
+                start: w.start,
+                end: w.end,
+                thickness: w.thickness_ft,
+              }));
+              useStore.setState((s) => ({
+                blueprint: { ...s.blueprint, walls, building_ft: layout.building_ft || s.blueprint.building_ft },
+              }));
+            }}
+          />
+        </div>
 
         <div className="label-mono mb-2">// ROOF & FINISH</div>
         <div className="space-y-3 mb-6">

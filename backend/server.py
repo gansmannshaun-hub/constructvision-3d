@@ -24,6 +24,7 @@ from routes.auth import build_auth_router
 from routes.ai_tools import build_ai_tools_router
 from routes.collab import build_collab_router
 from routes.documents import build_documents_router
+from autonomous import build_autonomous_router
 from routes.field import build_field_router
 from routes.legal import build_legal_router
 from routes.materials import build_materials_router
@@ -60,6 +61,7 @@ app.include_router(build_projects_router(db, get_current_user))
 app.include_router(build_materials_router(db, get_current_user))
 app.include_router(build_pricing_router(db, get_current_user))
 app.include_router(build_documents_router(db, get_current_user))
+app.include_router(build_autonomous_router(db, get_current_user))
 app.include_router(build_field_router(db, get_current_user))
 app.include_router(build_legal_router(db, get_current_user))
 app.include_router(build_ai_tools_router(db, get_current_user))
