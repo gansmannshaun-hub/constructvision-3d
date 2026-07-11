@@ -265,6 +265,12 @@ export default function DocumentsTab() {
                 if (data.skipped_no_thumb > 0) {
                   msg += `\n\n${data.skipped_no_thumb} document${data.skipped_no_thumb === 1 ? " was" : "s were"} skipped because the original page data is no longer cached — please re-upload those files.`;
                 }
+                if (data.skipped_error > 0) {
+                  msg += `\n\n${data.skipped_error} document${data.skipped_error === 1 ? "" : "s"} skipped due to a load error — try again shortly.`;
+                }
+                if (data.batch_capped) {
+                  msg += `\n\nBatch capped at 25 to keep the AI queue healthy — click Retry-all again after these finish for the next batch.`;
+                }
                 alert(msg);
                 await refreshDocuments();
               } catch (e) {

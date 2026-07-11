@@ -1113,36 +1113,67 @@ def build_documents_router(db, get_current_user) -> APIRouter:
     async def retry_all_errored_docs(project_id: str, user: dict = Depends(get_current_user)):
         """Bulk-retry every errored doc in a project that still has a
         cached thumbnail. Handy after a pod restart flips a batch of docs
-        to error state via the boot-time recovery."""
+        to error state via the boot-time recovery.
+
+        Loads doc thumbs one-at-a-time (never all at once) so a project
+        with dozens of errored uploads doesn't blow past the ingress
+        response-size / timeout budget — that was causing 500s in prod.
+        """
         proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]})
         if not proj:
             raise HTTPException(404, "Project not found")
-        errored = await db.documents.find(
+        # First pass: just fetch the ids of errored docs. Cheap, small payload.
+        errored_ids = await db.documents.find(
             {"project_id": project_id, "status": "error"},
-            {"_id": 0, "id": 1, "mime_type": 1, "image_base64": 1, "is_pdf": 1, "pages_total": 1},
-        ).to_list(500)
+            {"_id": 0, "id": 1},
+        ).to_list(1000)
+        # Cap per-call so a project with hundreds of errored docs
+        # doesn't spawn hundreds of pipeline tasks in one shot. Users
+        # can click Retry-all again once the first batch clears.
+        BATCH_CAP = 25
+        errored_ids = errored_ids[:BATCH_CAP]
         retried = 0
         skipped_no_thumb = 0
-        for d in errored:
-            thumb = d.get("image_base64")
-            if not thumb:
-                skipped_no_thumb += 1
-                continue
-            await db.documents.update_one(
-                {"id": d["id"]},
-                {"$set": {
-                    "status": "queued",
-                    "analysis": None,
-                    "materials_count": 0,
-                    "materials_merged": 0,
-                    "materials_skipped": 0,
-                    "synced_3d": False,
-                    "pages_done": 0,
-                    "updated_at": now_iso(),
-                }},
-            )
-            asyncio.create_task(run_pipeline(d["id"], project_id, [thumb], d.get("mime_type") or "image/jpeg"))
-            retried += 1
-        return {"ok": True, "retried": retried, "skipped_no_thumb": skipped_no_thumb, "total_errored": len(errored)}
+        skipped_error = 0
+        for row in errored_ids:
+            doc_id = row["id"]
+            try:
+                # Fetch one full doc at a time so we never hold >1 thumb in memory.
+                d = await db.documents.find_one(
+                    {"id": doc_id},
+                    {"_id": 0, "id": 1, "mime_type": 1, "image_base64": 1},
+                )
+                if not d:
+                    continue
+                thumb = d.get("image_base64")
+                if not thumb:
+                    skipped_no_thumb += 1
+                    continue
+                await db.documents.update_one(
+                    {"id": doc_id},
+                    {"$set": {
+                        "status": "queued",
+                        "analysis": None,
+                        "materials_count": 0,
+                        "materials_merged": 0,
+                        "materials_skipped": 0,
+                        "synced_3d": False,
+                        "pages_done": 0,
+                        "updated_at": now_iso(),
+                    }},
+                )
+                asyncio.create_task(run_pipeline(doc_id, project_id, [thumb], d.get("mime_type") or "image/jpeg"))
+                retried += 1
+            except Exception:
+                logger.exception(f"retry-all: skipping doc {doc_id} due to error")
+                skipped_error += 1
+        return {
+            "ok": True,
+            "retried": retried,
+            "skipped_no_thumb": skipped_no_thumb,
+            "skipped_error": skipped_error,
+            "total_errored": len(errored_ids),
+            "batch_capped": len(errored_ids) >= BATCH_CAP,
+        }
 
     return router

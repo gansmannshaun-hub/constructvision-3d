@@ -664,6 +664,24 @@ email digest with /invite landing.
 
 
 
+### 2026-02 · Retry-all endpoint hardened against 500s (P0)
+- Reported by user: on production, clicking "Retry all errored documents"
+  returned 500. Root cause: the endpoint fetched every errored doc's
+  `image_base64` thumb into memory in one `to_list(500)` — a project with
+  dozens of ~1-3 MB thumbs blew past the ingress response budget.
+- Fix (`/app/backend/routes/documents.py::retry_all_errored_docs`):
+  1. First pass fetches only doc IDs — small payload.
+  2. Loops each ID and fetches the thumb one-at-a-time (never >1 in memory).
+  3. Per-doc try/except so a single corrupted doc doesn't kill the batch;
+     returns a `skipped_error` count in the response.
+  4. Hard cap of 25 retries per call (`batch_capped=true` in response) so
+     users get a fast response and can click again for the next wave.
+- Frontend (`DocumentsTab.jsx`) surfaces `skipped_error` + `batch_capped`
+  in the confirmation dialog so the user knows to click again.
+- Note: fix will take effect in production after redeploy.
+
+
+
 
 
 ## Integrations
