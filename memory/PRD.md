@@ -704,6 +704,28 @@ email digest with /invite landing.
 - Note: fix takes effect on production after redeploy.
 
 
+### 2026-02 · 3D render no longer flickers on polling refresh (P0 follow-up)
+- Reported after previous fix: "now the model resets itself in preview" —
+  even after gating the camera-fit, the geometry itself was flashing and
+  the model appeared to jump during orbit/pan.
+- Root cause: `refreshBlueprint()` (called every 1.5s during doc polling
+  in `Dashboard.jsx`) returns FRESH object references every tick, even
+  when the walls/doors/windows arrays are byte-identical. The renderer's
+  build `useEffect` depends on those references → `engine.build()` was
+  disposing and re-creating every THREE.Group on every poll tick,
+  causing the visible flicker and destabilising the OrbitControls
+  interaction.
+- Fix (`RendererTab.jsx`):
+  1. Wrap the build payload in `useMemo`.
+  2. Compute a `JSON.stringify()` hash of the payload.
+  3. Store the last-built hash in a `useRef`.
+  4. The build effect now skips execution when the hash is unchanged —
+     polling refreshes with identical content are a true no-op.
+- Result: geometry stops being rebuilt during polling → no more flicker,
+  and the OrbitControls' internal state is preserved end-to-end.
+
+
+
 
 
 

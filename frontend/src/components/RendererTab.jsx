@@ -130,22 +130,30 @@ export default function RendererTab() {
     }
   }, [site]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 2) Build geometry whenever the blueprint changes
+  // 2) Build geometry ONLY when the blueprint's structural content actually
+  // changes. Polling (`refreshBlueprint()`) hands us fresh object refs on
+  // every tick even when the walls/doors/windows are byte-identical —
+  // rebuilding on every ref-change was causing visible flicker AND
+  // interfering with in-progress orbit/pan gestures ("the model resets
+  // itself"). Content hash gates the rebuild so identical data is a no-op.
+  const buildPayload = useMemo(() => ({
+    walls, doors, windows,
+    roof_type: roofType, roof_pitch_deg: roofPitch,
+    wall_color: wallColor, roof_color: roofColor,
+    sheets: blueprint.sheets || [],
+    wall_height_ft: blueprint.wall_height_ft,
+    manual_override: blueprint.manual_override,
+  }), [walls, doors, windows, roofType, roofPitch, wallColor, roofColor, blueprint.sheets, blueprint.wall_height_ft, blueprint.manual_override]);
+  const buildHash = useMemo(() => JSON.stringify(buildPayload), [buildPayload]);
+  const lastBuildHashRef = useRef(null);
   useEffect(() => {
     if (!engineRef.current) return;
-    engineRef.current.build({
-      walls, doors, windows,
-      roof_type: roofType, roof_pitch_deg: roofPitch,
-      wall_color: wallColor, roof_color: roofColor,
-      // Pass through sheets so the renderer can piece the building
-      // together from elevation + roof-plan assembly data.
-      sheets: blueprint.sheets || [],
-      wall_height_ft: blueprint.wall_height_ft,
-      manual_override: blueprint.manual_override,
-    });
+    if (lastBuildHashRef.current === buildHash) return;   // identical → skip
+    lastBuildHashRef.current = buildHash;
+    engineRef.current.build(buildPayload);
     engineRef.current.setVisibility(visibleLayers);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [walls, doors, windows, roofType, roofPitch, wallColor, roofColor, blueprint.sheets, blueprint.wall_height_ft, blueprint.manual_override]);
+  }, [buildHash]);
 
   // 3) Apply visibility on phase/layer changes
   useEffect(() => {
