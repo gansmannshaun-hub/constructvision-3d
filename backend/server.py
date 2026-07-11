@@ -90,7 +90,11 @@ app.include_router(root)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    # `allow_credentials=True` + `allow_origins=["*"]` is a spec-invalid
+    # combo (browsers reject "*" when credentials are used). We're on
+    # Bearer-token auth (no cookies), so credentials aren't needed here —
+    # keeping the wildcard origin permissive for public API access.
+    allow_credentials=False,
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],

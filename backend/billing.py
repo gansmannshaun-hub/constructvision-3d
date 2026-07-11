@@ -495,10 +495,12 @@ def build_router(db, get_current_user) -> APIRouter:
         except Exception as e:
             raise HTTPException(502, f"Stripe error: {e}")
 
-        # Atomic transition: only apply once
-        if chk.payment_status == "paid" and not tx.get("entitlements_applied"):
-            await _apply_entitlements(db, tx)
-            await db.payment_transactions.update_one(
+        # Atomic transition: compare-and-set the guard flag FIRST, then
+        # apply entitlements only if we won the race. This prevents the
+        # webhook + status-poll from both applying the same entitlement
+        # (double-granting add-on credits via $inc).
+        if chk.payment_status == "paid":
+            claim = await db.payment_transactions.update_one(
                 {"session_id": session_id, "entitlements_applied": {"$ne": True}},
                 {"$set": {
                     "status": chk.status,
@@ -509,6 +511,9 @@ def build_router(db, get_current_user) -> APIRouter:
                     "completed_at": now_iso(),
                 }},
             )
+            if claim.modified_count:
+                # We won — safe to apply.
+                await _apply_entitlements(db, tx)
         else:
             await db.payment_transactions.update_one(
                 {"session_id": session_id},
@@ -606,9 +611,9 @@ def build_webhook_router(db) -> APIRouter:
         ps = getattr(event, "payment_status", "")
         if sid and ps == "paid":
             tx = await db.payment_transactions.find_one({"session_id": sid})
-            if tx and not tx.get("entitlements_applied"):
-                await _apply_entitlements(db, tx)
-                await db.payment_transactions.update_one(
+            if tx:
+                # Compare-and-set the guard flag first; only apply if we won.
+                claim = await db.payment_transactions.update_one(
                     {"session_id": sid, "entitlements_applied": {"$ne": True}},
                     {"$set": {
                         "entitlements_applied": True,
@@ -617,6 +622,8 @@ def build_webhook_router(db) -> APIRouter:
                         "webhook_completed_at": now_iso(),
                     }},
                 )
+                if claim.modified_count:
+                    await _apply_entitlements(db, tx)
         return {"ok": True}
 
     return router

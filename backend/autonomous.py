@@ -38,6 +38,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
+import billing as billing_mod
+
 logger = logging.getLogger("autonomous")
 
 # ---- Earthwork constants (industry-standard for common earth) ----
@@ -306,8 +308,20 @@ def build_autonomous_router(db, get_current_user) -> APIRouter:
         proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]})
         if not proj:
             raise HTTPException(404, "Project not found")
+        # Gate on the same upload-credit budget as regular document uploads
+        # so this expensive multi-attempt vision loop can't burn LLM spend
+        # for free-tier users past their quota. Each successful extraction
+        # consumes one upload credit — regardless of how many attempts
+        # the self-correcting loop actually needed.
+        user = await billing_mod.ensure_user_subscription(db, user)
+        ok, reason = await billing_mod.can_upload(db, user)
+        if not ok:
+            raise HTTPException(402, reason or "Upload quota exceeded")
         # 1. Self-correcting extraction
         result = await run_autonomous_extract(payload.image_base64, max_attempts=payload.max_attempts)
+        # Only consume the credit once extraction actually succeeded — the
+        # LLM helper raises 422 on repeated validation failure.
+        await billing_mod.consume_upload_credit(db, user)
         # 2. Earthwork math
         earthwork = compute_earthwork(result["layout"].get("excavation_zones") or [])
         # 3. Persist for the frontend to pick up (attached to the project)

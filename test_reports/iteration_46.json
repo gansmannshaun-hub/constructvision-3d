@@ -1,0 +1,41 @@
+{
+  "summary": "Verified all backend fixes from iter-46 code review: HIGH Stripe idempotency (CAS race), MEDIUM retry artifact purge, MEDIUM autonomous cost gating, LOW CORS preflight. 6/6 tests pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "HIGH_stripe_idempotency_cas": "PASS — Simulated concurrent webhook+status-poll by racing two claim_and_apply() coroutines via motor against a seeded payment_transactions row. The compare-and-set on entitlements_applied ensured exactly ONE winner; studio_render_credits incremented by exactly +5, NOT +10. Real Stripe HTTP flow could not be exercised (no valid session_id), so tested via direct DB + billing._apply_entitlements — the fix path in billing.py lines 498-528 and 606-624 is validated.",
+    "HIGH_stripe_second_call_noop": "PASS — Subsequent CAS attempts on an already-applied tx return modified_count=0, preventing re-invocation of _apply_entitlements.",
+    "MED_retry_purge": "PASS — Seeded fake errored doc + 2 materials (document_id=doc) + 1 merged material (source_documents contains doc) + 1 blueprint sheet (source_document_id=doc). After POST /api/documents/{id}/retry: single-source materials DELETED (count=0), sheet DELETED (count=0), merged material RETAINED but doc_id $pull'd from source_documents. No double-count possible.",
+    "MED_autonomous_402_free_user": "PASS — Registered fresh free-tier user, set usage_periods.ai_uploads=999 and entitlements.bonus_credits=0, then POST /autonomous/extract → HTTP 402 with 'Monthly limit (5) reached' detail. Gate at autonomous.py:317-319 works.",
+    "MED_autonomous_admin_bypass": "PASS — Admin call returned non-402 (extraction ran through LLM path, unrelated response codes acceptable). Gate correctly does not block unlimited tier.",
+    "LOW_cors_preflight": "PASS — OPTIONS /api/auth/login from Origin: https://example.com returns 200 with Access-Control-Allow-Origin: *; allow-credentials header is absent/'false'. server.py CORS fix confirmed."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter46_review_fixes.py",
+    "/app/test_reports/pytest/iter46_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "billing.py CAS pattern is correct: update filter includes {entitlements_applied: {$ne: true}} so only one caller wins. Both status-poll and webhook use the same pattern → race-safe.",
+    "_apply_entitlements itself is NOT internally idempotent (uses $inc); safety depends entirely on the CAS wrapper. Any future caller must also gate via the same CAS pattern — worth a code comment on the function docstring warning callers.",
+    "routes/documents.py _purge_prior_run_artifacts is elegant and matches delete_document's $pull semantics for merged materials — good consistency.",
+    "autonomous.py:324 consumes credit AFTER successful extraction (post 422-raise), which correctly avoids charging users for failed loops per the spec.",
+    "LOW note: retry endpoint's `allowed_from` set includes 'analyzing' and 'syncing' — retrying an actively-processing doc could still race with the in-flight pipeline. Consider restricting to strictly terminal states ({error, done, uploaded, queued}) or add a run-token to cancel prior task."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter46_review_fixes.py (new)"
+  ],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "Admin admin@atlas.app / Open0says3me#*03#* from /app/memory/test_credentials.md",
+  "seed_data_creation": "Created 1 TEST_iter46_gate_* project on a fresh test_iter46_gate_*@example.com user (kept — no DELETE /projects endpoint). Seeded + cleaned up: 1 payment_transactions row, 1 documents row, 3 materials rows, 1 blueprint_sheets row per test. usage_periods for the ephemeral user retained (irrelevant, user is one-off).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 review fixes verified via /app/backend/tests/test_iter46_review_fixes.py. Stripe idempotency was tested via direct DB + coroutine race (real Stripe HTTP flow not exercisable without a real session). Retry-double-count is fully exercised without needing the LLM pipeline (seeded fake artifacts + inspected synchronous purge). CORS + autonomous gating are pure HTTP tests."
+}

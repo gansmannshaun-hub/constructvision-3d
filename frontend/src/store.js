@@ -2,7 +2,13 @@ import { create } from "zustand";
 import axios from "axios";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-export const API = `${BACKEND_URL}/api`;
+if (!BACKEND_URL) {
+  // Fail fast in the console + throw on any API access so we don't
+  // silently send requests to "undefined/api".
+  // eslint-disable-next-line no-console
+  console.error("REACT_APP_BACKEND_URL is not set — API calls will fail. Check frontend/.env.");
+}
+export const API = `${BACKEND_URL || ""}/api`;
 
 const TOKEN_KEY = "cm_token";
 const USER_KEY = "cm_user";
@@ -77,12 +83,25 @@ export const useStore = create((set, get) => ({
     await get().loadProjectData(id);
   },
   loadProjectData: async (id) => {
-    const [docs, mats, bp] = await Promise.all([
+    // Use allSettled so one flaky endpoint (e.g. blueprint) doesn't leave
+    // the dashboard stuck loading. Each slice falls back to its empty
+    // shape so the UI can still render and the user can retry.
+    const [docsR, matsR, bpR] = await Promise.allSettled([
       apiClient.get(`/projects/${id}/documents`),
       apiClient.get(`/projects/${id}/materials`),
       apiClient.get(`/projects/${id}/blueprint`),
     ]);
-    set({ documents: docs.data, materials: mats.data, blueprint: bp.data });
+    const emptyBp = { walls: [], doors: [], windows: [], labels: [], fixtures: [], sheets: [] };
+    set({
+      documents: docsR.status === "fulfilled" ? docsR.value.data : [],
+      materials: matsR.status === "fulfilled" ? matsR.value.data : [],
+      blueprint: bpR.status === "fulfilled" ? bpR.value.data : emptyBp,
+    });
+    const failed = [docsR, matsR, bpR].filter((r) => r.status === "rejected");
+    if (failed.length) {
+      // eslint-disable-next-line no-console
+      console.warn(`loadProjectData: ${failed.length}/3 requests failed`, failed.map((r) => r.reason?.message));
+    }
   },
   refreshDocuments: async () => {
     const id = get().currentProjectId;

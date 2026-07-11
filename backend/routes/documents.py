@@ -1067,6 +1067,24 @@ def build_documents_router(db, get_current_user) -> APIRouter:
             except Exception:
                 pass
 
+    async def _purge_prior_run_artifacts(doc_id: str) -> None:
+        """Wipe materials + blueprint sheets that a doc created on a
+        previous pipeline run so that a retry doesn't double-count.
+
+        - Deletes materials where `document_id == doc_id` (single-source rows).
+        - Pulls `doc_id` from `source_documents` arrays on any merged-into
+          materials (leaves the accumulated quantity intact — same policy
+          as delete_document).
+        - Deletes any `blueprint_sheets` created from this doc so the
+          re-run doesn't spawn a duplicate.
+        """
+        await db.materials.delete_many({"document_id": doc_id})
+        await db.materials.update_many(
+            {"source_documents": doc_id},
+            {"$pull": {"source_documents": doc_id}},
+        )
+        await db.blueprint_sheets.delete_many({"source_document_id": doc_id})
+
     @router.post("/documents/{doc_id}/retry")
     async def retry_document(doc_id: str, user: dict = Depends(get_current_user)):
         """Re-run the analysis pipeline for a document whose earlier run
@@ -1093,6 +1111,9 @@ def build_documents_router(db, get_current_user) -> APIRouter:
         # the user knows to re-upload if they need multi-page re-analysis.
         if doc.get("is_pdf") and (doc.get("pages_total") or 1) > 1:
             logger.warning(f"Retrying multi-page PDF {doc_id} — only first page will be re-analyzed")
+        # Purge any materials / sheets left behind by the previous run so
+        # the re-analysis doesn't double-count via $inc merges.
+        await _purge_prior_run_artifacts(doc_id)
         await db.documents.update_one(
             {"id": doc_id},
             {"$set": {
@@ -1149,6 +1170,9 @@ def build_documents_router(db, get_current_user) -> APIRouter:
                 if not thumb:
                     skipped_no_thumb += 1
                     continue
+                # Purge prior-run artifacts before re-queueing so retries
+                # don't double-count materials or spawn duplicate sheets.
+                await _purge_prior_run_artifacts(doc_id)
                 await db.documents.update_one(
                     {"id": doc_id},
                     {"$set": {

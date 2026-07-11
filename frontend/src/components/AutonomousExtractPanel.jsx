@@ -108,7 +108,7 @@ export default function AutonomousExtractPanel({ onLayout }) {
         ref={inputRef}
         data-testid="autonomous-file-input"
         type="file"
-        accept="image/*,application/pdf"
+        accept="image/*"
         className="hidden"
         onChange={(e) => runExtract(e.target.files?.[0])}
       />

@@ -393,11 +393,12 @@ export default function RendererTab() {
     return () => { cancelled = true; };
   }, [currentProjectId]);
 
-  // Re-sync measurements into the scene when the engine remounts
+  // Sync measurements into the scene whenever they load (from the initial
+  // fetch effect above) or the engine finishes mounting. Prior version had
+  // `[]` deps and fired before `measurements` was populated → dead code.
   useEffect(() => {
     engineRef.current?.setMeasurements(measurements);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [measurements]);
 
   const persistMeasurement = useCallback(async ({ start, end, distance_ft }) => {
     if (!currentProjectId) return;
