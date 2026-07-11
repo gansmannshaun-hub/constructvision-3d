@@ -469,9 +469,34 @@ def _build_pipeline(db):
 
     async def run(doc_id: str, project_id: str, pages_b64: list[str], mime: str) -> None:
         # Serialize per-project pipelines so batch uploads dedup + sheet-order
-        # correctly.
-        async with _project_lock(project_id):
-            await _run_locked(doc_id, project_id, pages_b64, mime, _set_doc_status, _ai_with_retry)
+        # correctly — but with a lock-acquisition timeout so ONE stuck task
+        # can't freeze the whole batch (this was the observed production bug).
+        lock = _project_lock(project_id)
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=180)  # 3 min queue wait
+        except asyncio.TimeoutError:
+            logger.error(f"Pipeline lock acquisition timeout for {doc_id}")
+            await _set_doc_status(doc_id, "error", error="Another upload on this project appears stuck. Click RETRY to try again.")
+            return
+        try:
+            # Cap total pipeline runtime so a single hung AI call can't
+            # block the queue slot indefinitely (15 minutes is well over
+            # the sum of _ai_with_retry timeouts for a 5-page PDF).
+            await asyncio.wait_for(
+                _run_locked(doc_id, project_id, pages_b64, mime, _set_doc_status, _ai_with_retry),
+                timeout=15 * 60,
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Pipeline exceeded 15-min ceiling for {doc_id}")
+            await _set_doc_status(doc_id, "error", error="Pipeline exceeded 15-minute timeout. Click RETRY to re-run.")
+        except Exception as exc:
+            logger.exception(f"Pipeline top-level failure for {doc_id}")
+            await _set_doc_status(doc_id, "error", error=str(exc)[:300])
+        finally:
+            try:
+                lock.release()
+            except Exception:
+                pass
 
     async def _run_locked(doc_id: str, project_id: str, pages_b64: list[str], mime: str,
                           _set_doc_status, _ai_with_retry) -> None:
@@ -1083,5 +1108,41 @@ def build_documents_router(db, get_current_user) -> APIRouter:
         )
         asyncio.create_task(run_pipeline(doc_id, doc["project_id"], [thumb], doc.get("mime_type") or "image/jpeg"))
         return {"ok": True, "retrying": True, "doc_id": doc_id}
+
+    @router.post("/projects/{project_id}/documents/retry-all-errored")
+    async def retry_all_errored_docs(project_id: str, user: dict = Depends(get_current_user)):
+        """Bulk-retry every errored doc in a project that still has a
+        cached thumbnail. Handy after a pod restart flips a batch of docs
+        to error state via the boot-time recovery."""
+        proj = await db.projects.find_one({"id": project_id, "user_id": user["id"]})
+        if not proj:
+            raise HTTPException(404, "Project not found")
+        errored = await db.documents.find(
+            {"project_id": project_id, "status": "error"},
+            {"_id": 0, "id": 1, "mime_type": 1, "image_base64": 1, "is_pdf": 1, "pages_total": 1},
+        ).to_list(500)
+        retried = 0
+        skipped_no_thumb = 0
+        for d in errored:
+            thumb = d.get("image_base64")
+            if not thumb:
+                skipped_no_thumb += 1
+                continue
+            await db.documents.update_one(
+                {"id": d["id"]},
+                {"$set": {
+                    "status": "queued",
+                    "analysis": None,
+                    "materials_count": 0,
+                    "materials_merged": 0,
+                    "materials_skipped": 0,
+                    "synced_3d": False,
+                    "pages_done": 0,
+                    "updated_at": now_iso(),
+                }},
+            )
+            asyncio.create_task(run_pipeline(d["id"], project_id, [thumb], d.get("mime_type") or "image/jpeg"))
+            retried += 1
+        return {"ok": True, "retried": retried, "skipped_no_thumb": skipped_no_thumb, "total_errored": len(errored)}
 
     return router

@@ -555,6 +555,27 @@ email digest with /invite landing.
 - Verified endpoint: HTTP 200 with `{ok, retrying, doc_id}` on real docs;
   404 on unknown ids; 400 on active pipelines.
 
+### Batch-upload freeze fix + lock timeouts + retry-all (2026-02-05)
+- **Root cause of the batch-upload freeze on production**: the per-project
+  `_project_locks[project_id]` had NO timeout. If ONE doc's pipeline hung
+  (AI call stall, cancelled task not releasing, etc.), every subsequent
+  doc uploaded to the same project waited forever inside `async with
+  _project_lock(project_id)`. That's why the user saw 2 docs in
+  UPLOADING and 2 in QUEUED with none progressing — the queue was
+  behind a phantom lock.
+- **Fix in `documents.py` `run()`**: (1) `await asyncio.wait_for(lock.acquire(),
+  timeout=180)` — max 3 min queue wait, then error. (2) Total pipeline
+  runtime capped at `asyncio.wait_for(_run_locked(...), timeout=15*60)` —
+  no single doc can block indefinitely. (3) `try/finally` guarantees
+  lock.release() even on cancellation or top-level exception.
+- New endpoint `POST /api/projects/{id}/documents/retry-all-errored` —
+  bulk-retries every errored doc in a project that still has a cached
+  thumbnail. Returns `{retried, skipped_no_thumb, total_errored}`.
+- New "↻ Retry all errored documents" button (`upload-retry-all-errored`)
+  appears in Documents tab whenever at least one doc is in error state.
+  Reports skipped-no-thumb docs so the user knows which to re-upload.
+- Verified end-to-end via curl (200 + payload; 404 on unknown project).
+
 ### CAD grid spacing + zoom −/+ buttons (2026-02-04 — Complete)
 - New **STEP** dropdown (`cad-grid-step`) in the CAD toolbar offers grid
   spacing options 6", 1', 2', 5', 10'. Selection persists per browser via

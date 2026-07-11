@@ -253,6 +253,30 @@ export default function DocumentsTab() {
           </button>
         </div>
 
+        {/* Retry all errored — visible only when at least one doc is in error state */}
+        {(documents || []).some((d) => d.status === "error") && (
+          <button
+            data-testid="upload-retry-all-errored"
+            type="button"
+            onClick={async () => {
+              try {
+                const { data } = await apiClient.post(`/projects/${currentProjectId}/documents/retry-all-errored`);
+                let msg = `Retrying ${data.retried} document${data.retried === 1 ? "" : "s"}.`;
+                if (data.skipped_no_thumb > 0) {
+                  msg += `\n\n${data.skipped_no_thumb} document${data.skipped_no_thumb === 1 ? " was" : "s were"} skipped because the original page data is no longer cached — please re-upload those files.`;
+                }
+                alert(msg);
+                await refreshDocuments();
+              } catch (e) {
+                alert(`Retry-all failed: ${e?.response?.data?.detail || e?.message || "unknown"}`);
+              }
+            }}
+            className="mt-3 w-full text-xs uppercase tracking-wider font-bold bg-[#FFCC00]/10 border border-[#FFCC00] text-[#FFCC00] hover:bg-[#FFCC00] hover:text-black py-2.5 transition-colors flex items-center justify-center gap-2"
+          >
+            ↻ Retry all errored documents
+          </button>
+        )}
+
         {/* Live batch progress — appears while a multi-file upload is in flight */}
         {batch.length > 0 && (
           <div
