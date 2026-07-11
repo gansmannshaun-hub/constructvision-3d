@@ -913,6 +913,11 @@ export function createSceneEngine(mount) {
 
   let groups = {};
   let animHandle = null;
+  // Only auto-fit the camera the FIRST time the scene builds. Subsequent
+  // rebuilds (e.g. from polling refresh) must NOT reset the camera —
+  // otherwise the user's orbit gets snapped mid-drag. Users can re-fit
+  // manually via the public fitCamera() method.
+  let hasFitCamera = false;
 
   const animate = () => {
     animHandle = requestAnimationFrame(animate);
@@ -1075,17 +1080,36 @@ export function createSceneEngine(mount) {
       }
     }
 
-    // Auto-fit camera
+    // Auto-fit camera — ONLY on the very first build. Subsequent
+    // rebuilds (polling refresh, AI extract, layer toggle) must NEVER
+    // snap the camera — that was resetting the user's orbit mid-drag.
+    // Users can re-fit explicitly via the public fitCamera() method
+    // (wired to the ⌂ FIT button in the UI).
     if (globalAabb && globalAabb.w > 0) {
-      const size = Math.max(globalAabb.w, globalAabb.d, 4);
-      const dist = size * 1.6 + 6;
-      const cx = globalAabb.cx + modelRoot.position.x;
-      const cz = globalAabb.cz + modelRoot.position.z;
-      camera.position.set(cx + dist * 0.65, dist * 0.7, cz + dist * 0.85);
-      controls.target.set(cx, WALL_HEIGHT * 0.5, cz);
-      controls.update();
+      lastAabb = globalAabb;
+      if (!hasFitCamera) {
+        fitCameraToAabb(globalAabb);
+        hasFitCamera = true;
+      }
     }
   }
+
+  // Cache of the most-recent bounding box so fitCamera() can be called
+  // from the outside (e.g., the ⌂ FIT button) without needing a rebuild.
+  let lastAabb = null;
+
+  function fitCameraToAabb(aabb) {
+    if (!aabb || !(aabb.w > 0)) return;
+    const size = Math.max(aabb.w, aabb.d, 4);
+    const dist = size * 1.6 + 6;
+    const cx = aabb.cx + modelRoot.position.x;
+    const cz = aabb.cz + modelRoot.position.z;
+    camera.position.set(cx + dist * 0.65, dist * 0.7, cz + dist * 0.85);
+    controls.target.set(cx, WALL_HEIGHT * 0.5, cz);
+    controls.update();
+  }
+
+  function fitCamera() { fitCameraToAabb(lastAabb); }
 
   function setVisibility(map) {
     for (const id of Object.keys(groups)) {
@@ -1632,7 +1656,7 @@ export function createSceneEngine(mount) {
 
   return { build, setVisibility, setSite,
            setSiteTerrain, clearSiteTerrain, setTerrainExaggeration,
-           tiltCameraOblique,
+           tiltCameraOblique, fitCamera,
            setModelTransform, getModelTransform, enablePlacement,
            captureHiRes, startDolly, getDomElement, dispose,
            enableMeasureTool, setMeasurements, addMeasurement,

@@ -682,6 +682,29 @@ email digest with /invite landing.
 
 
 
+### 2026-02 · 3D camera no longer snaps mid-orbit (P0)
+- Reported by user: "in the 3D render when using orbit the rendered image
+  resets itself mid-orbit" (production).
+- Root cause: `sceneBuilder.js::build()` called `camera.position.set(...)`
+  + `controls.target.set(...)` on EVERY rebuild. Because
+  `RendererTab.jsx` triggers `build()` whenever `blueprint.*` changes
+  (via polling / doc-refresh / any auto-refresh), the camera was being
+  yanked back to the auto-fit view mid-drag.
+- Fix (`sceneBuilder.js`):
+  1. Added a `hasFitCamera` flag — auto-fit runs ONCE on the first
+     successful build. Subsequent rebuilds (polling refresh, AI extract,
+     layer toggle) never touch the camera.
+  2. Extracted the fit math into `fitCameraToAabb()` + a public
+     `fitCamera()` method exposed on the engine's return object.
+  3. Cached the most-recent `globalAabb` as `lastAabb` so `fitCamera()`
+     can be called from the UI without a rebuild.
+- UI: Added a new `⌂ FIT` button (data-testid `renderer-fit-camera`)
+  next to Tape Measure so users can explicitly re-center whenever they
+  want. Disabled while the scene is empty.
+- Note: fix takes effect on production after redeploy.
+
+
+
 
 
 ## Integrations

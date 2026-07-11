@@ -626,6 +626,19 @@ export default function RendererTab() {
               EXIT MEASURE
             </button>
           )}
+          <button
+            data-testid="renderer-fit-camera"
+            onClick={() => engineRef.current?.fitCamera()}
+            disabled={empty}
+            className="label-mono px-3 py-2 bg-black/80 border border-white/20 text-neutral-200 hover:bg-white hover:text-black disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            title="Re-center camera on the model"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/>
+              <rect x="9" y="9" width="6" height="6"/>
+            </svg>
+            FIT
+          </button>
         </div>
 
         {empty && (
