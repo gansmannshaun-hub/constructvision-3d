@@ -534,7 +534,14 @@ def build_router(db, get_current_user) -> APIRouter:
 
 
 async def _apply_entitlements(db, tx: dict) -> None:
-    """Idempotent entitlement application based on transaction's item."""
+    """Apply a paid transaction's entitlements to the user's account.
+
+    WARNING: This function is NOT internally idempotent — it uses $inc on
+    add-on counters, so calling it twice grants credits twice. All callers
+    MUST guard invocation with a compare-and-set on
+    `payment_transactions.entitlements_applied` (see status-poll and
+    webhook handlers for the pattern) so exactly one caller wins the race
+    and this runs exactly once per session_id."""
     item_key = tx.get("item")
     item = CATALOG.get(item_key)
     if not item:

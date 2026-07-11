@@ -724,6 +724,51 @@ email digest with /invite landing.
 - Result: geometry stops being rebuilt during polling → no more flicker,
   and the OrbitControls' internal state is preserved end-to-end.
 
+### 2026-02 · Code review remediation batch (1 HIGH + 2 MED + 4 LOW)
+Verified via testing agent iter46 — 6/6 backend tests pass. Frontend
+changes verified via lint + inspection.
+
+**HIGH — Stripe entitlement double-grant race (`billing.py`)**
+- Before: status-poll and webhook both did `if not entitlements_applied:
+  _apply_entitlements(); update({entitlements_applied:true})`. The two
+  yielded control between check and update → race → add-on credits
+  granted twice.
+- After: BOTH paths compare-and-set the flag FIRST
+  `{session_id, entitlements_applied:{$ne:true}} → {$set:{applied:true}}`
+  and only invoke `_apply_entitlements` when `modified_count == 1`.
+  Added a `WARNING` docstring on `_apply_entitlements` documenting the
+  contract so future callers can't reintroduce the race.
+
+**MED — Retry double-counts materials + spawns duplicate sheets
+(`routes/documents.py`)**
+- Added `_purge_prior_run_artifacts(doc_id)` helper that (1) deletes
+  materials with `document_id == doc_id`, (2) $pulls doc_id from any
+  merged materials' `source_documents` arrays, (3) deletes any
+  `blueprint_sheets` with `source_document_id == doc_id`.
+- Wired into both `retry_document` (single) and `retry_all_errored_docs`
+  (bulk) before re-queueing the pipeline. Retries are now correct.
+
+**MED — Autonomous AI endpoint had no cost gating (`autonomous.py`)**
+- Added `import billing as billing_mod` + `ensure_user_subscription` +
+  `can_upload` guard at the top of `autonomous_extract`. Returns HTTP 402
+  when the user is out of upload credits. Consumes exactly ONE upload
+  credit per SUCCESSFUL extraction (not per attempt in the self-
+  correcting loop). Admin/unlimited tier unaffected.
+
+**LOW — Frontend / infra hardening**
+- `store.js` — `REACT_APP_BACKEND_URL` now fails fast with a console
+  error if missing; `loadProjectData` uses `Promise.allSettled` so one
+  flaky endpoint doesn't leave the dashboard stuck loading.
+- `AutonomousExtractPanel.jsx` — restricted `accept` to `image/*` (was
+  `image/*,application/pdf` but `downscaleToBase64` uses `<img>` which
+  chokes on PDFs).
+- `RendererTab.jsx` — `setMeasurements` sync effect now depends on
+  `[measurements]` instead of `[]` (was dead code).
+- `server.py` — CORS `allow_credentials=false` (was invalid `true` + `*`
+  combo; harmless because we're on Bearer auth, but spec-correct now).
+
+
+
 
 
 
