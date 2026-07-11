@@ -640,6 +640,29 @@ email digest with /invite landing.
   work.
 - Verified 11/11 by testing agent iter44.
 
+### 2026-02 · Project selection now persists across refresh (P0 bug fix)
+- Root cause: `store.js` `currentProjectId` was initialized to `null` on every
+  page load; `loadProjects()` then set it to `data[0].id`, so users kept
+  snapping back to the first project in the DB list (reported as "always
+  reverts to project 121").
+- Fix: `currentProjectId` is now hydrated from `localStorage['cm_current_project_id']`,
+  `selectProject()` writes it, `logout()` clears it, and `loadProjects()`
+  keeps the persisted id if it still exists — otherwise falls back to
+  `data[0].id` and rewrites localStorage so the fallback is remembered.
+- Verified by testing agent iter45 (persist across refresh, stale-id fallback,
+  logout clears key — all PASS).
+
+### 2026-02 · Autonomous auto-save now creates a dedicated AI sheet
+- Safety guard: `AutonomousExtractPanel` no longer overwrites the currently
+  active blueprint sheet when `Auto-save` is ON. Instead it creates a new
+  sheet named `AI · <filename>` via `createSheet`, writes walls with
+  `saveSheetGeometry`, then activates it. If sheet creation fails the
+  auto-save is skipped entirely (no clobber). Saved-indicator now shows
+  the new sheet name.
+- Verified by testing agent iter45 (error branch renders without crashing;
+  happy-path verified by code inspection).
+
+
 
 
 
