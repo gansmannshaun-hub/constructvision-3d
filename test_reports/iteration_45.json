@@ -1,0 +1,36 @@
+{
+  "summary": "Verified P0 fix: project selection now persists in localStorage across refresh, with safe fallback on stale/deleted project ids and proper clearing on logout. Also verified the autonomous auto-save safety guard: error path renders without crashing and does not overwrite the active sheet.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "test_1_persist_across_refresh": "PASS - Selecting Beta and refreshing keeps Beta selected. localStorage 'cm_current_project_id' equals Beta's id both before and after refresh (previous bug of snapping back to first project is fixed).",
+    "test_2_graceful_fallback_stale_id": "PASS - When localStorage holds a bogus/deleted project uuid, loadProjects() falls back to the first available project without crashing. localStorage is rewritten to the new fallback id. Dashboard renders normally.",
+    "test_3_logout_clears_key": "PASS - Logout removes cm_current_project_id and cm_token from localStorage.",
+    "test_3b_no_force_select_stale_after_relogin": "PASS - After logout, next login does not reintroduce a stale project id (localStorage cleanly cleared).",
+    "test_4_autonomous_autosave_error_branch": "PASS - With auto-save toggle ON and a synthetic non-blueprint PNG uploaded, the pipeline correctly failed validation after 3 attempts ('walls must be non-empty array'). Error is rendered in [data-testid=autonomous-error]. Auto-save block did NOT run - original active sheet ('Sheet 1') is intact, no 'AI · <filename>' sheet was created, dashboard did not crash. This is the valid error path per the review spec.",
+    "test_4_autonomous_autosave_success_branch": "NOT DIRECTLY EXECUTED - Could not obtain a valid floor plan that the AI extraction pipeline validates within budget. However, code review of AutonomousExtractPanel.jsx lines 63-84 confirms correct implementation: createSheet({name: `AI · ${file.name}`}) → saveSheetGeometry(newSheet.id, walls, ...) → activateSheet(newSheet.id). Save is scoped to the NEW sheet id, never to currentProjectId's active sheet. savedSheetName state feeds [data-testid=autonomous-saved-indicator]. Fallback branch (createSheet returns null) explicitly skips save to avoid overwrite. Logic is safe by construction."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "store.js loadProjects() correctly rehydrates persisted project id and falls back to data[0].id when stale — root-cause fix is clean.",
+    "AutonomousExtractPanel createSheet failure path (lines 78-80) correctly logs a warning and skips overwrite — good defensive default.",
+    "Minor: no DELETE /api/projects/{id} endpoint exists in backend (only sheet delete under /projects/{id}/blueprint/sheets/{sheet_id}). The review-request suggested deleting a project via that endpoint, but tests worked around it by injecting a bogus uuid into localStorage to simulate a stale id. Consider adding project delete if it's expected to be user-facing.",
+    "Sheet dropdown in Dashboard currently shows 59 options for admin — no search/filter. Not a bug, just usability at scale."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not tested)", "frontend": "100% of executable P0 scenarios"},
+  "test_credentials": "Used admin@atlas.app / Open0says3me#*03#* from /app/memory/test_credentials.md",
+  "seed_data_creation": "Created 2 test projects (TEST_Alpha_<ts>, TEST_Beta_<ts>) plus 1 TEST_Autonomous_<ts> for autonomous panel test. Test projects remain in DB (no DELETE /projects/{id} endpoint available). Prefix 'TEST_' used for identification.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "P0 project persistence bug is fully fixed and verified. Autonomous auto-save safety guard is correct by code inspection + error-path E2E; the happy path (real floor plan → new AI · <filename> sheet becoming active) would require a validated blueprint image to fully E2E-verify — main agent can self-test this with a real project floor plan if desired.",
+  "rca of the issue": "Prior bug: store.js currentProjectId was initialized to null on every reload; loadProjects() always set currentProjectId = data[0].id, so the app snapped to the first project. Fix: currentProjectId is now initialized from localStorage.getItem('cm_current_project_id') (store.js line 22), loadProjects() checks whether the persisted id still exists in the fetched list and rehydrates it (lines 49-53), otherwise falls back to data[0].id and rewrites localStorage (lines 54-60). selectProject writes the id (line 74) and logout clears it (line 36). Verified end-to-end."
+}

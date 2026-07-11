@@ -6,6 +6,7 @@ export const API = `${BACKEND_URL}/api`;
 
 const TOKEN_KEY = "cm_token";
 const USER_KEY = "cm_user";
+const PROJECT_KEY = "cm_current_project_id";
 
 export const apiClient = axios.create({ baseURL: API });
 apiClient.interceptors.request.use((cfg) => {
@@ -18,7 +19,7 @@ export const useStore = create((set, get) => ({
   user: JSON.parse(localStorage.getItem(USER_KEY) || "null"),
   token: localStorage.getItem(TOKEN_KEY),
   projects: [],
-  currentProjectId: null,
+  currentProjectId: localStorage.getItem(PROJECT_KEY) || null,
   documents: [],
   materials: [],
   blueprint: { walls: [], doors: [], windows: [], labels: [], fixtures: [] },
@@ -32,15 +33,30 @@ export const useStore = create((set, get) => ({
   logout: () => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(PROJECT_KEY);
     set({ token: null, user: null, projects: [], currentProjectId: null });
   },
 
   loadProjects: async () => {
     const { data } = await apiClient.get("/projects");
     set({ projects: data });
-    if (!get().currentProjectId && data.length) {
-      set({ currentProjectId: data[0].id });
-      await get().loadProjectData(data[0].id);
+    if (!data.length) {
+      // No projects → clear any stale saved ID.
+      localStorage.removeItem(PROJECT_KEY);
+      set({ currentProjectId: null });
+      return data;
+    }
+    const persisted = get().currentProjectId;
+    const stillExists = persisted && data.some((p) => p.id === persisted);
+    if (stillExists) {
+      // Rehydrate data for the previously selected project.
+      await get().loadProjectData(persisted);
+    } else {
+      // Persisted project no longer exists (or none saved) → fall back to first.
+      const firstId = data[0].id;
+      localStorage.setItem(PROJECT_KEY, firstId);
+      set({ currentProjectId: firstId });
+      await get().loadProjectData(firstId);
     }
     return data;
   },
@@ -55,6 +71,8 @@ export const useStore = create((set, get) => ({
     }
   },
   selectProject: async (id) => {
+    if (id) localStorage.setItem(PROJECT_KEY, id);
+    else localStorage.removeItem(PROJECT_KEY);
     set({ currentProjectId: id });
     await get().loadProjectData(id);
   },

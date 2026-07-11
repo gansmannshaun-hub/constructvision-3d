@@ -12,11 +12,14 @@ import { apiClient, useStore } from "../store";
  */
 export default function AutonomousExtractPanel({ onLayout }) {
   const projectId = useStore((s) => s.currentProjectId);
-  const saveBlueprint = useStore((s) => s.saveBlueprint);
+  const createSheet = useStore((s) => s.createSheet);
+  const activateSheet = useStore((s) => s.activateSheet);
+  const saveSheetGeometry = useStore((s) => s.saveSheetGeometry);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [savedAt, setSavedAt] = useState(null);   // ISO timestamp of most recent auto-save
+  const [savedSheetName, setSavedSheetName] = useState(null);
   const [autoSave, setAutoSave] = useState(() => localStorage.getItem("atlas-autonomous-autosave") === "1");
   const inputRef = useRef(null);
 
@@ -53,8 +56,10 @@ export default function AutonomousExtractPanel({ onLayout }) {
       );
       setResult(data);
       if (typeof onLayout === "function") onLayout(data.layout, data.earthwork);
-      // Auto-save the validated walls to the active blueprint sheet so the
-      // pipeline is truly zero-intervention end-to-end.
+      // Auto-save the validated walls into a NEW dedicated sheet named
+      // "AI · <filename>" so we never overwrite whatever the user was
+      // actively editing. This makes the pipeline truly zero-intervention
+      // AND safe by default.
       if (autoSave && data.layout?.walls?.length) {
         try {
           const walls = data.layout.walls.map((w, i) => ({
@@ -63,9 +68,16 @@ export default function AutonomousExtractPanel({ onLayout }) {
             end: w.end,
             thickness: w.thickness_ft,
           }));
-          const bp = useStore.getState().blueprint || {};
-          await saveBlueprint(walls, bp.doors || [], bp.windows || [], bp.labels || [], { fixtures: bp.fixtures || [] });
-          setSavedAt(new Date().toISOString());
+          const sheetName = `AI · ${(file.name || "extract").slice(0, 40)}`;
+          const newSheet = await createSheet({ name: sheetName });
+          if (newSheet?.id) {
+            await saveSheetGeometry(newSheet.id, walls, [], [], [], []);
+            await activateSheet(newSheet.id);
+            setSavedAt(new Date().toISOString());
+            setSavedSheetName(sheetName);
+          } else {
+            console.warn("Auto-save: createSheet failed, skipping to avoid overwrite.");
+          }
         } catch (saveErr) {
           console.warn("Auto-save after autonomous extract failed:", saveErr);
         }
@@ -79,7 +91,7 @@ export default function AutonomousExtractPanel({ onLayout }) {
     } finally {
       setBusy(false);
     }
-  }, [projectId, onLayout, autoSave, saveBlueprint]);
+  }, [projectId, onLayout, autoSave, createSheet, activateSheet, saveSheetGeometry]);
 
   return (
     <div data-testid="autonomous-panel" className="border border-[#00E5FF]/40 bg-black/60 p-4 space-y-3 font-mono text-xs">
@@ -109,8 +121,8 @@ export default function AutonomousExtractPanel({ onLayout }) {
           className="accent-[#00E5FF]"
         />
         <span className="flex-1">
-          <span className="text-neutral-200">Auto-save to active sheet</span>
-          <span className="block text-[10px] text-neutral-500 mt-0.5">Writes validated walls straight into the blueprint — no manual Save & Sync.</span>
+          <span className="text-neutral-200">Auto-save to a new sheet</span>
+          <span className="block text-[10px] text-neutral-500 mt-0.5">Writes validated walls into a new <span className="text-[#00E5FF]">AI · {`<filename>`}</span> sheet — never overwrites your active sheet.</span>
         </span>
       </label>
 
@@ -126,7 +138,7 @@ export default function AutonomousExtractPanel({ onLayout }) {
       {savedAt && !busy && (
         <div data-testid="autonomous-saved-indicator" className="flex items-center gap-2 text-[10px] text-[#00E5FF]">
           <span className="w-1.5 h-1.5 bg-[#00E5FF]" />
-          Saved to active sheet · {new Date(savedAt).toLocaleTimeString()}
+          Saved to {savedSheetName ? <span className="text-white">{savedSheetName}</span> : "active sheet"} · {new Date(savedAt).toLocaleTimeString()}
         </div>
       )}
 
