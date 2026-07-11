@@ -591,6 +591,18 @@ email digest with /invite landing.
   needed. If a full R3F migration is desired later, it's a separate
   refactor.
 
+### Autonomous auto-save toggle (2026-02-05 — Complete)
+- Added **"Auto-save to active sheet"** checkbox (`autonomous-autosave-toggle`)
+  in the AutonomousExtractPanel. When enabled, a successful validation
+  calls `saveBlueprint(walls, ...)` immediately after the layout resolves,
+  writing the AI-extracted walls straight into the active blueprint sheet
+  — no manual Save & Sync needed. Toggle persists per browser via
+  `localStorage['atlas-autonomous-autosave']`.
+- On successful auto-save, a cyan `● Saved to active sheet · HH:MM:SS`
+  indicator (`autonomous-saved-indicator`) appears below the button.
+  Save failures are silent (logged to console) so the extract result
+  isn't clobbered by a persistence hiccup.
+
 ### Batch-upload freeze fix + lock timeouts + retry-all (2026-02-05)
 - **Root cause of the batch-upload freeze on production**: the per-project
   `_project_locks[project_id]` had NO timeout. If ONE doc's pipeline hung

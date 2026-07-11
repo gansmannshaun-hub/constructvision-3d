@@ -12,10 +12,17 @@ import { apiClient, useStore } from "../store";
  */
 export default function AutonomousExtractPanel({ onLayout }) {
   const projectId = useStore((s) => s.currentProjectId);
+  const saveBlueprint = useStore((s) => s.saveBlueprint);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);   // ISO timestamp of most recent auto-save
+  const [autoSave, setAutoSave] = useState(() => localStorage.getItem("atlas-autonomous-autosave") === "1");
   const inputRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem("atlas-autonomous-autosave", autoSave ? "1" : "0");
+  }, [autoSave]);
 
   // Hydrate from the latest saved extraction on mount / project switch.
   useEffect(() => {
@@ -46,6 +53,23 @@ export default function AutonomousExtractPanel({ onLayout }) {
       );
       setResult(data);
       if (typeof onLayout === "function") onLayout(data.layout, data.earthwork);
+      // Auto-save the validated walls to the active blueprint sheet so the
+      // pipeline is truly zero-intervention end-to-end.
+      if (autoSave && data.layout?.walls?.length) {
+        try {
+          const walls = data.layout.walls.map((w, i) => ({
+            id: w.id || `auto-w${i + 1}`,
+            start: w.start,
+            end: w.end,
+            thickness: w.thickness_ft,
+          }));
+          const bp = useStore.getState().blueprint || {};
+          await saveBlueprint(walls, bp.doors || [], bp.windows || [], bp.labels || [], { fixtures: bp.fixtures || [] });
+          setSavedAt(new Date().toISOString());
+        } catch (saveErr) {
+          console.warn("Auto-save after autonomous extract failed:", saveErr);
+        }
+      }
     } catch (e) {
       const d = e?.response?.data?.detail;
       const msg = typeof d === "object"
@@ -55,7 +79,7 @@ export default function AutonomousExtractPanel({ onLayout }) {
     } finally {
       setBusy(false);
     }
-  }, [projectId, onLayout]);
+  }, [projectId, onLayout, autoSave, saveBlueprint]);
 
   return (
     <div data-testid="autonomous-panel" className="border border-[#00E5FF]/40 bg-black/60 p-4 space-y-3 font-mono text-xs">
@@ -76,6 +100,20 @@ export default function AutonomousExtractPanel({ onLayout }) {
         className="hidden"
         onChange={(e) => runExtract(e.target.files?.[0])}
       />
+      <label className="flex items-center gap-2 cursor-pointer border border-white/10 bg-black/40 px-3 py-2">
+        <input
+          data-testid="autonomous-autosave-toggle"
+          type="checkbox"
+          checked={autoSave}
+          onChange={(e) => setAutoSave(e.target.checked)}
+          className="accent-[#00E5FF]"
+        />
+        <span className="flex-1">
+          <span className="text-neutral-200">Auto-save to active sheet</span>
+          <span className="block text-[10px] text-neutral-500 mt-0.5">Writes validated walls straight into the blueprint — no manual Save & Sync.</span>
+        </span>
+      </label>
+
       <button
         data-testid="autonomous-run"
         onClick={() => inputRef.current?.click()}
@@ -84,6 +122,13 @@ export default function AutonomousExtractPanel({ onLayout }) {
       >
         {busy ? "Extracting + validating…" : "Extract → validate → render"}
       </button>
+
+      {savedAt && !busy && (
+        <div data-testid="autonomous-saved-indicator" className="flex items-center gap-2 text-[10px] text-[#00E5FF]">
+          <span className="w-1.5 h-1.5 bg-[#00E5FF]" />
+          Saved to active sheet · {new Date(savedAt).toLocaleTimeString()}
+        </div>
+      )}
 
       {error && (
         <div data-testid="autonomous-error" className="border border-[#FF3333] bg-[#FF3333]/10 p-3 whitespace-pre-wrap text-[#FF6666]">
