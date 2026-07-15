@@ -7,9 +7,10 @@ const SECTIONS = [
   { id: "users", label: "Users", hint: "02" },
   { id: "projects", label: "Projects", hint: "03" },
   { id: "billing", label: "Billing", hint: "04" },
-  { id: "settings", label: "System", hint: "05" },
-  { id: "ai", label: "AI Engine", hint: "06" },
-  { id: "audit", label: "Audit Log", hint: "07" },
+  { id: "waitlist", label: "Waitlist", hint: "05" },
+  { id: "settings", label: "System", hint: "06" },
+  { id: "ai", label: "AI Engine", hint: "07" },
+  { id: "audit", label: "Audit Log", hint: "08" },
 ];
 
 const fmtUSD = (n) =>
@@ -59,6 +60,9 @@ export default function Admin() {
           apiClient.get("/admin/billing/transactions"),
         ]);
         setData((d) => ({ ...d, billing: sum.data, txns: txns.data }));
+      } else if (s === "waitlist") {
+        const { data } = await apiClient.get("/admin/waitlist");
+        setData((d) => ({ ...d, waitlist: data }));
       } else if (s === "settings") {
         const { data } = await apiClient.get("/admin/settings");
         setData((d) => ({ ...d, settings: data }));
@@ -131,6 +135,7 @@ export default function Admin() {
           {section === "users" && <Users users={data.users || []} reload={() => loadSection("users")} />}
           {section === "projects" && <Projects projects={data.projects || []} />}
           {section === "billing" && <BillingSection billing={data.billing} txns={data.txns || []} />}
+          {section === "waitlist" && <WaitlistSection waitlist={data.waitlist} />}
           {section === "settings" && <SystemSettings settings={data.settings} reload={() => loadSection("settings")} />}
           {section === "ai" && <AiSettings ai={data.ai} reload={() => loadSection("ai")} />}
           {section === "audit" && <AuditLog rows={data.audit || []} />}
@@ -531,6 +536,110 @@ function BillingSection({ billing, txns }) {
     </div>
   );
 }
+
+function WaitlistSection({ waitlist }) {
+  const [q, setQ] = useState("");
+  const [appFilter, setAppFilter] = useState("all");
+  if (!waitlist) return <div className="text-neutral-500">Loading…</div>;
+  const { total = 0, by_app = {}, signups = [] } = waitlist;
+  const apps = Object.keys(by_app);
+  const filtered = signups.filter((s) => {
+    if (appFilter !== "all" && s.app_id !== appFilter) return false;
+    if (q && !s.email.toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  });
+  const exportCsv = () => {
+    const header = "email,app_id,created_at\n";
+    const rows = filtered.map((s) => `${s.email},${s.app_id},${s.created_at}`).join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `waitlist-${appFilter === "all" ? "all" : appFilter}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <div data-testid="admin-waitlist" className="space-y-6">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Stat label="Total signups" value={total} accent="#00E5FF" />
+        {apps.slice(0, 3).map((appId) => (
+          <Stat key={appId} label={appId} value={by_app[appId]} accent="#FFCC00" />
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          data-testid="admin-waitlist-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Filter by email…"
+          className="flex-1 min-w-[240px] bg-[#141414] border border-white/10 px-3 py-2 text-sm text-white font-mono focus:border-[#FF6666] focus:outline-none"
+        />
+        <select
+          data-testid="admin-waitlist-app-filter"
+          value={appFilter}
+          onChange={(e) => setAppFilter(e.target.value)}
+          className="bg-[#141414] border border-white/10 px-3 py-2 text-sm text-white font-mono focus:border-[#FF6666] focus:outline-none"
+        >
+          <option value="all">All apps ({total})</option>
+          {apps.map((a) => (
+            <option key={a} value={a}>{a} ({by_app[a]})</option>
+          ))}
+        </select>
+        <button
+          data-testid="admin-waitlist-export"
+          onClick={exportCsv}
+          disabled={filtered.length === 0}
+          className="label-mono px-4 py-2 bg-[#FFCC00] text-black hover:bg-[#E6B800] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          EXPORT CSV ({filtered.length})
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="border border-white/10 bg-[#141414] overflow-hidden">
+        {filtered.length === 0 ? (
+          <div className="p-8 text-center text-neutral-500 text-sm font-mono">
+            {signups.length === 0 ? "No waitlist signups yet — share your preview microsites to start collecting." : "No signups match your filter."}
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="border-b border-white/10 text-neutral-500 label-mono">
+              <tr>
+                <th className="text-left px-4 py-3">Email</th>
+                <th className="text-left px-4 py-3">App</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Joined</th>
+                <th className="text-left px-4 py-3 hidden lg:table-cell">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((s) => (
+                <tr
+                  key={`${s.email}-${s.app_id}`}
+                  data-testid={`admin-waitlist-row-${s.email}`}
+                  className="border-b border-white/5 hover:bg-white/[0.02]"
+                >
+                  <td className="px-4 py-3 font-mono text-white">{s.email}</td>
+                  <td className="px-4 py-3">
+                    <span className="label-mono text-[#00E5FF]">{s.app_id}</span>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-neutral-400 hidden md:table-cell">
+                    {new Date(s.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                  </td>
+                  <td className="px-4 py-3 text-neutral-500 hidden lg:table-cell">{s.note || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function SystemSettings({ settings, reload }) {
   const [catalogText, setCatalogText] = useState("");

@@ -769,6 +769,15 @@ changes verified via lint + inspection.
 
 
 
+### 2026-02 · Admin panel: Waitlist widget
+- New Admin sidebar section: **Waitlist** (`data-testid="admin-nav-waitlist"`)
+- Reads `GET /api/admin/waitlist` and renders:
+  - Summary stat cards (total + per-app counts)
+  - Search-by-email + per-app dropdown filter
+  - Full signups table (email, app, joined timestamp, optional note)
+  - One-click CSV export of the current filtered view (client-side blob)
+- Renumbered downstream sections (System=06, AI=07, Audit=08).
+
 ### 2026-02 · Multi-app Studio Hub — 2 preview microsites + waitlist
 The Gonzo Labs landing already had an Apps grid with Atlas (live) plus
 three "coming soon" placeholders. Wired the two named apps
