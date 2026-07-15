@@ -769,6 +769,49 @@ changes verified via lint + inspection.
 
 
 
+### 2026-02 · Multi-app Studio Hub — 2 preview microsites + waitlist
+The Gonzo Labs landing already had an Apps grid with Atlas (live) plus
+three "coming soon" placeholders. Wired the two named apps
+(Vision CAD, Site Vision) into full case-study microsites and hooked
+their CTAs into a real waitlist backend.
+
+**New app microsites**
+- `/apps/vision-cad` — Vision CAD (SketchUp-style browser CAD). Cyan
+  accent. 5 chapter case-study, editorial preview panels, waitlist CTA.
+- `/apps/site-vision` — Site Vision (photoreal 3D rendering). Orange
+  accent. 5 chapter case-study, same layout, tailored copy.
+- `/apps/app-04` — TBD placeholder (unchanged, keeps `SoonDetail`).
+- Landing card grid renders `preview` apps at the same big card size as
+  `live` (col-span-6) — Atlas and Vision CAD share row 1, Site Vision +
+  TBD share row 2.
+
+**Waitlist backend (`routes/waitlist.py`)**
+- `POST /api/waitlist/join` (public, no auth) — validates email, dedupes
+  on `(email, app_id)` via upsert.
+- `GET /api/admin/waitlist` (admin only) — returns all signups with
+  per-app counts. Ready for a future admin panel widget.
+- Wired into `server.py` alongside the other feature routers.
+
+**Data model (`data/apps.js`)**
+- New `status: "preview"` (between `live` and `soon`). Preview apps must
+  provide the same `detail` block as Atlas (role, headline, lede,
+  hero_bullets, cta_primary/secondary, chapters, stats). An `accent`
+  hex controls per-app color theming across cards, headers, chapter
+  numerals, corner brackets, CTA buttons, and the waitlist form focus.
+
+**Shared UI (`pages/AppDetail.jsx`)**
+- Renamed `LiveDetail` → `FeatureDetail`; now handles both live + preview
+  based on `app.status`. Preview apps swap the primary CTA for an
+  `#waitlist` anchor and render a `<WaitlistSection>` at the bottom
+  instead of the "Ready when you are" strip.
+- Non-Atlas chapter visuals fall back to a stylised `<PreviewPanel>`
+  (oversized chapter numeral + dot-grid + accent flare) so each panel
+  still looks intentional without needing real product screenshots.
+- `RelatedApps` now shows a `· PREVIEW ·` badge in cyan for preview
+  status.
+
+
+
 
 
 

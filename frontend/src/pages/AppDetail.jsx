@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link, useParams, Navigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowUpRight, ArrowLeft, Mail } from "lucide-react";
-import { useStore } from "@/store";
+import { ArrowUpRight, ArrowLeft, Mail, Check } from "lucide-react";
+import { useStore, apiClient } from "@/store";
 import { getApp, APPS } from "@/data/apps";
 import MockAtlasBlueprint from "@/components/landing/MockAtlasBlueprint";
 import { AppScreenshot } from "@/components/landing/AppScreenshot";
@@ -52,10 +52,14 @@ function Nav({ token }) {
 }
 
 // =====================================================================
-// LIVE APP DETAIL — Atlas gets the full treatment
+// FEATURE DETAIL — used for both LIVE (Atlas) and PREVIEW (waitlist) apps.
+// The only differences: accent color, chapter visuals, and CTA behavior.
+// Preview apps swap the primary CTA for an inline waitlist email form.
 // =====================================================================
-function LiveDetail({ app }) {
+function FeatureDetail({ app }) {
   const d = app.detail;
+  const accent = app.accent || "#FFCC00";
+  const isPreview = app.status === "preview";
   return (
     <>
       {/* HERO */}
@@ -68,9 +72,13 @@ function LiveDetail({ app }) {
                   <ArrowLeft size={12} /> ALL APPS
                 </Link>
                 <span className="text-neutral-700">·</span>
-                <span className="label-mono text-[#FFCC00]">{d.role}</span>
+                <span className="label-mono" style={{ color: accent }}>{d.role}</span>
               </motion.div>
-              <motion.div variants={fadeUp} className="font-serif-editorial text-[#FFCC00] text-6xl md:text-8xl leading-none tracking-tighter">
+              <motion.div
+                variants={fadeUp}
+                className="font-serif-editorial text-6xl md:text-8xl leading-none tracking-tighter"
+                style={{ color: accent }}
+              >
                 {app.name}.
               </motion.div>
               <motion.h1 variants={fadeUp} className="mt-6 font-serif-editorial text-white text-3xl md:text-5xl lg:text-6xl leading-[1.02] tracking-tight max-w-3xl">
@@ -80,14 +88,27 @@ function LiveDetail({ app }) {
                 {d.lede}
               </motion.p>
               <motion.div variants={fadeUp} className="mt-10 flex flex-wrap items-center gap-4">
-                <Link
-                  to={d.cta_primary.to}
-                  data-testid="app-detail-primary-cta"
-                  className="group inline-flex items-center gap-3 bg-[#FFCC00] text-black font-semibold px-6 py-3.5 hover:bg-[#E6B800] transition-all duration-300 hover:-translate-y-0.5"
-                >
-                  {d.cta_primary.label}
-                  <ArrowUpRight size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                </Link>
+                {isPreview ? (
+                  <a
+                    href="#waitlist"
+                    data-testid="app-detail-primary-cta"
+                    className="group inline-flex items-center gap-3 text-black font-semibold px-6 py-3.5 hover:-translate-y-0.5 transition-all duration-300"
+                    style={{ backgroundColor: accent }}
+                  >
+                    {d.cta_primary.label}
+                    <ArrowUpRight size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                  </a>
+                ) : (
+                  <Link
+                    to={d.cta_primary.to}
+                    data-testid="app-detail-primary-cta"
+                    className="group inline-flex items-center gap-3 text-black font-semibold px-6 py-3.5 hover:-translate-y-0.5 transition-all duration-300"
+                    style={{ backgroundColor: accent }}
+                  >
+                    {d.cta_primary.label}
+                    <ArrowUpRight size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                  </Link>
+                )}
                 <Link
                   to={d.cta_secondary.to}
                   data-testid="app-detail-secondary-cta"
@@ -128,43 +149,51 @@ function LiveDetail({ app }) {
       <section data-testid="app-detail-chapters" className="py-24 md:py-32">
         <div className="w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-16 space-y-24 md:space-y-32">
           {d.chapters.map((c, i) => (
-            <ChapterRow key={c.n} chapter={c} i={i} />
+            <ChapterRow key={c.n} chapter={c} i={i} app={app} accent={accent} />
           ))}
         </div>
       </section>
 
-      {/* CTA STRIP */}
-      <section data-testid="app-detail-cta-strip" className="border-t border-[#262626] py-24 md:py-32">
-        <div className="w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-16">
-          <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-8">
-            <div>
-              <div className="flex items-center gap-3 mb-6">
-                <span className="w-8 h-px bg-[#FFCC00]" />
-                <span className="label-mono text-[#FFCC00]">// READY WHEN YOU ARE</span>
+      {/* PREVIEW-ONLY WAITLIST · LIVE-ONLY FINAL CTA */}
+      {isPreview ? (
+        <WaitlistSection app={app} accent={accent} />
+      ) : (
+        <section data-testid="app-detail-cta-strip" className="border-t border-[#262626] py-24 md:py-32">
+          <div className="w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-16">
+            <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-8">
+              <div>
+                <div className="flex items-center gap-3 mb-6">
+                  <span className="w-8 h-px" style={{ backgroundColor: accent }} />
+                  <span className="label-mono" style={{ color: accent }}>// READY WHEN YOU ARE</span>
+                </div>
+                <h2 className="font-serif-editorial text-white text-5xl md:text-6xl lg:text-7xl leading-[0.95] tracking-tighter max-w-3xl">
+                  Start with a blueprint.<br /><em className="italic text-neutral-500">See the building in a minute.</em>
+                </h2>
               </div>
-              <h2 className="font-serif-editorial text-white text-5xl md:text-6xl lg:text-7xl leading-[0.95] tracking-tighter max-w-3xl">
-                Start with a blueprint.<br /><em className="italic text-neutral-500">See the building in a minute.</em>
-              </h2>
-            </div>
-            <div className="flex flex-wrap items-center gap-4 md:shrink-0">
-              <Link
-                to={d.cta_primary.to}
-                data-testid="app-detail-footer-cta"
-                className="group inline-flex items-center gap-3 bg-[#FFCC00] text-black font-semibold px-8 py-4 hover:bg-[#E6B800] transition-all hover:-translate-y-0.5"
-              >
-                {d.cta_primary.label}
-                <ArrowUpRight size={18} />
-              </Link>
-              <Link to="/#pricing" className="text-sm text-neutral-400 hover:text-white transition-colors underline underline-offset-4">See pricing</Link>
+              <div className="flex flex-wrap items-center gap-4 md:shrink-0">
+                <Link
+                  to={d.cta_primary.to}
+                  data-testid="app-detail-footer-cta"
+                  className="group inline-flex items-center gap-3 text-black font-semibold px-8 py-4 hover:-translate-y-0.5 transition-all"
+                  style={{ backgroundColor: accent }}
+                >
+                  {d.cta_primary.label}
+                  <ArrowUpRight size={18} />
+                </Link>
+                <Link to="/#pricing" className="text-sm text-neutral-400 hover:text-white transition-colors underline underline-offset-4">See pricing</Link>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
     </>
   );
 }
 
-function ChapterRow({ chapter, i }) {
+// Back-compat alias — some places may still reference LiveDetail.
+const LiveDetail = FeatureDetail;
+
+function ChapterRow({ chapter, i, app, accent = "#FFCC00" }) {
   const flipped = i % 2 === 1;
   return (
     <motion.div
@@ -177,7 +206,7 @@ function ChapterRow({ chapter, i }) {
     >
       <motion.div variants={fadeUp} className="lg:col-span-6 lg:[direction:ltr]">
         <div className="flex items-center gap-4 mb-6">
-          <div className="font-serif-editorial text-[#FFCC00] text-6xl leading-none">{chapter.n}</div>
+          <div className="font-serif-editorial text-6xl leading-none" style={{ color: accent }}>{chapter.n}</div>
           <div>
             <div className="label-mono text-[#00E5FF]">{chapter.tag}</div>
           </div>
@@ -188,29 +217,170 @@ function ChapterRow({ chapter, i }) {
         <p className="mt-6 text-neutral-400 text-lg leading-relaxed max-w-xl">{chapter.body}</p>
       </motion.div>
       <motion.div variants={fadeUp} className="lg:col-span-6 lg:[direction:ltr] aspect-[4/3] border border-[#262626] overflow-hidden bg-[#141414] relative">
-        <ChapterVisual n={chapter.n} />
-        <div className="pointer-events-none absolute top-3 left-3 w-4 h-4 border-t border-l border-[#FFCC00]" />
-        <div className="pointer-events-none absolute top-3 right-3 w-4 h-4 border-t border-r border-[#FFCC00]" />
-        <div className="pointer-events-none absolute bottom-3 left-3 w-4 h-4 border-b border-l border-[#FFCC00]" />
-        <div className="pointer-events-none absolute bottom-3 right-3 w-4 h-4 border-b border-r border-[#FFCC00]" />
+        <ChapterVisual n={chapter.n} appId={app?.id} accent={accent} chapter={chapter} />
+        <div className="pointer-events-none absolute top-3 left-3 w-4 h-4 border-t border-l" style={{ borderColor: accent }} />
+        <div className="pointer-events-none absolute top-3 right-3 w-4 h-4 border-t border-r" style={{ borderColor: accent }} />
+        <div className="pointer-events-none absolute bottom-3 left-3 w-4 h-4 border-b border-l" style={{ borderColor: accent }} />
+        <div className="pointer-events-none absolute bottom-3 right-3 w-4 h-4 border-b border-r" style={{ borderColor: accent }} />
       </motion.div>
     </motion.div>
   );
 }
 
-function ChapterVisual({ n }) {
-  // Real Atlas UI screenshots for the first three chapters (blueprint AI,
-  // CAD editor, 3D renderer). Map + Pay + Field + Share fall back to
-  // hand-authored or dedicated mocks since they don't have a single
-  // stand-alone screenshot yet.
-  if (n === "01") return <AppScreenshot src="/screenshots/atlas-blueprint.jpg" alt="Atlas — Live Blueprint" caption="// ATLAS · BLUEPRINT · AI-TRACED" />;
-  if (n === "02") return <AppScreenshot src="/screenshots/atlas-cad.jpg" alt="Atlas — 2D CAD Editor" caption="// ATLAS · 2D CAD EDITOR" crop="center" />;
-  if (n === "03") return <AppScreenshot src="/screenshots/atlas-3d.jpg" alt="Atlas — 3D Renderer" caption="// ATLAS · 3D RENDERER" crop="center" />;
-  if (n === "04") return <MockAtlasBlueprint variant="map" />;
-  if (n === "05") return <AppScreenshot src="/screenshots/atlas-payapps.jpg" alt="Atlas — Pay Apps" caption="// ATLAS · PAY APPS · AIA G702" />;
-  if (n === "06") return <AppScreenshot src="/screenshots/atlas-field.jpg" alt="Atlas — Field logs" caption="// ATLAS · FIELD · DAILY LOG" />;
-  if (n === "07") return <CollabLarge />;
-  return null;
+function ChapterVisual({ n, appId, accent = "#FFCC00", chapter }) {
+  // Atlas has real UI screenshots; other apps get a stylised typographic
+  // placeholder built from the chapter's own tag + title so each panel
+  // still feels intentional (not "coming soon").
+  if (appId === "atlas") {
+    if (n === "01") return <AppScreenshot src="/screenshots/atlas-blueprint.jpg" alt="Atlas — Live Blueprint" caption="// ATLAS · BLUEPRINT · AI-TRACED" />;
+    if (n === "02") return <AppScreenshot src="/screenshots/atlas-cad.jpg" alt="Atlas — 2D CAD Editor" caption="// ATLAS · 2D CAD EDITOR" crop="center" />;
+    if (n === "03") return <AppScreenshot src="/screenshots/atlas-3d.jpg" alt="Atlas — 3D Renderer" caption="// ATLAS · 3D RENDERER" crop="center" />;
+    if (n === "04") return <MockAtlasBlueprint variant="map" />;
+    if (n === "05") return <AppScreenshot src="/screenshots/atlas-payapps.jpg" alt="Atlas — Pay Apps" caption="// ATLAS · PAY APPS · AIA G702" />;
+    if (n === "06") return <AppScreenshot src="/screenshots/atlas-field.jpg" alt="Atlas — Field logs" caption="// ATLAS · FIELD · DAILY LOG" />;
+    if (n === "07") return <CollabLarge />;
+    return null;
+  }
+  return <PreviewPanel accent={accent} chapter={chapter} />;
+}
+
+// Editorial placeholder for preview-status apps. Renders the chapter's
+// number as an oversized display glyph plus a grid + accent notation so
+// each panel still feels like a designed illustration.
+function PreviewPanel({ accent, chapter }) {
+  return (
+    <div className="w-full h-full relative overflow-hidden bg-[#0A0A0A]">
+      {/* dot grid */}
+      <div
+        className="absolute inset-0 opacity-30"
+        style={{
+          backgroundImage: `radial-gradient(circle, ${accent}22 1px, transparent 1px)`,
+          backgroundSize: "24px 24px",
+        }}
+      />
+      {/* corner brackets already drawn by parent */}
+      <div className="absolute inset-0 flex flex-col justify-between p-8">
+        <div className="flex justify-between items-baseline">
+          <div className="label-mono" style={{ color: accent }}>{chapter?.tag || "// PREVIEW"}</div>
+          <div className="label-mono text-neutral-600">EDITORIAL</div>
+        </div>
+        <div className="flex items-end justify-between gap-6">
+          <div
+            className="font-serif-editorial leading-none tracking-tighter text-[24vw] md:text-[16vw] lg:text-[12vw]"
+            style={{ color: accent, opacity: 0.85 }}
+          >
+            {chapter?.n || "00"}
+          </div>
+          <div className="pb-4 text-right max-w-[55%]">
+            <div className="text-white font-serif-editorial text-2xl md:text-3xl leading-tight">
+              {chapter?.title || "In preview."}
+            </div>
+            <div className="mt-2 text-neutral-500 text-xs font-mono uppercase tracking-widest">Concept · Not yet shipped</div>
+          </div>
+        </div>
+      </div>
+      {/* diagonal accent line */}
+      <div
+        className="absolute -bottom-8 -right-8 w-40 h-40 rotate-45"
+        style={{ backgroundColor: accent, opacity: 0.06 }}
+      />
+    </div>
+  );
+}
+
+function WaitlistSection({ app, accent }) {
+  const [email, setEmail] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    if (!email.includes("@")) { setErr("Enter a valid email"); return; }
+    setBusy(true); setErr("");
+    try {
+      await apiClient.post("/waitlist/join", { email, app_id: app.id });
+      setSubmitted(true);
+    } catch (ex) {
+      setErr(ex?.response?.data?.detail || "Something went wrong — try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section
+      id="waitlist"
+      data-testid="app-detail-waitlist"
+      className="relative border-t border-[#262626] py-24 md:py-32 bg-[#0A0A0A] overflow-hidden"
+    >
+      {/* accent flare */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ background: `radial-gradient(600px 300px at 50% 0%, ${accent}12, transparent 70%)` }}
+      />
+      <div className="relative w-full max-w-3xl mx-auto px-6 md:px-12 lg:px-16 text-center">
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <span className="w-8 h-px" style={{ backgroundColor: accent }} />
+          <span className="label-mono" style={{ color: accent }}>// STILL IN THE STUDIO</span>
+          <span className="w-8 h-px" style={{ backgroundColor: accent }} />
+        </div>
+        <h2 className="font-serif-editorial text-white text-5xl md:text-6xl lg:text-7xl leading-[0.95] tracking-tighter">
+          Get first-in-line access.
+        </h2>
+        <p className="mt-6 text-neutral-400 text-lg max-w-xl mx-auto leading-relaxed">
+          {app.name} isn&apos;t deployed yet — but it&apos;s close. Leave your email and you&apos;ll be the first to know when it ships. No newsletter. No spam. One message.
+        </p>
+        {submitted ? (
+          <div
+            data-testid="waitlist-success"
+            className="mt-12 inline-flex items-center gap-3 px-6 py-4 border text-sm font-mono uppercase tracking-widest"
+            style={{ borderColor: `${accent}66`, color: accent, backgroundColor: `${accent}0d` }}
+          >
+            <Check size={16} />
+            On the list · you&apos;ll hear from us
+          </div>
+        ) : (
+          <form
+            data-testid="waitlist-form"
+            onSubmit={onSubmit}
+            className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-3 max-w-md mx-auto"
+          >
+            <div className="relative flex-1 w-full">
+              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+              <input
+                data-testid="waitlist-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); setErr(""); }}
+                placeholder="you@firm.com"
+                className="w-full bg-[#141414] border border-[#262626] pl-9 pr-4 py-3 text-sm text-white font-mono placeholder:text-neutral-600 focus:outline-none"
+                style={{ borderColor: err ? "#ef4444" : undefined }}
+                onFocus={(e) => { e.target.style.borderColor = accent; }}
+                onBlur={(e) => { e.target.style.borderColor = err ? "#ef4444" : ""; }}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={busy}
+              data-testid="waitlist-submit"
+              className="w-full sm:w-auto text-black font-semibold px-6 py-3 hover:-translate-y-0.5 transition-transform disabled:opacity-60"
+              style={{ backgroundColor: accent }}
+            >
+              {busy ? "Sending…" : "Notify me"}
+            </button>
+          </form>
+        )}
+        {err && !submitted && (
+          <div data-testid="waitlist-error" className="mt-4 text-red-400 text-sm font-mono">{err}</div>
+        )}
+        <div className="mt-14 flex items-center justify-center gap-6 text-xs font-mono text-neutral-600">
+          <span>// WHILE YOU WAIT</span>
+          <Link to="/apps/atlas" className="hover:text-white transition-colors underline underline-offset-4">Try Atlas</Link>
+          <Link to="/#apps" className="hover:text-white transition-colors underline underline-offset-4">See the studio</Link>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function CollabLarge() {
@@ -327,7 +497,11 @@ export default function AppDetail() {
       style={{ fontFamily: "Inter, IBM Plex Sans, system-ui, sans-serif" }}
     >
       <Nav token={token} />
-      {app.status === "live" ? <LiveDetail app={app} /> : <SoonDetail app={app} />}
+      {(app.status === "live" || app.status === "preview") ? (
+        <FeatureDetail app={app} />
+      ) : (
+        <SoonDetail app={app} />
+      )}
       <RelatedApps currentId={app.id} />
     </div>
   );
@@ -353,12 +527,12 @@ function RelatedApps({ currentId }) {
             >
               <div className="flex items-baseline justify-between">
                 <span className="label-mono text-[#00E5FF]">// {a.number}</span>
-                <span className={`label-mono ${a.status === "live" ? "text-[#FFCC00]" : "text-neutral-600"}`}>
-                  {a.status === "live" ? "· LIVE ·" : "· SOON ·"}
+                <span className={`label-mono ${a.status === "live" ? "text-[#FFCC00]" : a.status === "preview" ? "text-[#00E5FF]" : "text-neutral-600"}`}>
+                  {a.status === "live" ? "· LIVE ·" : a.status === "preview" ? "· PREVIEW ·" : "· SOON ·"}
                 </span>
               </div>
-              <div className={`font-serif-editorial mt-4 leading-none ${a.status === "live" ? "text-white text-4xl" : "text-neutral-700 text-3xl"}`}>{a.name}</div>
-              <div className={`mt-2 text-sm ${a.status === "live" ? "text-neutral-400" : "text-neutral-600"}`}>{a.hub_tagline || a.tagline}</div>
+              <div className={`font-serif-editorial mt-4 leading-none ${a.status === "soon" ? "text-neutral-700 text-3xl" : "text-white text-4xl"}`}>{a.name}</div>
+              <div className={`mt-2 text-sm ${a.status === "soon" ? "text-neutral-600" : "text-neutral-400"}`}>{a.hub_tagline || a.tagline}</div>
               <div className="mt-6 inline-flex items-center gap-2 text-xs font-mono text-neutral-400 group-hover:text-[#FFCC00] transition-colors">
                 Read <ArrowUpRight size={12} />
               </div>

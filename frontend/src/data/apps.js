@@ -94,22 +94,142 @@ export const APPS = [
     accent: "#FFCC00",
   },
   {
-    id: "app-02",
-    status: "soon",
+    id: "vision-cad",
+    status: "preview",
     number: "02",
-    name: "In the shop",
-    tag: "App · 02",
-    tagline: "Taking shape. Something we needed and couldn't find.",
-    hub_tagline: "Taking shape. Something we needed and couldn't find.",
+    name: "Vision CAD",
+    tag: "Studio CAD Platform",
+    tagline: "SketchUp fluency in the browser. Nothing to install.",
+    hub_tagline: "SketchUp fluency in the browser. Nothing to install.",
+    detail: {
+      role: "// STUDIO 02 · PREVIEW",
+      headline: "The CAD tool that lives where your work already does.",
+      lede:
+        "Vision CAD is a browser-native 3D modeler with SketchUp muscle memory — push/pull, follow-me, offset, groups, components — but no download, no license file, no laptop dependency. Draw on your desk, review on your phone, export to your GC.",
+      hero_bullets: [
+        "Push/pull · follow-me · offset · array",
+        "Groups + reusable components",
+        "Snap-to-grid, dimension chains, exact input",
+        "Live measurements in feet, inches, or metric",
+        "Import DXF · DWG · STL · OBJ",
+        "Export IFC · glTF · high-res PNG",
+      ],
+      cta_primary: { label: "Join the waitlist", to: "#waitlist" },
+      cta_secondary: { label: "See what's live · Atlas", to: "/apps/atlas" },
+      chapters: [
+        {
+          n: "01",
+          tag: "// DRAW",
+          title: "Muscle memory, preserved.",
+          body:
+            "If you've ever used SketchUp, Vision CAD feels like coming home — push/pull an edge into a face, follow-me a profile around a path, offset a wall by an exact dimension. Every gesture that made SketchUp addictive, ported to the browser and sharpened for 2026 hardware.",
+        },
+        {
+          n: "02",
+          tag: "// COMPONENT",
+          title: "Reuse, not redraw.",
+          body:
+            "Save any selection as a component. Drop it in once, edit it everywhere. Nested components inherit parent transforms; edits propagate in real time across the model. Ship a component library your whole team can pull from a shared workspace.",
+        },
+        {
+          n: "03",
+          tag: "// PRECISION",
+          title: "Every dimension typed, every angle snapped.",
+          body:
+            "Type an exact length while you drag. Chain dimensions from an existing edge. Snap to endpoints, midpoints, intersections, and inferred axes. The precision toolkit that architects and cabinet-makers actually need — no plugin required.",
+        },
+        {
+          n: "04",
+          tag: "// EXCHANGE",
+          title: "Fits into the file formats you already trade.",
+          body:
+            "Import DXF from your surveyor, DWG from your architect, STL from your fabricator. Export IFC for the BIM handoff or glTF for a walkthrough on any device. Vision CAD is the tool in the middle — never the tool that traps your files.",
+        },
+        {
+          n: "05",
+          tag: "// COLLAB",
+          title: "Review from the truck. Approve on the phone.",
+          body:
+            "Share a read-only link — the recipient sees the exact model, orbits it, drops a comment, and gets on with their day. No account required. No plugin download. No file version drift.",
+        },
+      ],
+      stats: [
+        { k: "Draw actions / min", v: "40+" },
+        { k: "Startup cost", v: "$0" },
+        { k: "Install size", v: "0 KB" },
+        { k: "Browsers", v: "Chrome, Safari, Edge" },
+      ],
+    },
+    accent: "#00E5FF",
   },
   {
-    id: "app-03",
-    status: "soon",
+    id: "site-vision",
+    status: "preview",
     number: "03",
-    name: "Sketched",
-    tag: "App · 03",
-    tagline: "An idea worth building. Watch this space.",
-    hub_tagline: "An idea worth building. Watch this space.",
+    name: "Site Vision",
+    tag: "3D Rendering Studio",
+    tagline: "Photoreal renders from a CAD model, one click.",
+    hub_tagline: "Photoreal renders from a CAD model, one click.",
+    detail: {
+      role: "// STUDIO 03 · PREVIEW",
+      headline: "The rendering engine your presentation deserved.",
+      lede:
+        "Site Vision turns any 3D model into a photoreal, client-ready render in the time it takes to reheat your coffee. Import from Vision CAD, Atlas, SketchUp, Rhino, or Revit. Pick a camera. Pick a light. Get the money shot.",
+      hero_bullets: [
+        "Path-traced GPU rendering",
+        "Physically-based materials library",
+        "Real sun / sky / weather · any date, any latitude",
+        "4K + 8K stills · 60fps walkthroughs",
+        "Depth-of-field, motion blur, volumetric fog",
+        "Import from Vision CAD · Atlas · SKP · OBJ · IFC",
+      ],
+      cta_primary: { label: "Join the waitlist", to: "#waitlist" },
+      cta_secondary: { label: "See what's live · Atlas", to: "/apps/atlas" },
+      chapters: [
+        {
+          n: "01",
+          tag: "// LOAD",
+          title: "Bring the model. We handle the rest.",
+          body:
+            "Drop a Vision CAD file, an Atlas project, a SketchUp .SKP, a Rhino .3DM, or a plain OBJ. Site Vision auto-detects materials from names, assigns physically-based defaults, and gets you to a viewport preview in seconds — not the 20-minute wait a desktop renderer would ask for.",
+        },
+        {
+          n: "02",
+          tag: "// LIGHT",
+          title: "Real sun. Real sky. Any address.",
+          body:
+            "Type a street address and a date. Site Vision positions the sun at the exact azimuth and elevation for that time and place, and lights the sky with a real atmospheric model. Golden hour on the front porch. Overcast on a north elevation. Every render is astronomically correct.",
+        },
+        {
+          n: "03",
+          tag: "// MATERIAL",
+          title: "PBR library that speaks the trade's language.",
+          body:
+            "Not \"metal_generic_04\" — cedar shingle, T1-11 siding, standing-seam copper, board-formed concrete. Every material in the library is named the way a builder names it, mapped to real physical properties. Drag, drop, done.",
+        },
+        {
+          n: "04",
+          tag: "// RENDER",
+          title: "GPU path tracing, no queue.",
+          body:
+            "Site Vision runs on cloud GPUs — you don't buy an RTX card, you don't reboot your laptop. A 4K still finishes in under a minute. A 60-second cinematic walkthrough is done before your client is done reading the email.",
+        },
+        {
+          n: "05",
+          tag: "// DELIVER",
+          title: "Client-shareable. Watermarked or white-labeled.",
+          body:
+            "Deliver via a public share link, an embed for your website, or a direct download. On the Studio tier, every render carries your firm's logo and brand color — never ours. Because the render is your work; the tool is just how it got there.",
+        },
+      ],
+      stats: [
+        { k: "4K render time", v: "< 60s" },
+        { k: "Materials in library", v: "300+" },
+        { k: "Import formats", v: "12" },
+        { k: "GPU hours / mo", v: "unlimited" },
+      ],
+    },
+    accent: "#FF6B35",
   },
   {
     id: "app-04",

@@ -397,30 +397,42 @@ function FeaturesSection() {
 
 function AppCard({ app }) {
   const isLive = app.status === "live";
+  const isPreview = app.status === "preview";
+  const isFeatured = isLive || isPreview;
   const to = `/apps/${app.id}`;
+  const badge = isLive ? "· LIVE ·" : isPreview ? "· PREVIEW ·" : "· SOON ·";
+  const badgeColor = isLive ? "text-[#FFCC00]" : isPreview ? "text-[#00E5FF]" : "text-neutral-600";
+  const accent = app.accent || "#FFCC00";
   const Body = (
     <>
       <div className="flex items-baseline justify-between">
         <span className="label-mono text-[#00E5FF]">// {app.number}</span>
-        <span
-          className={`label-mono ${isLive ? "text-[#FFCC00]" : "text-neutral-600"}`}
-        >
-          {isLive ? "· LIVE ·" : "· SOON ·"}
-        </span>
+        <span className={`label-mono ${badgeColor}`}>{badge}</span>
       </div>
       <div className="mt-8 flex items-baseline gap-3">
-        <h3 className={`font-serif-editorial leading-none ${isLive ? "text-white text-6xl md:text-7xl" : "text-neutral-700 text-4xl md:text-5xl"}`}>
+        <h3
+          className={`font-serif-editorial leading-none ${isFeatured ? "text-white text-6xl md:text-7xl" : "text-neutral-700 text-4xl md:text-5xl"}`}
+          style={isFeatured ? { color: isLive ? undefined : accent } : undefined}
+        >
           {app.name}
         </h3>
       </div>
-      <div className={`mt-3 label-mono ${isLive ? "text-[#FFCC00]" : "text-neutral-700"}`}>{app.tag}</div>
-      <p className={`mt-6 text-sm leading-relaxed ${isLive ? "text-neutral-400" : "text-neutral-600"}`}>
+      <div
+        className={`mt-3 label-mono ${isFeatured ? "" : "text-neutral-700"}`}
+        style={isFeatured ? { color: accent } : undefined}
+      >
+        {app.tag}
+      </div>
+      <p className={`mt-6 text-sm leading-relaxed ${isFeatured ? "text-neutral-400" : "text-neutral-600"}`}>
         {app.hub_tagline || app.tagline}
       </p>
 
       <div className="mt-auto pt-10 flex items-center justify-between">
-        <span className={`inline-flex items-center gap-2 text-sm font-semibold group-hover:gap-3 transition-all ${isLive ? "text-[#FFCC00]" : "text-neutral-500 group-hover:text-white"}`}>
-          {isLive ? "Explore Atlas" : "Read more"} <ArrowUpRight size={16} />
+        <span
+          className={`inline-flex items-center gap-2 text-sm font-semibold group-hover:gap-3 transition-all ${isFeatured ? "" : "text-neutral-500 group-hover:text-white"}`}
+          style={isFeatured ? { color: accent } : undefined}
+        >
+          {isLive ? `Explore ${app.name}` : isPreview ? "See the preview" : "Read more"} <ArrowUpRight size={16} />
         </span>
       </div>
 
@@ -432,12 +444,12 @@ function AppCard({ app }) {
     </>
   );
   const base = `group relative bg-[#0A0A0A] p-8 md:p-10 flex flex-col min-h-[420px] transition-all duration-500`;
-  return isLive ? (
+  return isFeatured ? (
     <motion.div variants={fadeUp} className="col-span-12 lg:col-span-6">
       <Link
         to={to}
         data-testid={`app-card-${app.id}`}
-        className={`${base} border border-[#262626] hover:border-[#FFCC00] hover:shadow-[0_0_80px_-20px_rgba(255,204,0,0.4)] hover:-translate-y-1`}
+        className={`${base} border ${isLive ? "border-[#262626] hover:border-[#FFCC00] hover:shadow-[0_0_80px_-20px_rgba(255,204,0,0.4)]" : "border-[#262626] hover:border-[#00E5FF] hover:shadow-[0_0_80px_-20px_rgba(0,229,255,0.35)]"} hover:-translate-y-1`}
       >
         {Body}
       </Link>
