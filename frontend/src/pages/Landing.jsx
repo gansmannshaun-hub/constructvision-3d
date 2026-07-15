@@ -399,9 +399,16 @@ function AppCard({ app }) {
   const isLive = app.status === "live";
   const isPreview = app.status === "preview";
   const isFeatured = isLive || isPreview;
-  const to = `/apps/${app.id}`;
-  const badge = isLive ? "· LIVE ·" : isPreview ? "· PREVIEW ·" : "· SOON ·";
   const accent = app.accent || "#FFCC00";
+  // If the app's primary CTA is an external URL (Vision CAD, Site Vision),
+  // the card itself opens that URL in a new tab — skipping our microsite
+  // entirely so users land directly on the app they came to try. Atlas
+  // (internal path) and preview / soon apps still go to the microsite.
+  const externalHref =
+    isLive && typeof app.detail?.cta_primary?.to === "string" && /^https?:\/\//i.test(app.detail.cta_primary.to)
+      ? app.detail.cta_primary.to
+      : null;
+  const badge = isLive ? "· LIVE ·" : isPreview ? "· PREVIEW ·" : "· SOON ·";
   // Convert accent hex → rgba(…,0.4) for the hover glow shadow.
   const glowRgba = (() => {
     const h = accent.replace("#", "");
@@ -444,7 +451,9 @@ function AppCard({ app }) {
           className={`inline-flex items-center gap-2 text-sm font-semibold group-hover:gap-3 transition-all ${isFeatured ? "" : "text-neutral-500 group-hover:text-white"}`}
           style={isFeatured ? { color: accent } : undefined}
         >
-          {isLive ? `Explore ${app.name}` : isPreview ? "See the preview" : "Read more"} <ArrowUpRight size={16} />
+          {isLive
+            ? (externalHref ? `Open ${app.name}` : `Explore ${app.name}`)
+            : isPreview ? "See the preview" : "Read more"} <ArrowUpRight size={16} />
         </span>
       </div>
 
@@ -456,32 +465,50 @@ function AppCard({ app }) {
     </>
   );
   const base = `group relative bg-[#0A0A0A] p-8 md:p-10 flex flex-col min-h-[420px] transition-all duration-500 border border-[#262626]`;
-  return isFeatured ? (
-    <motion.div variants={fadeUp} className="col-span-12 lg:col-span-6">
-      <Link
-        to={to}
-        data-testid={`app-card-${app.id}`}
-        className={`${base} hover:-translate-y-1`}
-        style={{
-          ["--accent-glow"]: glowRgba,
-          ["--accent-border"]: accent,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = accent;
-          e.currentTarget.style.boxShadow = `0 0 80px -20px ${glowRgba}`;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "";
-          e.currentTarget.style.boxShadow = "";
-        }}
-      >
-        {Body}
-      </Link>
-    </motion.div>
-  ) : (
+  const featuredHover = {
+    onMouseEnter: (e) => {
+      e.currentTarget.style.borderColor = accent;
+      e.currentTarget.style.boxShadow = `0 0 80px -20px ${glowRgba}`;
+    },
+    onMouseLeave: (e) => {
+      e.currentTarget.style.borderColor = "";
+      e.currentTarget.style.boxShadow = "";
+    },
+  };
+  if (isFeatured) {
+    if (externalHref) {
+      return (
+        <motion.div variants={fadeUp} className="col-span-12 lg:col-span-6">
+          <a
+            href={externalHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid={`app-card-${app.id}`}
+            className={`${base} hover:-translate-y-1`}
+            {...featuredHover}
+          >
+            {Body}
+          </a>
+        </motion.div>
+      );
+    }
+    return (
+      <motion.div variants={fadeUp} className="col-span-12 lg:col-span-6">
+        <Link
+          to={`/apps/${app.id}`}
+          data-testid={`app-card-${app.id}`}
+          className={`${base} hover:-translate-y-1`}
+          {...featuredHover}
+        >
+          {Body}
+        </Link>
+      </motion.div>
+    );
+  }
+  return (
     <motion.div variants={fadeUp} className="col-span-12 sm:col-span-6 lg:col-span-2">
       <Link
-        to={to}
+        to={`/apps/${app.id}`}
         data-testid={`app-card-${app.id}`}
         className={`${base} border-dashed border-neutral-800 hover:border-neutral-600 hover:-translate-y-0.5`}
       >

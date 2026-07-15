@@ -114,7 +114,7 @@ export const APPS = [
         "Import DXF · DWG · STL · OBJ",
         "Export IFC · glTF · high-res PNG",
       ],
-      cta_primary: { label: "Open Vision CAD", to: "https://vision-cad-platform.emergent.host" },
+      cta_primary: { label: "Open Vision CAD", to: "https://vision-cad-platform.emergent.host/register" },
       cta_secondary: { label: "See what's live · Atlas", to: "/apps/atlas" },
       cta_footline: { top: "Open the studio.", bottom: "Draw the first thing." },
       chapters: [
@@ -184,7 +184,7 @@ export const APPS = [
         "Depth-of-field, motion blur, volumetric fog",
         "Import from Vision CAD · Atlas · SKP · OBJ · IFC",
       ],
-      cta_primary: { label: "Open Site Vision", to: "https://site-vision-platform.emergent.host" },
+      cta_primary: { label: "Open Site Vision", to: "https://site-vision-platform.emergent.host/register" },
       cta_secondary: { label: "See what's live · Atlas", to: "/apps/atlas" },
       cta_footline: { top: "Bring a model.", bottom: "Leave with the money shot." },
       chapters: [
