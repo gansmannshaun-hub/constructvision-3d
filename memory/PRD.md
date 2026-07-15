@@ -769,7 +769,25 @@ changes verified via lint + inspection.
 
 
 
-### 2026-02 · Admin panel: Waitlist widget
+### 2026-02 · Vision CAD + Site Vision wired to live deployments
+- Flipped `apps.js` for both apps from `status: "preview"` → `"live"`.
+- Vision CAD CTA now points to `https://vision-cad-platform.emergent.host`,
+  Site Vision to `https://site-vision-platform.emergent.host`. Both open in
+  a new tab (target=_blank, rel=noopener noreferrer).
+- Added a shared `<CtaButton>` helper in `AppDetail.jsx` that auto-detects
+  external URLs (http/https) and renders `<a target="_blank">`, hash
+  anchors as `<a href="#…">`, and internal paths as `<Link>`. Applied to
+  both hero + footer CTAs.
+- `PreviewPanel` chapter placeholders now show a status-aware caption —
+  "Studio · Chapter" for live apps (was hardcoded "Concept · Not yet
+  shipped").
+- Landing card badge + hover glow now derive from each app's `accent`
+  hex (Atlas yellow, Vision CAD cyan, Site Vision orange) instead of the
+  previous hardcoded LIVE-vs-PREVIEW binary.
+- Waitlist section only renders for `status === "preview"` apps — Vision
+  CAD and Site Vision no longer show it.
+
+
 - New Admin sidebar section: **Waitlist** (`data-testid="admin-nav-waitlist"`)
 - Reads `GET /api/admin/waitlist` and renders:
   - Summary stat cards (total + per-app counts)

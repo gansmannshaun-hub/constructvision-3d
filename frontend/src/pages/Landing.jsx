@@ -401,18 +401,30 @@ function AppCard({ app }) {
   const isFeatured = isLive || isPreview;
   const to = `/apps/${app.id}`;
   const badge = isLive ? "· LIVE ·" : isPreview ? "· PREVIEW ·" : "· SOON ·";
-  const badgeColor = isLive ? "text-[#FFCC00]" : isPreview ? "text-[#00E5FF]" : "text-neutral-600";
   const accent = app.accent || "#FFCC00";
+  // Convert accent hex → rgba(…,0.4) for the hover glow shadow.
+  const glowRgba = (() => {
+    const h = accent.replace("#", "");
+    if (h.length !== 6) return "rgba(255,204,0,0.4)";
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},0.4)`;
+  })();
   const Body = (
     <>
       <div className="flex items-baseline justify-between">
         <span className="label-mono text-[#00E5FF]">// {app.number}</span>
-        <span className={`label-mono ${badgeColor}`}>{badge}</span>
+        <span
+          className={`label-mono ${isFeatured ? "" : "text-neutral-600"}`}
+          style={isFeatured ? { color: accent } : undefined}
+        >
+          {badge}
+        </span>
       </div>
       <div className="mt-8 flex items-baseline gap-3">
         <h3
           className={`font-serif-editorial leading-none ${isFeatured ? "text-white text-6xl md:text-7xl" : "text-neutral-700 text-4xl md:text-5xl"}`}
-          style={isFeatured ? { color: isLive ? undefined : accent } : undefined}
         >
           {app.name}
         </h3>
@@ -443,13 +455,25 @@ function AppCard({ app }) {
       <div className="pointer-events-none absolute bottom-3 right-3 w-4 h-4 border-b border-r border-neutral-600" />
     </>
   );
-  const base = `group relative bg-[#0A0A0A] p-8 md:p-10 flex flex-col min-h-[420px] transition-all duration-500`;
+  const base = `group relative bg-[#0A0A0A] p-8 md:p-10 flex flex-col min-h-[420px] transition-all duration-500 border border-[#262626]`;
   return isFeatured ? (
     <motion.div variants={fadeUp} className="col-span-12 lg:col-span-6">
       <Link
         to={to}
         data-testid={`app-card-${app.id}`}
-        className={`${base} border ${isLive ? "border-[#262626] hover:border-[#FFCC00] hover:shadow-[0_0_80px_-20px_rgba(255,204,0,0.4)]" : "border-[#262626] hover:border-[#00E5FF] hover:shadow-[0_0_80px_-20px_rgba(0,229,255,0.35)]"} hover:-translate-y-1`}
+        className={`${base} hover:-translate-y-1`}
+        style={{
+          ["--accent-glow"]: glowRgba,
+          ["--accent-border"]: accent,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = accent;
+          e.currentTarget.style.boxShadow = `0 0 80px -20px ${glowRgba}`;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = "";
+          e.currentTarget.style.boxShadow = "";
+        }}
       >
         {Body}
       </Link>
@@ -459,7 +483,7 @@ function AppCard({ app }) {
       <Link
         to={to}
         data-testid={`app-card-${app.id}`}
-        className={`${base} border border-dashed border-neutral-800 hover:border-neutral-600 hover:-translate-y-0.5`}
+        className={`${base} border-dashed border-neutral-800 hover:border-neutral-600 hover:-translate-y-0.5`}
       >
         {Body}
       </Link>

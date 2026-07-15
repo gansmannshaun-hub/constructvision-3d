@@ -95,14 +95,14 @@ export const APPS = [
   },
   {
     id: "vision-cad",
-    status: "preview",
+    status: "live",
     number: "02",
     name: "Vision CAD",
     tag: "Studio CAD Platform",
     tagline: "SketchUp fluency in the browser. Nothing to install.",
     hub_tagline: "SketchUp fluency in the browser. Nothing to install.",
     detail: {
-      role: "// STUDIO 02 · PREVIEW",
+      role: "// STUDIO 02 · LIVE",
       headline: "The CAD tool that lives where your work already does.",
       lede:
         "Vision CAD is a browser-native 3D modeler with SketchUp muscle memory — push/pull, follow-me, offset, groups, components — but no download, no license file, no laptop dependency. Draw on your desk, review on your phone, export to your GC.",
@@ -114,8 +114,9 @@ export const APPS = [
         "Import DXF · DWG · STL · OBJ",
         "Export IFC · glTF · high-res PNG",
       ],
-      cta_primary: { label: "Join the waitlist", to: "#waitlist" },
+      cta_primary: { label: "Open Vision CAD", to: "https://vision-cad-platform.emergent.host" },
       cta_secondary: { label: "See what's live · Atlas", to: "/apps/atlas" },
+      cta_footline: { top: "Open the studio.", bottom: "Draw the first thing." },
       chapters: [
         {
           n: "01",
@@ -164,14 +165,14 @@ export const APPS = [
   },
   {
     id: "site-vision",
-    status: "preview",
+    status: "live",
     number: "03",
     name: "Site Vision",
     tag: "3D Rendering Studio",
     tagline: "Photoreal renders from a CAD model, one click.",
     hub_tagline: "Photoreal renders from a CAD model, one click.",
     detail: {
-      role: "// STUDIO 03 · PREVIEW",
+      role: "// STUDIO 03 · LIVE",
       headline: "The rendering engine your presentation deserved.",
       lede:
         "Site Vision turns any 3D model into a photoreal, client-ready render in the time it takes to reheat your coffee. Import from Vision CAD, Atlas, SketchUp, Rhino, or Revit. Pick a camera. Pick a light. Get the money shot.",
@@ -183,8 +184,9 @@ export const APPS = [
         "Depth-of-field, motion blur, volumetric fog",
         "Import from Vision CAD · Atlas · SKP · OBJ · IFC",
       ],
-      cta_primary: { label: "Join the waitlist", to: "#waitlist" },
+      cta_primary: { label: "Open Site Vision", to: "https://site-vision-platform.emergent.host" },
       cta_secondary: { label: "See what's live · Atlas", to: "/apps/atlas" },
+      cta_footline: { top: "Bring a model.", bottom: "Leave with the money shot." },
       chapters: [
         {
           n: "01",

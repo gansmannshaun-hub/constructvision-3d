@@ -51,6 +51,39 @@ function Nav({ token }) {
   );
 }
 
+// Smart CTA — external URLs (http/https) render as `<a target="_blank">`;
+// hash anchors and internal paths use `<Link>` / `<a href>`.
+function CtaButton({ to, className, style, dataTestId, children }) {
+  const isExternal = /^https?:\/\//i.test(to);
+  const isHash = to?.startsWith("#");
+  if (isExternal) {
+    return (
+      <a
+        href={to}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid={dataTestId}
+        className={className}
+        style={style}
+      >
+        {children}
+      </a>
+    );
+  }
+  if (isHash) {
+    return (
+      <a href={to} data-testid={dataTestId} className={className} style={style}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link to={to} data-testid={dataTestId} className={className} style={style}>
+      {children}
+    </Link>
+  );
+}
+
 // =====================================================================
 // FEATURE DETAIL — used for both LIVE (Atlas) and PREVIEW (waitlist) apps.
 // The only differences: accent color, chapter visuals, and CTA behavior.
@@ -88,27 +121,15 @@ function FeatureDetail({ app }) {
                 {d.lede}
               </motion.p>
               <motion.div variants={fadeUp} className="mt-10 flex flex-wrap items-center gap-4">
-                {isPreview ? (
-                  <a
-                    href="#waitlist"
-                    data-testid="app-detail-primary-cta"
-                    className="group inline-flex items-center gap-3 text-black font-semibold px-6 py-3.5 hover:-translate-y-0.5 transition-all duration-300"
-                    style={{ backgroundColor: accent }}
-                  >
-                    {d.cta_primary.label}
-                    <ArrowUpRight size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                  </a>
-                ) : (
-                  <Link
-                    to={d.cta_primary.to}
-                    data-testid="app-detail-primary-cta"
-                    className="group inline-flex items-center gap-3 text-black font-semibold px-6 py-3.5 hover:-translate-y-0.5 transition-all duration-300"
-                    style={{ backgroundColor: accent }}
-                  >
-                    {d.cta_primary.label}
-                    <ArrowUpRight size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                  </Link>
-                )}
+                <CtaButton
+                  to={d.cta_primary.to}
+                  dataTestId="app-detail-primary-cta"
+                  className="group inline-flex items-center gap-3 text-black font-semibold px-6 py-3.5 hover:-translate-y-0.5 transition-all duration-300"
+                  style={{ backgroundColor: accent }}
+                >
+                  {d.cta_primary.label}
+                  <ArrowUpRight size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                </CtaButton>
                 <Link
                   to={d.cta_secondary.to}
                   data-testid="app-detail-secondary-cta"
@@ -167,19 +188,23 @@ function FeatureDetail({ app }) {
                   <span className="label-mono" style={{ color: accent }}>// READY WHEN YOU ARE</span>
                 </div>
                 <h2 className="font-serif-editorial text-white text-5xl md:text-6xl lg:text-7xl leading-[0.95] tracking-tighter max-w-3xl">
-                  Start with a blueprint.<br /><em className="italic text-neutral-500">See the building in a minute.</em>
+                  {d.cta_footline ? (
+                    <>{d.cta_footline.top}<br /><em className="italic text-neutral-500">{d.cta_footline.bottom}</em></>
+                  ) : (
+                    <>Start with a blueprint.<br /><em className="italic text-neutral-500">See the building in a minute.</em></>
+                  )}
                 </h2>
               </div>
               <div className="flex flex-wrap items-center gap-4 md:shrink-0">
-                <Link
+                <CtaButton
                   to={d.cta_primary.to}
-                  data-testid="app-detail-footer-cta"
+                  dataTestId="app-detail-footer-cta"
                   className="group inline-flex items-center gap-3 text-black font-semibold px-8 py-4 hover:-translate-y-0.5 transition-all"
                   style={{ backgroundColor: accent }}
                 >
                   {d.cta_primary.label}
                   <ArrowUpRight size={18} />
-                </Link>
+                </CtaButton>
                 <Link to="/#pricing" className="text-sm text-neutral-400 hover:text-white transition-colors underline underline-offset-4">See pricing</Link>
               </div>
             </div>
@@ -217,7 +242,7 @@ function ChapterRow({ chapter, i, app, accent = "#FFCC00" }) {
         <p className="mt-6 text-neutral-400 text-lg leading-relaxed max-w-xl">{chapter.body}</p>
       </motion.div>
       <motion.div variants={fadeUp} className="lg:col-span-6 lg:[direction:ltr] aspect-[4/3] border border-[#262626] overflow-hidden bg-[#141414] relative">
-        <ChapterVisual n={chapter.n} appId={app?.id} accent={accent} chapter={chapter} />
+        <ChapterVisual n={chapter.n} appId={app?.id} status={app?.status} accent={accent} chapter={chapter} />
         <div className="pointer-events-none absolute top-3 left-3 w-4 h-4 border-t border-l" style={{ borderColor: accent }} />
         <div className="pointer-events-none absolute top-3 right-3 w-4 h-4 border-t border-r" style={{ borderColor: accent }} />
         <div className="pointer-events-none absolute bottom-3 left-3 w-4 h-4 border-b border-l" style={{ borderColor: accent }} />
@@ -227,7 +252,7 @@ function ChapterRow({ chapter, i, app, accent = "#FFCC00" }) {
   );
 }
 
-function ChapterVisual({ n, appId, accent = "#FFCC00", chapter }) {
+function ChapterVisual({ n, appId, status, accent = "#FFCC00", chapter }) {
   // Atlas has real UI screenshots; other apps get a stylised typographic
   // placeholder built from the chapter's own tag + title so each panel
   // still feels intentional (not "coming soon").
@@ -241,13 +266,15 @@ function ChapterVisual({ n, appId, accent = "#FFCC00", chapter }) {
     if (n === "07") return <CollabLarge />;
     return null;
   }
-  return <PreviewPanel accent={accent} chapter={chapter} />;
+  return <PreviewPanel accent={accent} chapter={chapter} status={status} />;
 }
 
-// Editorial placeholder for preview-status apps. Renders the chapter's
-// number as an oversized display glyph plus a grid + accent notation so
-// each panel still feels like a designed illustration.
-function PreviewPanel({ accent, chapter }) {
+// Editorial placeholder used for apps that don't yet have real product
+// screenshots. Renders the chapter number as an oversized display glyph
+// plus a grid + accent flare. Caption adapts to the app's status so live
+// apps don't say "not yet shipped".
+function PreviewPanel({ accent, chapter, status = "preview" }) {
+  const caption = status === "live" ? "Studio · Chapter" : status === "soon" ? "Coming · Later" : "Concept · Not yet shipped";
   return (
     <div className="w-full h-full relative overflow-hidden bg-[#0A0A0A]">
       {/* dot grid */}
@@ -275,7 +302,7 @@ function PreviewPanel({ accent, chapter }) {
             <div className="text-white font-serif-editorial text-2xl md:text-3xl leading-tight">
               {chapter?.title || "In preview."}
             </div>
-            <div className="mt-2 text-neutral-500 text-xs font-mono uppercase tracking-widest">Concept · Not yet shipped</div>
+            <div className="mt-2 text-neutral-500 text-xs font-mono uppercase tracking-widest">{caption}</div>
           </div>
         </div>
       </div>
