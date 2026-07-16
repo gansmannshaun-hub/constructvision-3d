@@ -12,8 +12,8 @@ import requests
 import pytest
 
 
-ADMIN_EMAIL = "admin@atlas.app"
-ADMIN_PASSWORD = "Open0says3me#*03#*"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 
 RECT_WALLS = [
     {"id": "w1", "start": [10, 10], "end": [90, 10], "thickness": 0.2},

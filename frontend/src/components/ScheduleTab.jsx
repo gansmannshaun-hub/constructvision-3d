@@ -217,9 +217,9 @@ function ScheduleResult({ result, startDate }) {
           })}
 
           {/* Dependency arrows */}
-          {arrows.map((a, i) => (
+          {arrows.map((a) => (
             <path
-              key={i}
+              key={`arr-${a.fromX}-${a.fromY}-${a.toX}-${a.toY}`}
               d={`M ${a.fromX} ${a.fromY + 20} L ${a.fromX + 8} ${a.fromY + 20} L ${a.fromX + 8} ${a.toY + 20} L ${a.toX} ${a.toY + 20}`}
               fill="none" stroke="#333" strokeWidth="0.8"
             />

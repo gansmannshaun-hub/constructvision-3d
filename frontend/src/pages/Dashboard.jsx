@@ -497,7 +497,15 @@ function ShareButton({ projectId }) {
       try {
         const { data } = await apiClient.get(`/projects/${projectId}/share`);
         setState(data);
-      } catch {/* ignore */}
+      } catch (e) {
+        // Share status GET returns 404 when share is disabled — expected;
+        // any other failure gets logged so we notice quotas / permissions
+        // issues in the console.
+        if (e?.response?.status !== 404) {
+          // eslint-disable-next-line no-console
+          console.warn("share status fetch failed:", e?.message);
+        }
+      }
     })();
   }, [open, projectId]);
 
@@ -531,7 +539,13 @@ function ShareButton({ projectId }) {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {/* ignore */}
+    } catch (e) {
+      // Clipboard write can fail if the page isn't focused or the user
+      // denies permission. UI shows nothing — that's fine, but log so
+      // we can debug user-reported "copy didn't work" cases.
+      // eslint-disable-next-line no-console
+      console.warn("clipboard.writeText failed:", e?.message);
+    }
   };
 
   return (

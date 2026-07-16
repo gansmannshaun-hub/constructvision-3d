@@ -141,7 +141,7 @@ function FeatureDetail({ app }) {
             </div>
             <motion.ul variants={fadeUp} className="lg:col-span-5 grid grid-cols-1 gap-px bg-[#262626] border border-[#262626]">
               {d.hero_bullets.map((b, i) => (
-                <li key={i} className="bg-[#0A0A0A] p-4 flex items-start gap-3">
+                <li key={`hb-${b}`} className="bg-[#0A0A0A] p-4 flex items-start gap-3">
                   <span className="label-mono text-[#00E5FF] mt-1 shrink-0">// {String(i + 1).padStart(2, "0")}</span>
                   <span className="text-neutral-200 text-sm">{b}</span>
                 </li>
@@ -156,7 +156,7 @@ function FeatureDetail({ app }) {
         <div className="w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-16 py-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#262626] border border-[#262626]">
             {d.stats.map((s, i) => (
-              <div key={i} className="bg-[#0A0A0A] p-6">
+              <div key={`st-${s.k}`} className="bg-[#0A0A0A] p-6">
                 <div className="label-mono text-[#00E5FF]">// 0{i + 1}</div>
                 <div className="text-neutral-500 text-xs uppercase tracking-widest mt-2">{s.k}</div>
                 <div className="font-serif-editorial text-white text-4xl mt-1">{s.v}</div>
@@ -427,7 +427,7 @@ function CollabLarge() {
       </div>
       <ul className="mt-4 space-y-3">
         {activity.map((x, i) => (
-          <li key={i} className="flex items-baseline gap-2 text-xs font-mono border-b border-[#1a1a1a] pb-2">
+          <li key={`act-${i}-${x.t}`} className="flex items-baseline gap-2 text-xs font-mono border-b border-[#1a1a1a] pb-2">
             <span className="w-1.5 h-1.5 bg-[#FFCC00] rounded-full mt-1 shrink-0" />
             <span className="text-white">{x.u}</span>
             <span className="text-neutral-500">{x.a}</span>

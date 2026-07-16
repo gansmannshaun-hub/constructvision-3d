@@ -12,8 +12,8 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://build-ai-147.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "admin@atlas.app"
-ADMIN_PW = "Open0says3me#*03#*"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+ADMIN_PW = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 
 
 def _register(email, pw="TestPass123!", name="Test User"):

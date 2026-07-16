@@ -7,8 +7,8 @@ import pytest
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/") or \
     open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].split("\n")[0].strip().rstrip("/")
 
-ADMIN_EMAIL = "admin@atlas.app"
-ADMIN_PASSWORD = "Open0says3me#*03#*"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 
 
 def _login(email, password):

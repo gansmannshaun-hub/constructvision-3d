@@ -84,7 +84,14 @@ export default function Billing() {
         await refresh();
         return;
       }
-    } catch { /* try again */ }
+    } catch (e) {
+      // Poll retries on transient failures; log only after multiple
+      // attempts to avoid console spam during normal flow.
+      if (attempt >= 3) {
+        // eslint-disable-next-line no-console
+        console.warn(`subscription poll attempt ${attempt} failed:`, e?.message);
+      }
+    }
     if (attempt >= 6) {
       setMsg({ kind: "info", text: "Still processing — refresh in a moment." });
       await refresh();
@@ -587,8 +594,8 @@ function PlanCard({
         <span className="text-neutral-500 text-sm">{priceSub}</span>
       </div>
       <ul className="space-y-2 mb-8 text-sm flex-1">
-        {features.map((f, i) => (
-          <li key={i} className="flex items-start gap-2 text-neutral-300">
+        {features.map((f) => (
+          <li key={`feat-${f}`} className="flex items-start gap-2 text-neutral-300">
             <span className="text-[#FFCC00] mt-0.5">✓</span>
             <span>{f}</span>
           </li>

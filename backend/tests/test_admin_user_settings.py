@@ -26,8 +26,8 @@ if not BASE_URL:
             BASE_URL = line.split("=", 1)[1].strip().strip('"')
 BASE_URL = BASE_URL.rstrip("/")
 
-ADMIN_EMAIL = "admin@atlas.app"
-ADMIN_PASSWORD = "Open0says3me#*03#*"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 
 
 # ---------- helpers ----------

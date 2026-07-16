@@ -237,7 +237,12 @@ export const useStore = create((set, get) => ({
         : null;
       set({ underlayCache: { ...(get().underlayCache || {}), [docId]: url } });
       return url;
-    } catch {
+    } catch (e) {
+      // Underlay image is optional; if the fetch fails (missing doc,
+      // permissions), the UI simply doesn't show the underlay — no need
+      // to surface to the user, but log for debugging.
+      // eslint-disable-next-line no-console
+      console.warn("loadUnderlay failed:", e?.message);
       return null;
     }
   },

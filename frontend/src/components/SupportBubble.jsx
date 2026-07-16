@@ -18,7 +18,14 @@ export default function SupportBubble() {
     try {
       const { data } = await apiClient.get("/support/me/unread");
       setUnread(Number(data?.unread || 0));
-    } catch (_) { /* ignore */ }
+    } catch (e) {
+      // Unread count is a background poll — one failure is fine; log
+      // any that aren't 401 so we notice real infra issues.
+      if (e?.response?.status !== 401) {
+        // eslint-disable-next-line no-console
+        console.warn("support unread poll failed:", e?.message);
+      }
+    }
   }, [token]);
 
   useEffect(() => {

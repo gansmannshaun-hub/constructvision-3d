@@ -291,20 +291,22 @@ function SharedBlueprint({ blueprint }) {
 
 /* ─── Materials table ────────────────────────────────────────── */
 function SharedMaterials({ materials, grand_total }) {
-  const grouped = useMemo(() => {
+  const categories = useMemo(() => {
     const g = {};
     for (const m of materials) {
       const cat = m.category || "Other";
       (g[cat] = g[cat] || []).push(m);
     }
-    return g;
+    return Object.keys(g).sort().map((cat) => ({
+      name: cat,
+      items: g[cat],
+      subtotal: g[cat].reduce((s, m) => s + (m.quantity || 0) * (m.unit_price || 0), 0),
+    }));
   }, [materials]);
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      {Object.keys(grouped).sort().map((cat) => {
-        const items = grouped[cat];
-        const subtotal = items.reduce((s, m) => s + (m.quantity || 0) * (m.unit_price || 0), 0);
+      {categories.map(({ name: cat, items, subtotal }) => {
         return (
           <section key={cat} className="mb-8" data-testid={`shared-cat-${cat}`}>
             <h3 className="font-display text-xl mb-2 flex items-baseline justify-between gap-4">
@@ -323,11 +325,11 @@ function SharedMaterials({ materials, grand_total }) {
                 </tr>
               </thead>
               <tbody>
-                {items.map((m, i) => {
+                {items.map((m) => {
                   const qty = m.quantity || 0; const price = m.unit_price || 0; const line = qty * price;
                   const src = m.auto_computed ? "AUTO" : (m.ai_extracted ? "AI" : "");
                   return (
-                    <tr key={i} className="border-b border-white/5">
+                    <tr key={m.id || `${m.name}-${m.category}`} className="border-b border-white/5">
                       <td className="py-2 pr-4">{m.name}</td>
                       <td className="py-2 pr-4 text-right font-mono">{qty}</td>
                       <td className="py-2 pr-4 font-mono text-neutral-400">{m.unit}</td>

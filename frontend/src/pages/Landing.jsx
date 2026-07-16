@@ -335,7 +335,7 @@ function CollabMock() {
       <div className="label-mono text-[#00E5FF] text-[9px]">// ACTIVITY</div>
       <ul className="mt-2 space-y-2">
         {activity.map((x, i) => (
-          <li key={i} className="flex items-baseline gap-2 text-[11px] font-mono">
+          <li key={`act-${i}-${x.t}`} className="flex items-baseline gap-2 text-[11px] font-mono">
             <span className="w-1.5 h-1.5 bg-[#FFCC00] rounded-full mt-1 shrink-0" />
             <span className="text-white">{x.u}</span>
             <span className="text-neutral-500">{x.a}</span>

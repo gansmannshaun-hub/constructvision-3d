@@ -5,8 +5,8 @@ import asyncio, os, sys
 from playwright.async_api import async_playwright
 
 URL = "https://build-ai-147.preview.emergentagent.com"
-EMAIL = "admin@atlas.app"
-PASSWORD = "Open0says3me#*03#*"
+EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 OUT = "/app/frontend/public/screenshots"
 os.makedirs(OUT, exist_ok=True)
 

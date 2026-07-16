@@ -6,8 +6,8 @@ updates the same "Demo · Villa Atlas" project.
 import os, sys, json, requests
 
 API = os.environ.get("API", "http://localhost:8001")
-EMAIL = "admin@atlas.app"
-PASSWORD = "Open0says3me#*03#*"
+EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 
 def login():
     r = requests.post(f"{API}/api/auth/login", json={"email": EMAIL, "password": PASSWORD})

@@ -37,8 +37,8 @@ for line in Path("/app/backend/.env").read_text().splitlines():
     if line.startswith("DB_NAME="):
         DB_NAME = line.split("=", 1)[1].strip().strip('"')
 
-ADMIN_EMAIL = "admin@atlas.app"
-ADMIN_PASSWORD = "Open0says3me#*03#*"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 
 
 @pytest.fixture(scope="module")

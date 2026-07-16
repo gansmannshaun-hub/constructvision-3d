@@ -14,6 +14,7 @@ Covers:
 from __future__ import annotations
 
 import io
+import os
 import uuid
 
 import pytest
@@ -21,8 +22,8 @@ import requests
 from PIL import Image
 
 
-ADMIN_EMAIL = "admin@atlas.app"
-ADMIN_PASSWORD = "Open0says3me#*03#*"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 
 
 # ---------- fixtures ----------

@@ -28,8 +28,8 @@ from pathlib import Path
 import pytest
 import requests
 
-ADMIN_EMAIL = "admin@atlas.app"
-ADMIN_PASSWORD = "Open0says3me#*03#*"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 
 SUBS_FILE = Path("/app/backend/routes/subscriptions.py")
 
