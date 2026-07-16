@@ -653,6 +653,18 @@ def _build_pipeline(db):
                     "framing_plan", "roof_plan", "sheathing_plan", "elevation",
                     "electrical_plan", "plumbing_plan", "hvac_plan", "detail",
                 }
+                # Only these view types have TOP-DOWN interior layouts where
+                # dense Hough-line wall tracing produces meaningful walls.
+                # Running OpenCV wall tracing on an elevation (a side view of
+                # the facade) turns every siding line, window trim, and shadow
+                # into a "wall" — producing hundreds of garbage segments and
+                # visually destroying the blueprint tab.
+                HOUGH_TRACE_TYPES = {
+                    "floor_plan", "blueprint", "foundation_plan",
+                }
+                # Defensive cap — any AI response with more walls than this
+                # is almost certainly a mis-classified view; drop the excess.
+                MAX_WALLS_PER_SHEET = 200
                 if doc_type in DRAWING_TYPES:
                     if building_ft is None:
                         bf = analysis.get("building_ft") or {}
@@ -680,32 +692,51 @@ def _build_pipeline(db):
                     # OpenCV Hough-line tracing — deterministic dense wall
                     # extraction. Runs in a worker thread so we don't block
                     # the async loop. Uses AI-provided building_ft when
-                    # available (else auto-scales).
-                    try:
-                        cv_result = await asyncio.to_thread(
-                            trace_walls_from_image, b64,
-                            building_ft_w=(building_ft or {}).get("w"),
-                            building_ft_h=(building_ft or {}).get("h"),
-                        )
-                        for w in cv_result.get("walls") or []:
-                            walls_all.append({
-                                "id": str(uuid.uuid4()),
-                                "start": w["start"],
-                                "end": w["end"],
-                                "thickness": float(w.get("thickness") or 0.4),
-                                "source": "opencv",
-                            })
-                            page_walls_added += 1
-                        # If AI didn't provide building_ft, inherit from the
-                        # OpenCV auto-scale so the underlay lines up.
-                        if not building_ft and cv_result.get("building_ft"):
-                            building_ft = cv_result["building_ft"]
-                            scale_confidence = "opencv-auto"
+                    # available (else auto-scales). GATED on floor-plan-like
+                    # doc types so elevations don't spawn wall spaghetti.
+                    if doc_type in HOUGH_TRACE_TYPES:
+                        try:
+                            cv_result = await asyncio.to_thread(
+                                trace_walls_from_image, b64,
+                                building_ft_w=(building_ft or {}).get("w"),
+                                building_ft_h=(building_ft or {}).get("h"),
+                            )
+                            for w in cv_result.get("walls") or []:
+                                walls_all.append({
+                                    "id": str(uuid.uuid4()),
+                                    "start": w["start"],
+                                    "end": w["end"],
+                                    "thickness": float(w.get("thickness") or 0.4),
+                                    "source": "opencv",
+                                })
+                                page_walls_added += 1
+                            # If AI didn't provide building_ft, inherit from the
+                            # OpenCV auto-scale so the underlay lines up.
+                            if not building_ft and cv_result.get("building_ft"):
+                                building_ft = cv_result["building_ft"]
+                                scale_confidence = "opencv-auto"
+                            logger.info(
+                                f"OpenCV traced {cv_result.get('count', 0)} walls from doc {doc_id} page {page_idx + 1}"
+                            )
+                        except Exception:
+                            logger.exception("OpenCV wall trace failed (non-fatal)")
+                    else:
                         logger.info(
-                            f"OpenCV traced {cv_result.get('count', 0)} walls from doc {doc_id} page {page_idx + 1}"
+                            f"Skipped OpenCV wall tracing for doc_type={doc_type} (non-floor-plan) on doc {doc_id} page {page_idx + 1}"
                         )
-                    except Exception:
-                        logger.exception("OpenCV wall trace failed (non-fatal)")
+                    # Runaway-guard: if the AI hallucinated >MAX_WALLS_PER_SHEET
+                    # (usually a mis-classified elevation or a busy schematic),
+                    # trim to the cap so the CAD editor doesn't drown in noise.
+                    if page_walls_added > MAX_WALLS_PER_SHEET:
+                        overflow = page_walls_added - MAX_WALLS_PER_SHEET
+                        logger.warning(
+                            f"Wall cap tripped for doc {doc_id} page {page_idx + 1}: "
+                            f"trimming {overflow} of {page_walls_added} extracted walls"
+                        )
+                        # Keep the FIRST MAX_WALLS (AI ones came first, then
+                        # OpenCV — AI walls are almost always the good ones).
+                        walls_all = walls_all[: wall_offset + MAX_WALLS_PER_SHEET]
+                        page_walls_added = MAX_WALLS_PER_SHEET
                     for d_item in analysis.get("doors") or []:
                         pos = _coord(d_item.get("position"))
                         if pos:

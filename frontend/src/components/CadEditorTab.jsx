@@ -1010,6 +1010,32 @@ export default function CadEditorTab() {
           SIMPLIFY
         </button>
         <button
+          data-testid="cad-denoise"
+          onClick={() => {
+            const before = walls.length;
+            const kept = walls.filter((w) => w.source !== "opencv");
+            const removed = before - kept.length;
+            if (removed === 0) {
+              alert("No auto-traced walls to remove — this sheet only has AI or hand-drawn walls.");
+              return;
+            }
+            if (!window.confirm(
+              `DENOISE removes only the auto-traced (OpenCV) walls.\n\n` +
+              `${removed} of ${before} walls will be removed.\n${kept.length} AI/hand-drawn walls will remain.\n\n` +
+              `Use this when the AI over-traced an elevation or busy schematic.`
+            )) return;
+            setWalls(kept);
+            setDoors((arr) => arr.filter((d) => d.wall_index < kept.length));
+            setWindows((arr) => arr.filter((w) => w.wall_index < kept.length));
+            markDirty();
+            setSelected(null);
+          }}
+          className="h-10 px-3 text-xs uppercase tracking-wider font-bold border bg-white border-[#CCC] text-[#333] hover:bg-[#F0F0E8]"
+          title="Remove all auto-traced (OpenCV) walls — keep only AI-vision walls and hand-drawn ones. Use when the pipeline over-traced an elevation or dense drawing."
+        >
+          DENOISE
+        </button>
+        <button
           data-testid="cad-straighten"
           onClick={() => {
             // Aggressive straighten: force every wall within 12° of an axis
