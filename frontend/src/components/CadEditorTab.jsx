@@ -4,6 +4,14 @@ import { formatFeetInches, wallsAabb } from "../lib/dim";
 import { simplifyWalls } from "../lib/simplifyWalls";
 import CadAIPanel from "./CadAIPanel";
 import { SheetTabBar } from "./SheetTabBar";
+import {
+  VIEWBOX_MIN, VIEWBOX_MAX, GRID_STEP_DEFAULT, GRID_STEP_OPTIONS,
+  SNAP_THRESHOLD, CIRCLE_SEGMENTS,
+  DOOR_STYLES, WINDOW_STYLES, WALL_STYLES, FIXTURE_META, TOOL_INPUT, TOOLS,
+} from "./cad/constants";
+import { cryptoId, dist, nearestOnSegment } from "./cad/geometry";
+import { ToolIcon } from "./cad/ToolIcon";
+import { useCadHistory } from "./cad/useCadHistory";
 
 /** SketchUp-inspired 2D CAD editor.
  *  - Tools: Select / Line / Rectangle / Circle / Door / Window / Eraser /
@@ -13,137 +21,6 @@ import { SheetTabBar } from "./SheetTabBar";
  *  - Pan/zoom via Hand tool or middle-mouse / wheel
  *  - Keyboard shortcuts: V S L R C D W E T M H Z (single letter activation)
  */
-
-const VIEWBOX_MIN = 0;
-const VIEWBOX_MAX = 100;
-const GRID_STEP_DEFAULT = 2; // major grid step in coord units (feet)
-const GRID_STEP_OPTIONS = [0.5, 1, 2, 5, 10]; // feet per grid square
-const SNAP_THRESHOLD = 3; // distance in coord units within which we snap
-const CIRCLE_SEGMENTS = 16;
-
-// ---------- Style catalogs ----------
-const DOOR_STYLES = [
-  { value: "panel",     label: "Panel · 32\"",          default_in: 32 },
-  { value: "panel_36",  label: "Panel · 36\" (Front)",  default_in: 36 },
-  { value: "french",    label: "French · 60\"",         default_in: 60 },
-  { value: "sliding",   label: "Sliding · 72\"",        default_in: 72 },
-  { value: "barn",      label: "Barn · 36\"",           default_in: 36 },
-  { value: "pocket",    label: "Pocket · 30\"",         default_in: 30 },
-  { value: "bath",      label: "Bath · 28\"",           default_in: 28 },
-];
-const WINDOW_STYLES = [
-  { value: "dh",        label: "Double Hung · 36\"",    default_in: 36 },
-  { value: "sh",        label: "Single Hung · 30\"",    default_in: 30 },
-  { value: "casement",  label: "Casement · 24\"",       default_in: 24 },
-  { value: "sliding",   label: "Sliding · 48\"",        default_in: 48 },
-  { value: "picture",   label: "Picture · 60\"",        default_in: 60 },
-  { value: "bay",       label: "Bay · 72\"",            default_in: 72 },
-  { value: "awning",    label: "Awning · 30\"",         default_in: 30 },
-  { value: "egress",    label: "Egress · 36\"",         default_in: 36 },
-];
-const WALL_STYLES = [
-  { value: "int_4",     label: "Interior · 4\"",        thickness_ft: 0.33 },
-  { value: "ext_6",     label: "Exterior · 6\"",        thickness_ft: 0.5 },
-  { value: "struct_8",  label: "Structural · 8\"",      thickness_ft: 0.67 },
-  { value: "demising",  label: "Demising · 6\" Fire",   thickness_ft: 0.5 },
-];
-
-// Fixture symbol config — maps AI-traced `kind` to a short label + fill color.
-const FIXTURE_META = {
-  toilet:        { label: "WC",     color: "#8FA8C0" },
-  sink:          { label: "SINK",   color: "#8FA8C0" },
-  shower:        { label: "SHWR",   color: "#8FA8C0" },
-  tub:           { label: "TUB",    color: "#8FA8C0" },
-  vanity:        { label: "VAN",    color: "#8FA8C0" },
-  stove:         { label: "RANGE",  color: "#D0B090" },
-  oven:          { label: "OVEN",   color: "#D0B090" },
-  refrigerator:  { label: "FRIDGE", color: "#D0B090" },
-  dishwasher:    { label: "DW",     color: "#D0B090" },
-  washer:        { label: "WASH",   color: "#B0C0A0" },
-  dryer:         { label: "DRYR",   color: "#B0C0A0" },
-  island:        { label: "ISLAND", color: "#D0B090" },
-  counter:       { label: "COUNTER", color: "#D0B090" },
-  closet:        { label: "CLOSET", color: "#C8C8C8" },
-  stairs:        { label: "STAIRS", color: "#B8B8B8" },
-  bed:           { label: "BED",    color: "#C8B090" },
-  sofa:          { label: "SOFA",   color: "#C8B090" },
-  dining_table:  { label: "TABLE",  color: "#C8B090" },
-  desk:          { label: "DESK",   color: "#C8B090" },
-  fireplace:     { label: "FP",     color: "#A08080" },
-  hvac_unit:     { label: "HVAC",   color: "#A0A8B0" },
-  water_heater:  { label: "WH",     color: "#A0A8B0" },
-  column:        { label: "COL",    color: "#606060" },
-  other:         { label: "FIX",    color: "#B0B0B0" },
-};
-
-// Per-tool input config — drives the bottom-bar input placeholder + ↵ behavior.
-const TOOL_INPUT = {
-  line:    { placeholder: "length (ft)",   unit: "ft", label: "LENGTH" },
-  rect:    { placeholder: "side (ft)",     unit: "ft", label: "SIDE" },
-  circle:  { placeholder: "radius (ft)",   unit: "ft", label: "RADIUS" },
-  offset:  { placeholder: "distance (ft)", unit: "ft", label: "OFFSET" },
-  door:    { placeholder: "width (in)",    unit: "in", label: "DOOR W" },
-  window:  { placeholder: "width (in)",    unit: "in", label: "WIN W" },
-};
-
-const TOOLS = [
-  { id: "select",   key: "V", label: "Select",       hint: "Click an element to select. Backspace to delete." },
-  { id: "line",     key: "L", label: "Line",         hint: "Click for start, click again to finish wall. ESC cancels." },
-  { id: "rect",     key: "R", label: "Rectangle",    hint: "Click corner 1, then corner 2. Creates 4 walls." },
-  { id: "circle",   key: "C", label: "Circle",       hint: "Click center, then drag to radius. Approximated to 16 segments." },
-  { id: "door",     key: "D", label: "Door",         hint: "Click on a wall to drop a door." },
-  { id: "window",   key: "W", label: "Window",       hint: "Click on a wall to drop a window." },
-  { id: "eraser",   key: "E", label: "Eraser",       hint: "Click any element to remove it." },
-  { id: "tape",     key: "T", label: "Tape Measure", hint: "Click two points to measure distance." },
-  { id: "move",     key: "M", label: "Move",         hint: "Click an element, then click a destination." },
-  { id: "offset",   key: "O", label: "Offset",       hint: "Click a wall, then click the side / type a distance and Enter." },
-  { id: "text",     key: "X", label: "Text",         hint: "Click anywhere to place a text label." },
-  { id: "pan",      key: "H", label: "Pan",          hint: "Drag to pan the view." },
-  { id: "zoom",     key: "Z", label: "Zoom",         hint: "Click to zoom in. Shift+click to zoom out." },
-];
-
-function cryptoId() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function dist(a, b) {
-  return Math.hypot(a[0] - b[0], a[1] - b[1]);
-}
-
-// Distance from point p to line segment ab; also returns the closest point on segment
-function nearestOnSegment(p, a, b) {
-  const ax = a[0], ay = a[1], bx = b[0], by = b[1];
-  const px = p[0], py = p[1];
-  const dx = bx - ax, dy = by - ay;
-  const len2 = dx * dx + dy * dy;
-  if (len2 < 1e-9) return { point: [ax, ay], t: 0, dist: Math.hypot(px - ax, py - ay) };
-  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  const cx = ax + t * dx;
-  const cy = ay + t * dy;
-  return { point: [cx, cy], t, dist: Math.hypot(px - cx, py - cy) };
-}
-
-const TOOL_ICON = ({ id, className = "" }) => {
-  const s = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", className };
-  switch (id) {
-    case "select":  return <svg {...s}><path d="M5 3l14 11h-7l4 7-3 1-4-7-4 4z" /></svg>;
-    case "line":    return <svg {...s}><path d="M4 20L20 4" /><circle cx="4" cy="20" r="1.5" fill="currentColor" /><circle cx="20" cy="4" r="1.5" fill="currentColor" /></svg>;
-    case "rect":    return <svg {...s}><rect x="4" y="4" width="16" height="16" /></svg>;
-    case "circle":  return <svg {...s}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="1" fill="currentColor" /></svg>;
-    case "door":    return <svg {...s}><path d="M6 3v18h12V3z" /><path d="M14 12h.01" /><path d="M18 21l-12-9V3" strokeOpacity="0.4" /></svg>;
-    case "window":  return <svg {...s}><rect x="4" y="4" width="16" height="16" /><path d="M12 4v16M4 12h16" /></svg>;
-    case "eraser":  return <svg {...s}><path d="M21 14L11 4l-7 7 10 10h7z" /><path d="M14 21l-3-3" /><path d="M3 21h18" /></svg>;
-    case "tape":    return <svg {...s}><path d="M3 9h18v6H3z" /><path d="M7 9v6M11 9v6M15 9v6M19 9v3" /></svg>;
-    case "move":    return <svg {...s}><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" /></svg>;
-    case "offset":  return <svg {...s}><path d="M5 6l14 0M5 18l14 0" /><path d="M9 10l-3 2 3 2" /><path d="M5 12h7" /></svg>;
-    case "text":    return <svg {...s}><path d="M5 5h14M12 5v14M9 19h6" /></svg>;
-    case "pan":     return <svg {...s}><path d="M9 11V5a2 2 0 0 1 4 0v6M13 7v9a2 2 0 0 1-4 0V9M5 13l1 3a4 4 0 0 0 4 3h2a4 4 0 0 0 4-4v-4" /></svg>;
-    case "zoom":    return <svg {...s}><circle cx="11" cy="11" r="7" /><path d="M21 21l-5-5M8 11h6M11 8v6" /></svg>;
-    default:        return null;
-  }
-};
 
 export default function CadEditorTab() {
   const { blueprint, saveBlueprint, currentProjectId, refreshBlueprint,
@@ -209,70 +86,28 @@ export default function CadEditorTab() {
   const [labelDrag, setLabelDrag] = useState(null);
 
   // Undo/redo history — snapshots of {walls, doors, windows, labels, fixtures}
-  // captured on every state change. Reset per sheet.
-  const historyRef = useRef([]);
-  const redoRef = useRef([]);
-  const isRestoringRef = useRef(false);
-  // Suppresses per-mousemove snapshots during a continuous drag; one final
-  // snapshot is pushed manually on drag end.
-  const dragInProgressRef = useRef(false);
-  // Skips the blueprint-prop history reset for a brief window after a save,
-  // so Ctrl+Z after Save & Sync still walks back through the pre-save edits.
+  // captured on every state change. Reset per sheet. Encapsulated in
+  // useCadHistory so this file only wires setters + a clear-tools callback.
   const savingRef = useRef(false);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  const HISTORY_LIMIT = 100;
-  const refreshHistoryFlags = () => {
-    setCanUndo(historyRef.current.length > 1);
-    setCanRedo(redoRef.current.length > 0);
-  };
-
-  // sync from store — also seeds the history baseline for this sheet.
-  // If the blueprint refresh was triggered by our own save (savingRef=true),
-  // we keep the current undo/redo history so users can still Ctrl+Z past a save.
-  useEffect(() => {
-    if (savingRef.current) {
-      savingRef.current = false;
-      return;
-    }
-    isRestoringRef.current = true;
-    setWalls(blueprint.walls || []);
-    setDoors(blueprint.doors || []);
-    setWindows(blueprint.windows || []);
-    setLabels(blueprint.labels || []);
-    setFixtures(blueprint.fixtures || []);
-    setDirty(false);
-    historyRef.current = [{
-      walls: blueprint.walls || [],
-      doors: blueprint.doors || [],
-      windows: blueprint.windows || [],
-      labels: blueprint.labels || [],
-      fixtures: blueprint.fixtures || [],
-    }];
-    redoRef.current = [];
-    refreshHistoryFlags();
-  }, [blueprint]);
-
-  // After user-initiated state changes, push a new snapshot. Skips when the
-  // change came from undo/redo restoration (React 18 batches state updates
-  // so one effect run per user action).
-  useEffect(() => {
-    if (isRestoringRef.current) {
-      isRestoringRef.current = false;
-      return;
-    }
-    // Skip during continuous drags — we push exactly one snapshot on drag end.
-    if (dragInProgressRef.current) return;
-    const last = historyRef.current[historyRef.current.length - 1];
-    if (
-      last && last.walls === walls && last.doors === doors && last.windows === windows &&
-      last.labels === labels && last.fixtures === fixtures
-    ) return;
-    historyRef.current.push({ walls, doors, windows, labels, fixtures });
-    if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
-    redoRef.current = [];
-    refreshHistoryFlags();
-  }, [walls, doors, windows, labels, fixtures]);
+  const clearTransientToolState = useCallback(() => {
+    setSelected(null);
+    setPendingStart(null); setRectStart(null); setCircleCenter(null);
+    setTapeStart(null); setMoveFrom(null); setOffsetWall(null);
+    setDirty(true);
+  }, []);
+  const {
+    undo, redo, canUndo, canRedo,
+    noteDragStart, noteDragEnd, isRestoringRef,
+  } = useCadHistory({
+    blueprint,
+    walls, doors, windows, labels, fixtures,
+    setWalls, setDoors, setWindows, setLabels, setFixtures,
+    onRestore: clearTransientToolState,
+    savingRef,
+  });
+  // Legacy alias — a few call sites still reference dragInProgressRef.
+  // useCadHistory owns the drag suppression internally; these are no-ops.
+  const dragInProgressRef = useRef(false);
 
   // Fetch the source blueprint image for the active sheet (if any)
   useEffect(() => {
@@ -287,45 +122,6 @@ export default function CadEditorTab() {
   }, [activeSheet?.source_document_id, fetchDocumentImage]);
 
   const markDirty = () => setDirty(true);
-
-  const undo = useCallback(() => {
-    if (historyRef.current.length < 2) return;
-    const current = historyRef.current.pop();
-    redoRef.current.push(current);
-    if (redoRef.current.length > HISTORY_LIMIT) redoRef.current.shift();
-    const prev = historyRef.current[historyRef.current.length - 1];
-    isRestoringRef.current = true;
-    setWalls(prev.walls);
-    setDoors(prev.doors);
-    setWindows(prev.windows);
-    setLabels(prev.labels);
-    setFixtures(prev.fixtures);
-    setSelected(null);
-    setPendingStart(null); setRectStart(null); setCircleCenter(null);
-    setTapeStart(null); setMoveFrom(null); setOffsetWall(null);
-    setDirty(true);
-    refreshHistoryFlags();
-  }, []);
-
-  const redo = useCallback(() => {
-    if (redoRef.current.length === 0) return;
-    const next = redoRef.current.pop();
-    historyRef.current.push(next);
-    isRestoringRef.current = true;
-    setWalls(next.walls);
-    setDoors(next.doors);
-    setWindows(next.windows);
-    setLabels(next.labels);
-    setFixtures(next.fixtures);
-    setSelected(null);
-    setPendingStart(null); setRectStart(null); setCircleCenter(null);
-    setTapeStart(null); setMoveFrom(null); setOffsetWall(null);
-    setDirty(true);
-    refreshHistoryFlags();
-  }, []);
-
-  // canUndo / canRedo are useState-backed so they update deterministically
-  // on sheet switch and after every mutation.
 
   // ---------- Coord conversion (handles viewBox + preserveAspectRatio correctly) ----------
   const toSvgCoord = useCallback((e) => {
@@ -430,13 +226,12 @@ export default function CadEditorTab() {
       // Push exactly one snapshot representing the post-drag state,
       // then release the drag guard so the standard history effect resumes.
       if (labelDrag.moved) {
-        historyRef.current.push({ walls, doors, windows, labels, fixtures });
-        if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
-        redoRef.current = [];
-        refreshHistoryFlags();
+        noteDragEnd();
         markDirty();
+      } else {
+        // No actual movement — just clear the drag guard.
+        dragInProgressRef.current = false;
       }
-      dragInProgressRef.current = false;
       setLabelDrag(null);
     }
   };
@@ -894,7 +689,7 @@ export default function CadEditorTab() {
             }`}
             title={`${t.label} (${t.key})`}
           >
-            <TOOL_ICON id={t.id} />
+            <ToolIcon id={t.id} />
             <span className="absolute -bottom-0.5 right-0.5 text-[8px] font-mono text-neutral-500">{t.key}</span>
           </button>
         ))}
@@ -1428,6 +1223,7 @@ export default function CadEditorTab() {
                   // offset = current label center minus click point (world-space);
                   // preserved as we drag so the label doesn't jump under cursor.
                   dragInProgressRef.current = true;
+                  noteDragStart();
                   setLabelDrag({
                     id: l.id,
                     offset: [l.position[0] - raw[0], l.position[1] - raw[1]],

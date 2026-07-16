@@ -769,7 +769,27 @@ changes verified via lint + inspection.
 
 
 
-### 2026-02 · Vision CAD + Site Vision wired to live deployments
+### 2026-02 · CadEditorTab.jsx refactor (P1 of the deferred code-review batch)
+- **File shrunk 1795 → 1590 lines** (11% reduction, more once RendererTab
+  and admin.py follow the same pattern).
+- Extracted 4 focused files under `/app/frontend/src/components/cad/`:
+  - `constants.js` (90 lines) — style catalogs (`DOOR_STYLES`,
+    `WINDOW_STYLES`, `WALL_STYLES`, `FIXTURE_META`), tool config
+    (`TOOL_INPUT`, `TOOLS`), and layout constants (`VIEWBOX_*`,
+    `GRID_STEP_*`, `SNAP_THRESHOLD`, `CIRCLE_SEGMENTS`). Zero React
+    dependency — pure data.
+  - `geometry.js` (32 lines) — pure helpers `cryptoId`, `dist`,
+    `nearestOnSegment`. Unit-testable in isolation.
+  - `ToolIcon.jsx` (30 lines) — the inline-SVG tool glyph switch,
+    reusable anywhere.
+  - `useCadHistory.js` (141 lines) — undo/redo hook. Owns snapshot
+    stacking, drag suppression, blueprint-seed logic, and exposes
+    `undo`, `redo`, `canUndo`, `canRedo`, `noteDragStart`, `noteDragEnd`.
+    Contract documented in the header comment.
+- Smoke-tested — CAD Editor loads clean, 13 tool buttons render,
+  undo/redo present, zero console errors.
+
+
 - Flipped `apps.js` for both apps from `status: "preview"` → `"live"`.
 - Vision CAD CTA now points to `https://vision-cad-platform.emergent.host`,
   Site Vision to `https://site-vision-platform.emergent.host`. Both open in
