@@ -108,6 +108,18 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-18 · RendererTab refactor (1458 → 309 lines)** — Extracted the 3D
+  Renderer monolith into 4 hooks + 9 subcomponents under
+  `frontend/src/components/renderer/`. Hooks: `useSiteTerrain`,
+  `useModelPlacement`, `useTapeMeasure`, `useSceneExport`. Components:
+  `TopActionBar`, `PhaseControls`, `PlacementPanel`, `AIMatchModal`,
+  `TapeMeasurePanel`, `ExportPreviewModal`, `SidebarSite`,
+  `SidebarAssembly`, `SidebarLayers`. Behaviorally identical — verified via
+  `testing_agent_v3_fork` iter_49 (100% frontend pass, 0 console errors,
+  0 regressions). All existing data-testids preserved.
+
+
+## Recently shipped
 - **2026-02-01 · Code-compliance backlog: smoke alarms, stairs, append-mode, zoning** —
   Extended `_check_compliance()` in `ai_tools.py` with **IRC R314.3 smoke
   alarm coverage** (expects ≥ one `SMOKE` label per bedroom) and **IRC R311.7
