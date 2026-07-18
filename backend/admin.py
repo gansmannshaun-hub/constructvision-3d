@@ -279,10 +279,14 @@ class NotificationsIn(BaseModel):
 
 
 # ---------- Admin Router ----------
-def build_admin_router(db, get_current_user) -> APIRouter:
-    require_admin = require_admin_dep(get_current_user)
-    api = APIRouter(prefix="/api/admin")
+# ---------- Admin Router (split into per-resource registration helpers) ----
+# `build_admin_router` is a thin orchestrator that creates the APIRouter and
+# calls a helper per resource group. This replaces the previous 288-line
+# monolith (cyclomatic complexity 63) with 6 focused functions, each easily
+# testable + extendable. Add a new admin route by adding a `@api.get(...)`
+# inside the matching helper (or creating a new `_register_*` group).
 
+def _register_overview_route(api: APIRouter, db, require_admin) -> None:
     @api.get("/overview")
     async def overview(admin: dict = Depends(require_admin)):
         total_users = await db.users.count_documents({})
@@ -293,7 +297,6 @@ def build_admin_router(db, get_current_user) -> APIRouter:
         projects = await db.projects.count_documents({})
         docs = await db.documents.count_documents({})
         materials = await db.materials.count_documents({})
-        # revenue
         paid_txns = await db.payment_transactions.find(
             {"payment_status": "paid"}, {"_id": 0, "amount": 1, "currency": 1, "completed_at": 1, "kind": 1, "item": 1}
         ).to_list(2000)
@@ -317,6 +320,8 @@ def build_admin_router(db, get_current_user) -> APIRouter:
             },
         }
 
+
+def _register_user_routes(api: APIRouter, db, require_admin) -> None:
     @api.get("/users")
     async def list_users(q: str = "", limit: int = 100, admin: dict = Depends(require_admin)):
         flt = {}
@@ -326,7 +331,6 @@ def build_admin_router(db, get_current_user) -> APIRouter:
                 {"name": {"$regex": q, "$options": "i"}},
             ]}
         users = await db.users.find(flt, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(limit)
-        # Augment each with project counts — batched via aggregation (O(1) round-trips).
         if users:
             user_ids = [u["id"] for u in users]
             counts = await db.projects.aggregate([
@@ -355,8 +359,9 @@ def build_admin_router(db, get_current_user) -> APIRouter:
             raise HTTPException(404, "User not found")
         sub = u.get("subscription") or billing_mod.default_subscription()
         ent = u.get("entitlements") or billing_mod.default_entitlements()
-        sets = {}
+        sets: dict = {}
 
+        # Subscription block
         if payload.plan_tier is not None:
             if payload.plan_tier not in {"free", "pro", "studio"}:
                 raise HTTPException(400, "Invalid tier")
@@ -368,6 +373,7 @@ def build_admin_router(db, get_current_user) -> APIRouter:
         if payload.plan_tier is not None or payload.plan_status is not None:
             sets["subscription"] = sub
 
+        # Entitlements block
         if payload.bonus_credits is not None:
             ent["bonus_credits"] = max(0, int(payload.bonus_credits))
         if payload.rush_credits is not None:
@@ -377,6 +383,7 @@ def build_admin_router(db, get_current_user) -> APIRouter:
         if any([payload.bonus_credits is not None, payload.rush_credits is not None, payload.pdf_premium_branding is not None]):
             sets["entitlements"] = ent
 
+        # Simple scalar fields
         if payload.is_admin is not None:
             sets["is_admin"] = bool(payload.is_admin)
         if payload.suspended is not None:
@@ -412,7 +419,7 @@ def build_admin_router(db, get_current_user) -> APIRouter:
         found = await db.users.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "email": 1, "is_admin": 1}).to_list(len(ids))
         found_ids = {u["id"] for u in found}
         not_found = [uid for uid in ids if uid not in found_ids]
-        skipped_admin = []
+        skipped_admin: list = []
         if not payload.include_admins:
             skipped_admin = [u["id"] for u in found if u.get("is_admin")]
         deletable_ids = [u["id"] for u in found if u["id"] not in skipped_admin]
@@ -453,6 +460,7 @@ def build_admin_router(db, get_current_user) -> APIRouter:
         }
 
 
+def _register_project_routes(api: APIRouter, db, require_admin) -> None:
     @api.get("/projects")
     async def list_all_projects(limit: int = 200, admin: dict = Depends(require_admin)):
         projs = await db.projects.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
@@ -482,6 +490,8 @@ def build_admin_router(db, get_current_user) -> APIRouter:
             p["material_count"] = mat_map.get(p["id"], 0)
         return projs
 
+
+def _register_billing_routes(api: APIRouter, db, require_admin) -> None:
     @api.get("/billing/summary")
     async def billing_summary(admin: dict = Depends(require_admin)):
         # MRR estimate: count active pro/studio
@@ -514,6 +524,8 @@ def build_admin_router(db, get_current_user) -> APIRouter:
         txns = await db.payment_transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
         return txns
 
+
+def _register_settings_routes(api: APIRouter, db, require_admin) -> None:
     @api.get("/settings")
     async def get_settings(admin: dict = Depends(require_admin)):
         s = await get_system_settings(db)
@@ -556,6 +568,8 @@ def build_admin_router(db, get_current_user) -> APIRouter:
             "analyzed_documents_count": analyzed,
         }
 
+
+def _register_audit_route(api: APIRouter, db, require_admin) -> None:
     @api.get("/audit-log")
     async def audit_log(limit: int = 100, admin: dict = Depends(require_admin)):
         rows = await db.audit_log.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
@@ -567,6 +581,19 @@ def build_admin_router(db, get_current_user) -> APIRouter:
             r["actor_email"] = (umap.get(r.get("actor_id")) or {}).get("email")
         return rows
 
+
+def build_admin_router(db, get_current_user) -> APIRouter:
+    """Assemble the admin router by delegating each resource group to its
+    own `_register_*` helper. Adding a new admin route: append it inside
+    the matching helper below (or create a new helper + call it here)."""
+    require_admin = require_admin_dep(get_current_user)
+    api = APIRouter(prefix="/api/admin")
+    _register_overview_route(api, db, require_admin)
+    _register_user_routes(api, db, require_admin)
+    _register_project_routes(api, db, require_admin)
+    _register_billing_routes(api, db, require_admin)
+    _register_settings_routes(api, db, require_admin)
+    _register_audit_route(api, db, require_admin)
     return api
 
 

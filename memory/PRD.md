@@ -769,7 +769,35 @@ changes verified via lint + inspection.
 
 
 
-### 2026-02 · CadEditorTab.jsx refactor (P1 of the deferred code-review batch)
+### 2026-02 · admin.py::build_admin_router split (P2 of deferred code-review batch)
+- The 288-line `build_admin_router` (cyclomatic complexity 63, flagged
+  by the code review) is now a 10-line orchestrator that delegates to
+  six per-resource registration helpers. Each helper handles a single
+  logical group of routes:
+  - `_register_overview_route`      — `/api/admin/overview`
+  - `_register_user_routes`         — list, get, update, delete, bulk-delete
+  - `_register_project_routes`      — `/api/admin/projects`
+  - `_register_billing_routes`      — billing summary + transactions
+  - `_register_settings_routes`     — system settings + AI settings
+  - `_register_audit_route`         — `/api/admin/audit-log`
+- Adding a new admin route now means editing one focused helper (or
+  adding a new one + wiring it into `build_admin_router`) — no more
+  scrolling through a 288-line closure.
+- Verified via curl: all 8 admin endpoints return 200, `PATCH /users/{id}`
+  happy + edge-case paths return correct shapes (200 on real update,
+  400 "Nothing to update" on empty patch), `POST /users/bulk-delete`
+  with empty list returns `{ok:true, deleted:0}`.
+
+### 2026-02 · CadEditorTab.jsx refactor (P1 of deferred code-review batch)
+- **File shrunk 1795 → 1590 lines** (–205). Extracted 4 focused files
+  under `/app/frontend/src/components/cad/`:
+  - `constants.js` (90 lines) — style catalogs + tool config
+  - `geometry.js` (32 lines) — pure `cryptoId`, `dist`, `nearestOnSegment`
+  - `ToolIcon.jsx` (30 lines) — inline-SVG tool glyphs
+  - `useCadHistory.js` (141 lines) — undo/redo hook, documented contract
+- Smoke-tested — 13 tools render, undo/redo present, zero console errors.
+
+
 - **File shrunk 1795 → 1590 lines** (11% reduction, more once RendererTab
   and admin.py follow the same pattern).
 - Extracted 4 focused files under `/app/frontend/src/components/cad/`:
