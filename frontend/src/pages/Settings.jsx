@@ -333,7 +333,7 @@ function DangerZone({ logout, navigate }) {
       <section>
         <div className="label-mono">// EXPORT</div>
         <h2 className="font-display text-2xl tracking-tighter mb-2">Data export</h2>
-        <p className="text-sm text-neutral-400 mb-4">Download a JSON snapshot of everything you've created in Atlas.</p>
+        <p className="text-sm text-neutral-400 mb-4">Download a JSON snapshot of everything you&apos;ve created in Atlas.</p>
         <button data-testid="export-data" onClick={exportData} className="bg-white/10 hover:bg-white/15 text-white px-5 py-2.5 text-xs uppercase tracking-wider font-bold">
           Download my data ↓
         </button>

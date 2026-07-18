@@ -84,7 +84,7 @@ root = APIRouter(prefix="/api")
 
 
 @root.get("/")
-async def root_info():
+async def root_info() -> dict[str, str]:
     return {"message": "Construction Management API", "version": "1.5.0"}
 
 
@@ -104,7 +104,7 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-async def _on_startup():
+async def _on_startup() -> None:
     try:
         await admin_mod.seed_admin(db)
     except Exception as e:
@@ -113,6 +113,6 @@ async def _on_startup():
 
 
 @app.on_event("shutdown")
-async def _shutdown():
+async def _shutdown() -> None:
     stop_digest_scheduler()
     client.close()

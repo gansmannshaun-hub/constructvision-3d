@@ -34,12 +34,10 @@ export default function Admin() {
         navigate("/app");
       }
     }).catch(() => navigate("/"));
-    // eslint-disable-next-line
   }, []);
 
   useEffect(() => {
     loadSection(section);
-    // eslint-disable-next-line
   }, [section]);
 
   const loadSection = async (s) => {

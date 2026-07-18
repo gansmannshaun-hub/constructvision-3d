@@ -15,7 +15,7 @@ export default function SupportTab() {
     return (
       <div className="h-full flex flex-col items-center justify-center p-12 text-center">
         <div className="label-mono text-[#FFCC00] mb-3">// ADMIN VIEW</div>
-        <div className="font-display text-2xl mb-4">You're logged in as admin.</div>
+        <div className="font-display text-2xl mb-4">You&apos;re logged in as admin.</div>
         <div className="text-neutral-400 font-mono text-sm mb-6 max-w-md">
           The dashboard tab is for end-users. Open the support inbox to see all
           conversations and reply.

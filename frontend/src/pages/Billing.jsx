@@ -35,7 +35,6 @@ export default function Billing() {
     apiClient.get("/subscriptions/plans")
       .then(({ data }) => setStripeConfigured(Boolean(data?.configured)))
       .catch(() => setStripeConfigured(false));
-    // eslint-disable-next-line
   }, [token]);
 
   const refresh = async () => {
@@ -71,7 +70,6 @@ export default function Billing() {
     }
     if (!sid) return;
     pollStatus(sid);
-    // eslint-disable-next-line
   }, []);
 
   const pollSubscriptionRefresh = async (attempt = 0) => {
@@ -88,7 +86,6 @@ export default function Billing() {
       // Poll retries on transient failures; log only after multiple
       // attempts to avoid console spam during normal flow.
       if (attempt >= 3) {
-        // eslint-disable-next-line no-console
         console.warn(`subscription poll attempt ${attempt} failed:`, e?.message);
       }
     }
@@ -291,7 +288,7 @@ export default function Billing() {
                   )}
                   {sub.status === "free" && !sub.trial_used && (
                     <p className="text-neutral-400 text-sm mt-2">
-                      You haven't used your free 7-day Pro trial yet.
+                      You haven&apos;t used your free 7-day Pro trial yet.
                     </p>
                   )}
                 </div>
@@ -519,7 +516,7 @@ export default function Billing() {
 
             <p className="text-xs text-neutral-500 font-mono mt-12">
               All prices in USD. Payments processed by Stripe. Cancel anytime —
-              you'll keep access until the end of your current billing period.
+              you&apos;ll keep access until the end of your current billing period.
             </p>
           </>
         )}

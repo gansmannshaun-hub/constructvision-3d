@@ -12,8 +12,7 @@ import {
 } from "../lib/renderer/sceneBuilder";
 import SitePickerModal from "./SitePickerModal";
 import AutonomousExtractPanel from "./AutonomousExtractPanel";
-
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+import { RENDERER_API as API, fallbackFmtFtIn } from "./renderer/format";
 
 export default function RendererTab() {
   const { blueprint, saveBlueprint, currentProjectId } = useStore();
@@ -128,7 +127,7 @@ export default function RendererTab() {
     } else {
       setTerrainStats(null);
     }
-  }, [site]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [site]);
 
   // 2) Build geometry ONLY when the blueprint's structural content actually
   // changes. Polling (`refreshBlueprint()`) hands us fresh object refs on
@@ -152,7 +151,6 @@ export default function RendererTab() {
     lastBuildHashRef.current = buildHash;
     engineRef.current.build(buildPayload);
     engineRef.current.setVisibility(visibleLayers);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildHash]);
 
   // 3) Apply visibility on phase/layer changes
@@ -472,10 +470,7 @@ export default function RendererTab() {
 
   const fmtFtIn = useCallback((ft) => {
     if (engineRef.current?.formatFtIn) return engineRef.current.formatFtIn(ft);
-    // Fallback
-    const whole = Math.floor(ft);
-    const inches = Math.round((ft - whole) * 12);
-    return `${whole}' ${inches}"`;
+    return fallbackFmtFtIn(ft);
   }, []);
 
   const buildLandscape = useCallback(async () => {

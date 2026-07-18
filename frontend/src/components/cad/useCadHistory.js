@@ -69,7 +69,6 @@ export function useCadHistory({
     }];
     redoRef.current = [];
     refreshFlags();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blueprint]);
 
   // Push a snapshot after user edits. React 18 batches state updates so

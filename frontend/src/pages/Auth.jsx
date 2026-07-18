@@ -177,7 +177,7 @@ export default function Auth() {
 
           {mode === "register" && (
             <div data-testid="auth-legal-notice" className="text-center text-[10px] font-mono text-neutral-500 leading-relaxed pt-2">
-              By creating an account you'll be asked to accept our{" "}
+              By creating an account you&apos;ll be asked to accept our{" "}
               <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-[#FFCC00]">Terms of Service</a>
               {" "}and{" "}
               <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-[#FFCC00]">Privacy &amp; Data Use Policy</a>.

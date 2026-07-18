@@ -39,7 +39,7 @@ export default function PricingPanel({ projectId }) {
     setBids(b.data);
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [projectId]);
+  useEffect(() => { load(); }, [projectId]);
 
   // Sync local slider state whenever the canonical cfg changes — but only if
   // there are no pending in-flight changes (otherwise a slow server response

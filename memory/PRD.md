@@ -769,6 +769,41 @@ changes verified via lint + inspection.
 
 
 
+### 2026-02 · Deferred code-review batch — additional wins (server.py hints, hooks cleanup, small RendererTab extract)
+**Item #3 — Type hints on server.py**
+- `root_info()`, `_on_startup()`, `_shutdown()` now have full type
+  annotations. Lint clean.
+
+**Item #4 — React hooks / lint audit**
+- Stripped 12 stale "Unused eslint-disable directive" warnings across
+  `RendererTab.jsx`, `SupportBubble.jsx`, `useCadHistory.js`,
+  `Admin.jsx`, `Billing.jsx`, `Dashboard.jsx`, `store.js`, `CollabModal.jsx`,
+  `PricingPanel.jsx`. The reviewer's original "missing hook deps"
+  finding was based on an older commit — the current tree lints clean
+  (only 3 remaining warnings are inside `components/ui/` third-party
+  Shadcn code which we don't modify).
+- Escaped 7 raw `'` characters in JSX text (SupportTab, Auth, Billing×2,
+  Dashboard×2, Settings) → `&apos;`. Renders unchanged; no more
+  `react/no-unescaped-entities` errors.
+- Result: **28 → 3 lint issues** (the 3 remaining are third-party UI code).
+
+**Item #5 — RendererTab.jsx (partial extract)**
+- Created `/app/frontend/src/components/renderer/format.js` with the
+  `RENDERER_API` constant + `fallbackFmtFtIn` helper. Small progress
+  but the full split (30+ interlinked useCallback handlers → sub-
+  components with prop threading) genuinely needs its own dedicated
+  iteration with testing-agent regression on every 3D flow. Deferred
+  with an honest scope estimate rather than shipping a partial rewrite.
+
+**Item #6 — httpOnly cookie auth rewrite — STILL DEFERRED**
+- Genuinely a 4–6 hour undertaking: touches every API call, all share-
+  link flows, requires CORS credentials mode, requires
+  `axios.defaults.withCredentials = true`, requires a new
+  `GET /api/auth/me` hydration flow on frontend mount, and needs the
+  testing-agent to regression every login / logout / share / mobile
+  webview path. Not safely doable in a single iteration alongside
+  other work.
+
 ### 2026-02 · admin.py::build_admin_router split (P2 of deferred code-review batch)
 - The 288-line `build_admin_router` (cyclomatic complexity 63, flagged
   by the code review) is now a 10-line orchestrator that delegates to

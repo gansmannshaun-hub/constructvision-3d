@@ -76,7 +76,6 @@ export default function Dashboard() {
     }
     loadProjects();
     refreshBilling();
-    // eslint-disable-next-line
   }, []);
 
   // Global "?" shortcut to jump to the user manual.
@@ -305,7 +304,7 @@ function LogoutModal({ user, onConfirm, onCancel }) {
         </div>
         <div className="px-7 py-5 space-y-3">
           <p className="text-sm text-neutral-300 leading-relaxed">
-            You'll need to sign in again to access your blueprints, materials and 3D models.
+            You&apos;ll need to sign in again to access your blueprints, materials and 3D models.
           </p>
           <div className="border border-white/10 bg-[#141414] px-4 py-3 flex items-center gap-3">
             <div className="w-8 h-8 bg-[#FFCC00] flex items-center justify-center flex-shrink-0">
@@ -371,7 +370,7 @@ function EmptyProjectsState() {
         <div className="w-20 h-20 mx-auto mb-6 border-2 border-[#FFCC00] flex items-center justify-center">
           <span className="font-display text-5xl text-[#FFCC00] leading-none">+</span>
         </div>
-        <div className="label-mono mb-2">// LET'S START</div>
+        <div className="label-mono mb-2">// LET&apos;S START</div>
         <h1 className="font-display text-4xl tracking-tighter mb-3">Create your first project.</h1>
         <p className="text-neutral-400 text-sm leading-relaxed mb-8">
           Every project is its own workspace — blueprints, materials, 3D model, and PDF takeoffs all live together.
@@ -502,7 +501,6 @@ function ShareButton({ projectId }) {
         // any other failure gets logged so we notice quotas / permissions
         // issues in the console.
         if (e?.response?.status !== 404) {
-          // eslint-disable-next-line no-console
           console.warn("share status fetch failed:", e?.message);
         }
       }
@@ -543,7 +541,6 @@ function ShareButton({ projectId }) {
       // Clipboard write can fail if the page isn't focused or the user
       // denies permission. UI shows nothing — that's fine, but log so
       // we can debug user-reported "copy didn't work" cases.
-      // eslint-disable-next-line no-console
       console.warn("clipboard.writeText failed:", e?.message);
     }
   };
@@ -576,7 +573,7 @@ function ShareButton({ projectId }) {
             </div>
             <div className="px-6 py-5 space-y-4">
               <p className="text-sm text-neutral-400 leading-relaxed">
-                Anyone with the link can view this project's 3D model, blueprint, and materials list — read-only,
+                Anyone with the link can view this project&apos;s 3D model, blueprint, and materials list — read-only,
                 no login required. Perfect for sharing proposals with clients.
               </p>
 

@@ -64,7 +64,7 @@ function MembersPanel({ projectId }) {
   const [busy, setBusy] = useState(false);
 
   const load = () => axios.get(`${API}/projects/${projectId}/members`, auth()).then((r) => setData(r.data));
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [projectId]);
+  useEffect(() => { load(); }, [projectId]);
 
   if (!data) return <div className="text-neutral-500 font-mono text-sm">Loading…</div>;
   const canManage = data.your_role === "owner" || data.your_role === "pm";

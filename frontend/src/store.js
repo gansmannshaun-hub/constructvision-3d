@@ -5,7 +5,6 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 if (!BACKEND_URL) {
   // Fail fast in the console + throw on any API access so we don't
   // silently send requests to "undefined/api".
-  // eslint-disable-next-line no-console
   console.error("REACT_APP_BACKEND_URL is not set — API calls will fail. Check frontend/.env.");
 }
 export const API = `${BACKEND_URL || ""}/api`;
@@ -99,7 +98,6 @@ export const useStore = create((set, get) => ({
     });
     const failed = [docsR, matsR, bpR].filter((r) => r.status === "rejected");
     if (failed.length) {
-      // eslint-disable-next-line no-console
       console.warn(`loadProjectData: ${failed.length}/3 requests failed`, failed.map((r) => r.reason?.message));
     }
   },
@@ -241,7 +239,6 @@ export const useStore = create((set, get) => ({
       // Underlay image is optional; if the fetch fails (missing doc,
       // permissions), the UI simply doesn't show the underlay — no need
       // to surface to the user, but log for debugging.
-      // eslint-disable-next-line no-console
       console.warn("loadUnderlay failed:", e?.message);
       return null;
     }
