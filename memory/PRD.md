@@ -769,7 +769,41 @@ changes verified via lint + inspection.
 
 
 
-### 2026-02 · Deferred code-review batch — additional wins (server.py hints, hooks cleanup, small RendererTab extract)
+### 2026-02 · Multi-page PDF now creates one sheet per page (P0 user bug)
+- **Reported**: "when I upload a multi-page pdf. after analyzing it only
+  shows one of the pages."
+- **Root cause**: `documents.py::_run_locked` iterated the pages and
+  appended each page's walls/doors/windows/labels/fixtures into a single
+  set of accumulators (`walls_all`, `doors_all`, …), then created ONE
+  sheet at the end using the merged arrays with `first_doc_type`. The
+  UI only ever saw the first page's `view_type` and a jumble of every
+  page's walls stacked on top of each other.
+- **Fix**: added a `per_page_geometry: list[dict]` accumulator that
+  snapshots each page's contribution (using `walls_start` etc offsets
+  captured BEFORE that page's extraction), then after the loop creates
+  **one sheet per page** for multi-page uploads (`use_per_page = True`
+  when `len(per_page_geometry) > 1`). Single-page uploads keep the
+  original single-sheet code path (verified by regression test). Each
+  per-page sheet gets `source_page` (1-based), a `p{N}/{M}` name suffix,
+  and its own per-page assembly extraction if it's an elevation or
+  roof_plan.
+- **Verified by testing_agent iter47** — 3-page PDF ⇒ 3 sheets (source_page
+  1/2/3, correct names, first sheet active), single-page regression
+  passes, retry-after-multi-page produces no stale duplicates thanks
+  to `_purge_prior_run_artifacts`.
+- **Follow-on backlog surfaced by the testing agent**:
+  1. Materials from multi-page docs currently all tag to the first
+     sheet_id — the `db.materials.update_many` at the end still uses
+     one `sheet_id`. Per-page material tagging would need `source_page`
+     on inserts too.
+  2. Retry only re-analyzes the cached first-page thumbnail. Retrying
+     a multi-page doc after a transient failure will drop pages 2..N.
+     Preserving raw upload bytes for retry (or documenting the caveat)
+     is a follow-on enhancement.
+  3. `per_page_geometry` holds full b64 for every page — memory-heavy
+     for 20+ page PDFs. Lazy-keep only pages that need per-page assembly.
+
+
 **Item #3 — Type hints on server.py**
 - `root_info()`, `_on_startup()`, `_shutdown()` now have full type
   annotations. Lint clean.
@@ -803,6 +837,28 @@ changes verified via lint + inspection.
   testing-agent to regression every login / logout / share / mobile
   webview path. Not safely doable in a single iteration alongside
   other work.
+
+
+### 2026-02 · Deferred code-review batch — additional wins
+- **server.py type hints**: `root_info()`, `_on_startup()`, `_shutdown()`
+  now fully annotated.
+- **React hooks / lint audit**: **28 → 3 lint issues** (the 3 remaining
+  are inside `components/ui/` third-party Shadcn code we don't modify).
+  Stripped 12 stale `eslint-disable-next-line` directives across
+  9 files; escaped 7 raw `'` characters in JSX text (Auth, Billing×2,
+  Dashboard×2, Settings, SupportTab) → `&apos;`. The reviewer's
+  "missing hook deps" finding was stale — current tree lints clean.
+- **RendererTab.jsx (partial extract)**: created
+  `/app/frontend/src/components/renderer/format.js` with
+  `RENDERER_API` + `fallbackFmtFtIn`. Full split of the 1440-line
+  component honestly needs a dedicated iteration + testing-agent
+  regression on every 3D flow (30+ interlinked callbacks).
+- **httpOnly cookie auth rewrite — STILL DEFERRED**: genuinely a
+  4–6 hour architectural change (Set-Cookie on login, CORS
+  credentials mode, remove all `Authorization: Bearer` headers,
+  new `/api/auth/me` hydration on mount, regression on every login
+  / share / mobile webview flow). Scheduled as its own iteration.
+
 
 ### 2026-02 · admin.py::build_admin_router split (P2 of deferred code-review batch)
 - The 288-line `build_admin_router` (cyclomatic complexity 63, flagged
