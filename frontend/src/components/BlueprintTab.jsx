@@ -21,11 +21,13 @@ export default function BlueprintTab() {
     const docId = activeSheet?.source_document_id;
     if (!docId) { setUnderlayUrl(null); return; }
     (async () => {
-      const url = await fetchDocumentImage(docId);
+      // Multi-page PDFs need per-page underlay; source_page comes from the
+      // sheet's stored metadata so each sheet shows its own page image.
+      const url = await fetchDocumentImage(docId, activeSheet?.source_page || null);
       if (!cancelled) setUnderlayUrl(url);
     })();
     return () => { cancelled = true; };
-  }, [activeSheet?.source_document_id, fetchDocumentImage]);
+  }, [activeSheet?.source_document_id, activeSheet?.source_page, fetchDocumentImage]);
 
   const [showDimensions, setShowDimensions] = useState(true);
 

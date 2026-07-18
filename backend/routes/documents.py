@@ -952,6 +952,7 @@ def _build_pipeline(db):
                             scale_confidence=pg["scale_confidence"],
                             view_type=pg["doc_type"],
                             assembly_data=pg_assembly,
+                            page_image_base64=pg["b64"],
                         )
                         created_sheet_ids.append(new_sheet["id"])
                     # First created sheet becomes active so the user sees
@@ -1097,21 +1098,37 @@ def build_documents_router(db, get_current_user) -> APIRouter:
         ).sort("created_at", -1).to_list(200)
 
     @router.get("/documents/{doc_id}/image")
-    async def get_document_image(doc_id: str, user: dict = Depends(get_current_user)):
+    async def get_document_image(doc_id: str, page: int | None = None, user: dict = Depends(get_current_user)):
+        """Return a document's cached image.
+
+        - Default (page=None): returns the doc-level thumbnail (page 1 for
+          PDFs, the image itself for images).
+        - `?page=N` (multi-page PDFs): returns page N's rendered image
+          fetched from its matching `blueprint_sheets` row via
+          `source_page`. Falls back to the doc-level thumbnail if a
+          per-page image wasn't stored (older data).
+        """
         doc = await db.documents.find_one({"id": doc_id}, {"_id": 0})
         if not doc:
             raise HTTPException(404, "Not found")
         proj = await db.projects.find_one({"id": doc["project_id"], "user_id": user["id"]})
         if not proj:
             raise HTTPException(403, "Forbidden")
+        image_b64 = doc.get("image_base64")
+        if page and page > 1:
+            sheet = await db.blueprint_sheets.find_one(
+                {"source_document_id": doc_id, "source_page": page},
+                {"_id": 0, "page_image_base64": 1},
+            )
+            per_page = (sheet or {}).get("page_image_base64")
+            if per_page:
+                image_b64 = per_page
         return {
             "id": doc["id"],
             "filename": doc.get("filename"),
-            # Stored blueprints are re-encoded as JPEG during upload for size
-            # safety (see _shrink_and_encode) so the original mime_type is
-            # not accurate for the returned bytes.
             "mime_type": "image/jpeg",
-            "image_base64": doc.get("image_base64"),
+            "image_base64": image_b64,
+            "page": page or 1,
         }
 
     @router.post("/projects/{project_id}/documents/upload")

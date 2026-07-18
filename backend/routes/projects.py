@@ -33,8 +33,11 @@ EMPTY_SHEET_GEOM = {"walls": [], "doors": [], "windows": [], "labels": [], "fixt
 
 
 async def _list_sheets(db, project_id: str) -> list[dict]:
+    # Exclude per-page page_image_base64 payload from list responses — it
+    # can be ~500KB per sheet and blows up the response for multi-page PDFs.
+    # The image is fetched on demand via /api/documents/{doc_id}/image?page=N.
     return await db.blueprint_sheets.find(
-        {"project_id": project_id}, {"_id": 0}
+        {"project_id": project_id}, {"_id": 0, "page_image_base64": 0}
     ).sort("order_index", 1).to_list(200)
 
 
@@ -47,7 +50,8 @@ async def _create_sheet(db, project_id: str, *, name: str, floor_level: int = 0,
                         scale_confidence: Optional[str] = None,
                         view_type: Optional[str] = None,
                         assembly_data: Optional[dict] = None,
-                        facing_override: Optional[str] = None) -> dict:
+                        facing_override: Optional[str] = None,
+                        page_image_base64: Optional[str] = None) -> dict:
     if order_index is None:
         count = await db.blueprint_sheets.count_documents({"project_id": project_id})
         order_index = count
@@ -60,6 +64,7 @@ async def _create_sheet(db, project_id: str, *, name: str, floor_level: int = 0,
         "order_index": order_index,
         "source_document_id": source_document_id,
         "source_page": source_page,               # 1-based page number for multi-page PDF sheets
+        "page_image_base64": page_image_base64,   # per-page rendered thumbnail (multi-page PDFs)
         "view_type": view_type or "floor_plan",
         "walls": geom["walls"],
         "doors": geom["doors"],

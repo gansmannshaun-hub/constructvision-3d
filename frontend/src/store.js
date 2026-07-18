@@ -223,17 +223,20 @@ export const useStore = create((set, get) => ({
   },
 
   // ---------- Document underlay (base64 image) ----------
+  // Cache keyed by `${docId}:${page}` so multi-page PDFs cache per-page.
   underlayCache: {},
-  fetchDocumentImage: async (docId) => {
+  fetchDocumentImage: async (docId, page = null) => {
     if (!docId) return null;
+    const key = `${docId}:${page || 1}`;
     const cache = get().underlayCache || {};
-    if (cache[docId]) return cache[docId];
+    if (cache[key]) return cache[key];
     try {
-      const { data } = await apiClient.get(`/documents/${docId}/image`);
+      const qs = page && page > 1 ? `?page=${encodeURIComponent(page)}` : "";
+      const { data } = await apiClient.get(`/documents/${docId}/image${qs}`);
       const url = data?.image_base64
         ? `data:${data.mime_type || "image/png"};base64,${data.image_base64}`
         : null;
-      set({ underlayCache: { ...(get().underlayCache || {}), [docId]: url } });
+      set({ underlayCache: { ...(get().underlayCache || {}), [key]: url } });
       return url;
     } catch (e) {
       // Underlay image is optional; if the fetch fails (missing doc,

@@ -109,17 +109,18 @@ export default function CadEditorTab() {
   // useCadHistory owns the drag suppression internally; these are no-ops.
   const dragInProgressRef = useRef(false);
 
-  // Fetch the source blueprint image for the active sheet (if any)
+  // Fetch the source blueprint image for the active sheet (if any).
+  // For multi-page PDFs, `source_page` selects the correct page thumbnail.
   useEffect(() => {
     let cancelled = false;
     const docId = activeSheet?.source_document_id;
     if (!docId) { setUnderlayUrl(null); return; }
     (async () => {
-      const url = await fetchDocumentImage(docId);
+      const url = await fetchDocumentImage(docId, activeSheet?.source_page || null);
       if (!cancelled) setUnderlayUrl(url);
     })();
     return () => { cancelled = true; };
-  }, [activeSheet?.source_document_id, fetchDocumentImage]);
+  }, [activeSheet?.source_document_id, activeSheet?.source_page, fetchDocumentImage]);
 
   const markDirty = () => setDirty(true);
 

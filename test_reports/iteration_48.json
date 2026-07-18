@@ -1,0 +1,24 @@
+{
+  "summary": "Verified per-page underlay bug fix. Uploaded 3-page PDF with visually distinct pages (different corner rectangles + 'PAGE ONE/TWO/THREE' labels) as admin. Pipeline classified all 3 pages as floor_plan and created 3 sheets (pages 1,2,3). GET /api/documents/{doc_id}/image?page=N returned DISTINCT image_base64 for N=1,2,3 (SHA256 hashes a265ec01..., ed97a258..., fb75b6e1..., b64 sizes 60692/61572/62464 — clearly different). Default /image (no page) == ?page=1 == doc-level thumbnail. Sheet list endpoint verified to EXCLUDE page_image_base64. Regressions: single-page PNG upload still works with /image (default) and ?page=1 both returning the same non-null b64; ?page=5 (nonexistent) falls back to doc-level thumbnail with 200 (not 404).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iter48_perpage_underlay.py",
+    "/app/test_reports/pytest/iter48_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "documents.py:1118 — the per-page lookup only fires when `page > 1`. Fine for the current behavior (page 1 == doc thumbnail), but if a future retry produces a per-page image for page 1 that differs from the doc thumbnail, /image?page=1 will silently return the stale doc thumbnail instead. Consider always looking up by source_page when page is provided.",
+    "For nonexistent pages (e.g. ?page=5 on a single-page doc), backend returns the doc-level thumbnail with status 200 — the response body has no indication it's a fallback (`page` field still echoes the requested value). A `fallback: true` flag would help the frontend surface the mismatch.",
+    "Storing per-page rendered JPEGs (~60KB each here, could be much larger for real blueprints) inline on blueprint_sheets duplicates data for retry/re-analysis cycles. Consider content-addressable storage keyed by (doc_id, page) so retries don't rewrite the payload.",
+    "documents.py is >1200 lines; the multi-page loop and image endpoint should be split into a dedicated module for maintainability (also flagged in iter47)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter48_perpage_underlay.py"],
+  "success_rate": { "backend": "100%", "frontend": "n/a (backend-only per request)" },
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*",
+  "seed_data_creation": "Project 'TEST_iter48_perpage' created under admin; contains 1 multi-page PDF doc + 1 PNG doc. Not cleaned up (admin account + TEST_ prefix).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Per-page underlay fix verified end-to-end. Distinct-page PDF generator lives at _make_distinct_multipage_pdf in test_iter48_perpage_underlay.py — reuse if testing further multi-page rendering. Full test cycle ~21s.",
+  "rca of the issue": "Not applicable — this run verified a fix. Prior bug: all N sheets shared source_document_id, and frontend fetched the doc-level thumbnail (page 1) for every sheet. Fix stores per-page image on each blueprint_sheets row as page_image_base64, and /api/documents/{doc_id}/image?page=N routes to db.blueprint_sheets.find_one({source_document_id, source_page}). Fallback to doc.image_base64 preserves backward compatibility."
+}
