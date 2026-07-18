@@ -523,6 +523,9 @@ def _build_pipeline(db):
             merged = 0
             skipped = 0
             dedup_audit: list[dict] = []
+            # Aggregate accumulators (used only for the final analysis payload
+            # + single-page fallback). Multi-page PDFs now create ONE SHEET
+            # PER PAGE via `per_page_geometry`.
             walls_all: list[dict] = []
             doors_all: list[dict] = []
             windows_all: list[dict] = []
@@ -535,6 +538,12 @@ def _build_pipeline(db):
             first_summary: str | None = None
             all_rooms: list[dict] = []
             all_notes: list[str] = []
+            # NEW — per-page geometry snapshot for multi-page PDFs. Each entry:
+            #   {page, doc_type, walls, doors, windows, labels, fixtures,
+            #    building_ft, scale_confidence, is_reference}
+            # We create one blueprint sheet per non-empty entry so a
+            # multi-page PDF becomes N sheets instead of one merged blob.
+            per_page_geometry: list[dict] = []
 
             for page_idx, b64 in enumerate(pages_b64):
                 await _set_doc_status(
@@ -676,6 +685,22 @@ def _build_pipeline(db):
                                 scale_confidence = str(analysis.get("scale_confidence") or "medium")
                         except (TypeError, ValueError):
                             pass
+                    # Track this page's building_ft separately so each sheet
+                    # created for a multi-page PDF gets its own scale.
+                    page_bf = analysis.get("building_ft") or {}
+                    try:
+                        page_bw = float(page_bf.get("w") or 0)
+                        page_bh = float(page_bf.get("h") or 0)
+                        this_page_building_ft = {"w": page_bw, "h": page_bh} if (page_bw > 0 and page_bh > 0) else building_ft
+                    except (TypeError, ValueError):
+                        this_page_building_ft = building_ft
+                    this_page_scale_conf = str(analysis.get("scale_confidence") or "medium")
+                    # Snapshot boundaries so we can slice out this page's data.
+                    walls_start = len(walls_all)
+                    doors_start = len(doors_all)
+                    windows_start = len(windows_all)
+                    labels_start = len(labels_all)
+                    fixtures_start = len(fixtures_all)
                     wall_offset = len(walls_all)
                     page_walls_added = 0
                     # Add GPT-4o's walls first (usually few but high-quality
@@ -771,6 +796,40 @@ def _build_pipeline(db):
                         clean_fx = _sanitize_fixture(fx)
                         if clean_fx:
                             fixtures_all.append(clean_fx)
+                    # ---------- Per-page geometry snapshot ----------
+                    # Slice each accumulator between the start-index (captured
+                    # before we extracted this page) and its current length —
+                    # yielding exactly this page's contribution. Wall indices
+                    # in doors/windows are page-relative (0-based) so they
+                    # re-anchor cleanly when we mount them on their own sheet.
+                    page_walls = walls_all[walls_start:]
+                    page_doors = [
+                        {**d, "wall_index": max(0, (d.get("wall_index") or walls_start) - walls_start)}
+                        for d in doors_all[doors_start:]
+                    ]
+                    page_windows = [
+                        {**w, "wall_index": max(0, (w.get("wall_index") or walls_start) - walls_start)}
+                        for w in windows_all[windows_start:]
+                    ]
+                    page_labels = labels_all[labels_start:]
+                    page_fixtures = fixtures_all[fixtures_start:]
+                    per_page_geometry.append({
+                        "page": page_idx + 1,
+                        "b64": b64,                     # kept only for possible per-page assembly extraction
+                        "doc_type": doc_type,
+                        "walls": page_walls,
+                        "doors": page_doors,
+                        "windows": page_windows,
+                        "labels": page_labels,
+                        "fixtures": page_fixtures,
+                        "building_ft": this_page_building_ft,
+                        "scale_confidence": this_page_scale_conf,
+                        "is_reference": doc_type in {
+                            "framing_plan", "roof_plan", "sheathing_plan",
+                            "electrical_plan", "plumbing_plan", "hvac_plan",
+                            "elevation", "detail",
+                        },
+                    })
 
             await _set_doc_status(
                 doc_id, "saving",
@@ -840,36 +899,94 @@ def _build_pipeline(db):
                 await _set_doc_status(doc_id, "syncing", doc_type=first_doc_type, materials_count=inserted)
                 # Ensure baseline blueprint doc + sheets exist.
                 await get_or_create_blueprint(db, project_id)
-                # Auto-create a NEW sheet dedicated to this document so each
-                # uploaded blueprint gets its own tab in the CAD editor.
                 doc_meta = await db.documents.find_one({"id": doc_id}, {"_id": 0, "filename": 1}) or {}
-                sheet_name = (doc_meta.get("filename") or "Sheet")[:80]
-                # Reference sheets don't stack as floors — put them all at
-                # floor_level = -99 (rendered as a reference layer, not a
-                # story of the building).
-                floor_level = -99 if is_reference_only else await db.blueprint_sheets.count_documents({"project_id": project_id})
-                new_sheet = await _create_sheet(
-                    db, project_id,
-                    name=sheet_name,
-                    floor_level=floor_level,
-                    source_document_id=doc_id,
-                    geometry={
-                        "walls":    walls_all,
-                        "doors":    doors_all,
-                        "windows":  windows_all,
-                        "labels":   labels_all,
-                        "fixtures": fixtures_all,
-                    },
-                    building_ft=building_ft,
-                    scale_confidence=scale_confidence,
-                    view_type=first_doc_type,
-                    assembly_data=assembly_data,
-                )
-                sheet_id = new_sheet["id"]
-                # Make the new traced sheet active so the user sees it right away.
+                base_name = (doc_meta.get("filename") or "Sheet")[:80]
+
+                # -------- Sheet creation strategy --------
+                # Multi-page PDF → one sheet per page (each page usually
+                # represents a distinct blueprint sheet: floor 1, floor 2,
+                # foundation, elevations, etc). Preserves the multi-page
+                # information the user uploaded.
+                # Single-page → one sheet (existing behavior). Also fallback
+                # for legacy code paths that produce accumulated `walls_all`
+                # but didn't populate `per_page_geometry` (e.g. if the loop
+                # short-circuits).
+                created_sheet_ids: list[str] = []
+                use_per_page = len(per_page_geometry) > 1
+                if use_per_page:
+                    page_count = len(per_page_geometry)
+                    # Existing sheet count baseline — new stacking indices
+                    # append after any pre-existing sheets in the project.
+                    existing_sheet_count = await db.blueprint_sheets.count_documents({"project_id": project_id})
+                    ref_floor_counter = 0
+                    for pg in per_page_geometry:
+                        pg_is_ref = pg["is_reference"]
+                        sheet_name = f"{base_name} · p{pg['page']}/{page_count}"[:80]
+                        floor_level = -99 - ref_floor_counter if pg_is_ref else existing_sheet_count
+                        if pg_is_ref:
+                            ref_floor_counter += 1
+                        else:
+                            existing_sheet_count += 1
+                        # Run per-page assembly extraction only for
+                        # elevation/roof_plan pages (needed for 3D stacking).
+                        pg_assembly: dict | None = None
+                        if pg["doc_type"] in {"elevation", "roof_plan"}:
+                            try:
+                                pg_assembly = await _analyze_view_structure(pg["b64"], pg["doc_type"])
+                            except Exception:
+                                logger.exception(f"per-page assembly extraction failed for page {pg['page']} (non-fatal)")
+                        new_sheet = await _create_sheet(
+                            db, project_id,
+                            name=sheet_name,
+                            floor_level=floor_level,
+                            source_document_id=doc_id,
+                            source_page=pg["page"],
+                            geometry={
+                                "walls":    pg["walls"],
+                                "doors":    pg["doors"],
+                                "windows":  pg["windows"],
+                                "labels":   pg["labels"],
+                                "fixtures": pg["fixtures"],
+                            },
+                            building_ft=pg["building_ft"],
+                            scale_confidence=pg["scale_confidence"],
+                            view_type=pg["doc_type"],
+                            assembly_data=pg_assembly,
+                        )
+                        created_sheet_ids.append(new_sheet["id"])
+                    # First created sheet becomes active so the user sees
+                    # the first page immediately (they can tab through the
+                    # rest via SheetTabBar).
+                    sheet_id = created_sheet_ids[0]
+                else:
+                    # Single-page path — mirrors the pre-refactor behavior.
+                    floor_level = -99 if is_reference_only else await db.blueprint_sheets.count_documents({"project_id": project_id})
+                    new_sheet = await _create_sheet(
+                        db, project_id,
+                        name=base_name,
+                        floor_level=floor_level,
+                        source_document_id=doc_id,
+                        geometry={
+                            "walls":    walls_all,
+                            "doors":    doors_all,
+                            "windows":  windows_all,
+                            "labels":   labels_all,
+                            "fixtures": fixtures_all,
+                        },
+                        building_ft=building_ft,
+                        scale_confidence=scale_confidence,
+                        view_type=first_doc_type,
+                        assembly_data=assembly_data,
+                    )
+                    sheet_id = new_sheet["id"]
+                    created_sheet_ids.append(sheet_id)
+                # Make the FIRST created sheet active so the user sees it right away.
                 await _mirror_active_sheet_to_blueprint(db, project_id, sheet_id)
                 # Stamp all materials extracted from this doc with the sheet id
-                # so the per-sheet materials view can filter cleanly.
+                # so the per-sheet materials view can filter cleanly. (For
+                # multi-page uploads all materials tag to the first sheet;
+                # per-page material mapping would require tracking source_page
+                # on inserts too — that's a follow-on enhancement.)
                 await db.materials.update_many(
                     {"project_id": project_id, "document_id": doc_id},
                     {"$set": {"sheet_id": sheet_id}},

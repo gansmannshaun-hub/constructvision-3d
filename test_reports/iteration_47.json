@@ -1,0 +1,24 @@
+{
+  "summary": "Verified multi-page PDF bug fix. Uploaded a synthetic 3-page floor-plan PDF as admin — pipeline classified all 3 pages as floor_plan and created exactly 3 blueprint_sheets (one per page) with source_document_id==doc_id, source_page in {1,2,3}, and names 'test_3page.pdf · p1/3', p2/3, p3/3. The first-created sheet (source_page=1) is set as active on the blueprint. Single-page PNG upload regression passes: exactly 1 sheet with source_page=None and name equal to filename. Retry regression passes: after POST /api/documents/{doc_id}/retry on the multi-page doc, sheet count stays <= 3 (no stale duplicates thanks to _purge_prior_run_artifacts).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iter47_multipage_pdf.py",
+    "/app/test_reports/pytest/iter47_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "documents.py::_run_locked now ~530 lines — the whole file is >1200 lines; consider extracting per-page geometry snapshot + sheet-creation loop into helpers.",
+    "For multi-page uploads all materials are still stamped to the FIRST sheet_id only (see line ~990). Code comment acknowledges this as a follow-on; per-sheet materials filtering will be wrong until source_page is used in the sheet_id backfill.",
+    "Retry on a multi-page PDF only re-analyzes the cached first-page thumbnail. If a user retries after transient failure, N-1 sheets vanish permanently. Consider preserving raw upload bytes for retry, or explicitly warn in the response body (currently only logged).",
+    "per_page_geometry stores full b64 for every page in memory (line 818) — for a 20-page PDF at ~6MB each that's ~120MB RSS during a single pipeline run. Could be lazily kept only for elevation/roof_plan pages that need the assembly pass."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter47_multipage_pdf.py"],
+  "success_rate": { "backend": "100%", "frontend": "n/a (backend-only per request)" },
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (used for unlimited project quota).",
+  "seed_data_creation": "Test project 'TEST_iter47_multipage' + 1 multi-page PDF doc + 1 single-page image doc created under admin. Not cleaned up (test data prefix 'TEST_' + admin account).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bug fix VERIFIED end-to-end against live GPT-4o pipeline. Full 3-page + 1-image + retry cycle completes in ~26s. If reusing test with a fresh user, remember free plan blocks project creation after 1 project; either upgrade or use admin.",
+  "rca of the issue": "Not applicable — this was a review of an implemented fix, and the fix works correctly. Root cause was in the previous behavior: _run_locked appended every page's geometry to accumulators (walls_all, doors_all, etc.) and created ONE sheet at the end using the merged arrays. Fix introduces per_page_geometry accumulator that snapshots each page's delta and creates one _create_sheet call per drawing page when total pages > 1 (single-page path preserved). Also added source_page field to blueprint_sheets, and _purge_prior_run_artifacts deletes prior sheets by source_document_id before retry to avoid duplicates."
+}
