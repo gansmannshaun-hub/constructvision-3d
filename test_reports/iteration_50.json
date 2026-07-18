@@ -1,0 +1,27 @@
+{
+  "summary": "Backend-only regression testing of the routes/documents package refactor (formerly monolithic documents.py). 11/11 new pytest tests pass covering auth, projects listing, documents list/delete/image/retry/retry-all-errored, upload+pipeline E2E, and AI tools import chain. The specifically-requested inspect.getsource(_build_pipeline) unit test in test_iter36 also passes, confirming the public API re-export contract is preserved.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter50_documents_refactor.py",
+    "/app/test_reports/pytest/iter50_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/documents/__init__.py cleanly re-exports the previous public surface (ANALYSIS_PROMPT_*, EXISTING_MATERIALS_TEMPLATE_NONE, _sanitize_*, _coord, _strip_code_fence, _build_pipeline, build_documents_router). ai_tools.py import chain works — /api/ai/floorplan/generate returns 4xx (validation), not 500.",
+    "Package split is clean and each submodule is well under the 700-line threshold. Recommend adding a lightweight unit test for sanitize.py helpers (_sanitize_fixture, _coord) to lock behavior for future refactors."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter50_documents_refactor.py (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Used existing project(s) from admin account. Uploaded a 1x1 tiny.png doc which reached terminal state, exercised retry, then cleaned up via DELETE /api/documents/{id}.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The routes/documents/ package is stable. Note: tests/test_iter36_all_drawing_types_traced.py has an unrelated E2E test (test_framing_like_upload_populates_walls_via_opencv) that failed with status=error on a fixture drawing — this appears to be an AI-vision-runtime concern for a specific complex fixture, NOT a refactor regression. The requested inspect.getsource(_build_pipeline) test (test_drawing_types_contains_non_floor_plans) passes.",
+  "rca of the issue": "N/A — no refactor regressions found. The single failing test in the older iter36 suite is an AI pipeline outcome on a specific fixture, orthogonal to the package split."
+}

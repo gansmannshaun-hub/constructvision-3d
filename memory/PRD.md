@@ -108,6 +108,16 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-18 · Documents router split (1375 → package of 6 files)** — Converted
+  `backend/routes/documents.py` into a `routes/documents/` package:
+  `sanitize.py` (98), `rasterize.py` (71), `ai_vision.py` (271, prompts + GPT-4o
+  calls), `pipeline.py` (650, background analysis), `routes.py` (363, HTTP
+  routes), and `__init__.py` (38, re-exports). Full public-API backward
+  compatibility preserved for `server.py`, `routes/ai_tools.py`, and the
+  Pytest suite (which uses `inspect.getsource(_build_pipeline)`). Backend
+  boots clean, healthcheck 200, authenticated docs list returns correct data,
+  `inspect.getsource` DRAWING_TYPES check passes.
+
 - **2026-02-18 · RendererTab refactor (1458 → 309 lines)** — Extracted the 3D
   Renderer monolith into 4 hooks + 9 subcomponents under
   `frontend/src/components/renderer/`. Hooks: `useSiteTerrain`,
