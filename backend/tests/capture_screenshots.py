@@ -4,7 +4,7 @@ seeded by /app/backend/tests/seed_demo_villa.py."""
 import asyncio, os, sys
 from playwright.async_api import async_playwright
 
-URL = "https://build-ai-147.preview.emergentagent.com"
+URL = "https://construction-viz-2.preview.emergentagent.com"
 EMAIL = os.environ.get("ADMIN_EMAIL", "admin@atlas.app")
 PASSWORD = os.environ.get("ADMIN_PASSWORD", "Open0says3me#*03#*")
 OUT = "/app/frontend/public/screenshots"

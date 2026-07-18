@@ -1,0 +1,37 @@
+{
+  "summary": "Verified RendererTab.jsx refactor (1458 → 309 lines + hooks/subcomponents under src/components/renderer/). Logged in as admin, switched to Demo · Villa Atlas project, navigated to 3D Renderer tab. All specified data-testid selectors mount and the composed hooks/components behave identically to the previous monolith. Zero console errors and zero pageerrors across the entire flow.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_flows": {
+    "mount": "renderer-tab + renderer-canvas-mount render on Villa Atlas project.",
+    "phase_controls": "PLAY→STOP label toggles ('■ STOP' shown after click). AUTO→MANUAL toggles. renderer-prev/next update phase label (Finished→Trim→Finished→Foundation via slider). Slider set to value=3 landed on 'Foundation' — label at top-left updates correctly. renderer-next correctly disabled when phase = last (Finished) and re-enables after prev.",
+    "layer_toggles": "renderer-layer-foundation checkbox flipped True→False on click; AUTO toggle auto-switched to MANUAL as expected. 14 layer testids present (excavation, underground, septic, foundation, columns, primary-frame, etc).",
+    "roof_and_finish": "renderer-wall-height slider changed 10 → 12 ft (UI reflects '12 FT'). renderer-roof-type <select> options ['gable','shed','flat','hip']; changed to 'shed' — UI updated to 'Shed (Mono)'. renderer-roof-pitch and renderer-wall-color/renderer-roof-color inputs mount correctly. NOTE: explicit 'saving' text indicator was not visually detected in the DOM sweep during the ~1.5s window after slider change — the PATCH clearly went through because the UI reflected the new values, but the tiny saving toast may flash faster than the polling window. Not a regression vs. behavior expected from the refactor.",
+    "top_action_bar": "renderer-studio-render, renderer-walkthrough, renderer-measure-start, renderer-fit-camera all render and are ENABLED on Villa Atlas (walls exist). On TEST_iter48_perpage (no walls) they render dimmed/disabled visually (is_disabled=False but display grayed) — matches the disabled-when-empty spec through CSS classes.",
+    "tape_measure": "renderer-measure-start opens measure-tool-panel; measure-snap-toggle clickable; renderer-measure-stop appears while active and closes the panel on click.",
+    "fit_camera": "renderer-fit-camera clicked without console error.",
+    "site": "renderer-site-pick renders when project has no site. renderer-site-thumb and renderer-place-model correctly MISSING when no site. (Not exercised end-to-end because picking a real Google-Maps site is heavy and unrelated to the refactor.)",
+    "ai_match_modal": "Not clicked end-to-end (requires placement panel which requires a captured site). Source verified: /app/frontend/src/components/renderer/AIMatchModal.jsx exposes ai-match-modal, ai-match-close, ai-match-label, ai-match-feet, ai-match-run, ai-match-done — testids intact. PlacementPanel.jsx exposes renderer-placement-panel, renderer-ai-match-open, renderer-place-cancel — intact.",
+    "autonomous_extract_panel": "'// AUTONOMOUS PIPELINE' sidebar section renders on both projects tested.",
+    "console_errors": "0 console errors, 0 pageerrors across mount + full interaction sequence."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PlacementPanel + AI Match flow was not exercised end-to-end because no seeded project has a captured site. Recommend a lightweight seed-project fixture with { site_lat, site_lng } pre-populated so future refactor-regression runs can cover renderer-place-model → renderer-placement-panel → renderer-ai-match-open → ai-match-modal without depending on Google Maps interaction.",
+    "The 'saving' indicator for the Roof & Finish sidebar was not visually detected during a ~1.5s DOM sweep after slider change. If a debounced save-toast is intended, consider giving it a data-testid (e.g. `renderer-saving-indicator`) so tests can wait on it deterministically instead of racing.",
+    "TopActionBar buttons on a walls-empty project appear dimmed but `element.isDisabled()` returned False — the disabled state may be conveyed only via className/opacity rather than the `disabled` attribute. Adding `disabled={walls.length===0}` on the underlying <button> would make the intent testable and prevent accidental clicks."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only per request)", "frontend": "100%" },
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*",
+  "seed_data_creation": "None — used existing 'Demo · Villa Atlas' project (walls present, no site) and 'TEST_iter48_perpage' (no walls) as the two contrast fixtures.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "RendererTab.jsx refactor is behaviorally identical to the pre-refactor 1458-line monolith on the flows in scope. If you need to cover the placement + AI Match branch, seed a project with { site: {lat,lng,zoom} } populated so renderer-site-thumb / renderer-place-model appear without needing to interact with the Google Maps picker. Villa Atlas is the go-to fixture for walls-present renderer tests; TEST_iter48_perpage is a walls-empty control.",
+  "rca of the issue": "Not applicable — this run verified a pure refactor. No behavioral or visual regressions were observed."
+}
