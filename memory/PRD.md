@@ -839,6 +839,37 @@ changes verified via lint + inspection.
   other work.
 
 
+### 2026-02 · Multi-page PDF underlay per-page fix (P0 user bug follow-up)
+- **Reported**: After iter47 fixed sheet counts, "every sheet shows the
+  same exact sheet" — all N sheet tabs displayed page 1's underlay.
+- **Root cause**: every sheet had the same `source_document_id`, and the
+  frontend fetched the doc-level thumbnail (only page 1 stored) for
+  every sheet.
+- **Fix**:
+  - `_create_sheet` (`routes/projects.py`) now accepts `page_image_base64`
+    and stores it on the sheet.
+  - Multi-page loop in `_run_locked` passes each page's `b64` when
+    creating its sheet.
+  - `_list_sheets` excludes the field from list responses (keeps payload
+    lean — image can be ~500KB per sheet).
+  - `GET /api/documents/{doc_id}/image?page=N` reads per-page image from
+    `blueprint_sheets` where `source_page = N`; falls back to
+    `doc.image_base64` if no per-page image exists. Returns
+    `fallback: true` in the response so the client can tell.
+  - Frontend `fetchDocumentImage(docId, page)` (store.js) — cache key
+    now includes page number.
+  - `CadEditorTab.jsx` + `BlueprintTab.jsx` — underlay effect now
+    depends on `activeSheet.source_page` so switching sheets re-fetches
+    the correct page's image.
+- **Verified by testing_agent iter48** — 3-page PDF with visually-
+  distinct pages produced 3 sheets with DIFFERENT SHA256 image hashes
+  per page (a265ec01, ed97a258, fb75b6e1). Regressions pass.
+- Addressed reviewer's follow-on: page-1 also does the per-page lookup
+  now so retries that regenerate page 1 don't silently serve the stale
+  doc thumbnail.
+
+
+
 ### 2026-02 · Deferred code-review batch — additional wins
 - **server.py type hints**: `root_info()`, `_on_startup()`, `_shutdown()`
   now fully annotated.

@@ -1115,7 +1115,12 @@ def build_documents_router(db, get_current_user) -> APIRouter:
         if not proj:
             raise HTTPException(403, "Forbidden")
         image_b64 = doc.get("image_base64")
-        if page and page > 1:
+        fallback_used = True
+        # Look up a per-page image whenever `page` is provided. Even page=1
+        # may have a distinct rendered image once retries or re-analysis
+        # regenerate it — falling back to the doc-level thumbnail only
+        # when no per-page row exists preserves backward compatibility.
+        if page and page >= 1:
             sheet = await db.blueprint_sheets.find_one(
                 {"source_document_id": doc_id, "source_page": page},
                 {"_id": 0, "page_image_base64": 1},
@@ -1123,12 +1128,14 @@ def build_documents_router(db, get_current_user) -> APIRouter:
             per_page = (sheet or {}).get("page_image_base64")
             if per_page:
                 image_b64 = per_page
+                fallback_used = False
         return {
             "id": doc["id"],
             "filename": doc.get("filename"),
             "mime_type": "image/jpeg",
             "image_base64": image_b64,
             "page": page or 1,
+            "fallback": fallback_used,   # true when we served doc thumbnail instead of a per-page image
         }
 
     @router.post("/projects/{project_id}/documents/upload")
