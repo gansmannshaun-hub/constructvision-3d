@@ -108,6 +108,27 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-21 · Sheet Labeling + Manual Wall Trace** — Two linked features:
+  1. **Sheet type hint** on upload — dropdown next to the drop zone
+     (`upload-sheet-label-hint`) maps to the AI's `doc_type` enum
+     (Floor Plan / Foundation / Elevation / Framing / MEP / Detail / etc.)
+     and is threaded through the pipeline into the GPT-4o prompt as a
+     strong classification anchor. Backend whitelist gates the value; UI
+     hides `photo`/`other` since those aren't useful hints.
+  2. **Post-AI override** — `SheetPatchIn.view_type` now writable via
+     `PATCH /api/projects/{pid}/blueprint/sheets/{sid}`.
+  3. **Manual Wall Trace overlay** on the Documents tab — new
+     `TRACE WALLS MANUALLY` button per completed doc opens a full-screen
+     SVG overlay of the underlay image (`ManualTraceOverlay.jsx`). User
+     draws walls, snap-to-0.5ft, undo/clear/select+delete, editable
+     building-ft. `POST /api/blueprint_sheets/{sid}/reanalyze-with-walls`
+     runs a tighter GPT-4o prompt that treats the walls as authoritative
+     ground truth and only extracts matching doors/windows/labels/fixtures.
+     Response sets `manual_walls_locked=true` and `scale_confidence='manual'`.
+  Auto-trace still runs on initial upload; the manual overlay pre-loads
+  those AI walls so users clean them up rather than draw from scratch.
+  Testing agent iter_51: 100% backend (9/9), ~95% frontend, no regressions.
+
 - **2026-02-18 · Documents router split (1375 → package of 6 files)** — Converted
   `backend/routes/documents.py` into a `routes/documents/` package:
   `sanitize.py` (98), `rasterize.py` (71), `ai_vision.py` (271, prompts + GPT-4o
