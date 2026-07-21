@@ -45,7 +45,16 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [reanalyzing, setReanalyzing] = useState(false);
+  // Zoom + pan. Zoom is a scalar multiplier on the image+svg wrapper;
+  // scroll wheel adjusts it, buttons let the user snap to fixed levels.
+  // Panning is handled by the parent's `overflow-auto` — when the
+  // wrapper scales up past the viewport, native scrollbars kick in.
+  const [zoom, setZoom] = useState(1);
   const svgRef = useRef(null);
+  const scrollBoxRef = useRef(null);
+  const zoomWrapRef = useRef(null);
+  const MIN_ZOOM = 0.25;
+  const MAX_ZOOM = 8;
 
   // Load the doc image (source of truth is per-page image if this sheet has one).
   useEffect(() => {
@@ -156,15 +165,73 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
     setWalls((prev) => prev.slice(0, -1));
   }, []);
 
+  // ---------- Zoom controls ----------
+  // Scroll wheel zooms in/out and keeps the point under the cursor pinned
+  // to the same viewport pixel. Zoom is applied via CSS transform, so we
+  // adjust the scroll offset by the delta between the pre-zoom and
+  // post-zoom cursor world-position to compensate for the transform origin.
+  const applyZoom = useCallback((next, cursor) => {
+    const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next));
+    const box = scrollBoxRef.current;
+    if (!box || clamped === zoom) {
+      setZoom(clamped);
+      return;
+    }
+    const rect = box.getBoundingClientRect();
+    const cx = cursor ? cursor.x - rect.left : rect.width / 2;
+    const cy = cursor ? cursor.y - rect.top : rect.height / 2;
+    const contentX = (box.scrollLeft + cx) / zoom;
+    const contentY = (box.scrollTop + cy) / zoom;
+    setZoom(clamped);
+    requestAnimationFrame(() => {
+      if (!scrollBoxRef.current) return;
+      scrollBoxRef.current.scrollLeft = contentX * clamped - cx;
+      scrollBoxRef.current.scrollTop  = contentY * clamped - cy;
+    });
+  }, [zoom]);
+
+  const zoomIn  = useCallback(() => applyZoom(zoom * 1.25), [zoom, applyZoom]);
+  const zoomOut = useCallback(() => applyZoom(zoom / 1.25), [zoom, applyZoom]);
+  const zoomReset = useCallback(() => {
+    setZoom(1);
+    if (scrollBoxRef.current) {
+      scrollBoxRef.current.scrollLeft = 0;
+      scrollBoxRef.current.scrollTop = 0;
+    }
+  }, []);
+
+  const onWheel = useCallback((e) => {
+    // Wheel zoom: no Ctrl needed on the canvas itself (matches CAD tools).
+    // Prevent the browser's native scroll so the wheel is captured by us.
+    e.preventDefault();
+    e.stopPropagation();
+    const step = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    applyZoom(zoom * step, { x: e.clientX, y: e.clientY });
+  }, [zoom, applyZoom]);
+
+  // Native wheel listener with { passive: false } so preventDefault works.
+  // React's synthetic onWheel is passive by default on many browsers.
+  useEffect(() => {
+    const box = scrollBoxRef.current;
+    if (!box) return;
+    const handler = (e) => onWheel(e);
+    box.addEventListener("wheel", handler, { passive: false });
+    return () => box.removeEventListener("wheel", handler);
+  }, [onWheel]);
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") { setPending(null); setSelected(null); }
       if ((e.key === "Delete" || e.key === "Backspace") && selected) deleteSelected();
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") undoLast();
+      // Keyboard zoom shortcuts (match common CAD/design apps).
+      if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomIn(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "-") { e.preventDefault(); zoomOut(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "0") { e.preventDefault(); zoomReset(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, deleteSelected, undoLast]);
+  }, [selected, deleteSelected, undoLast, zoomIn, zoomOut, zoomReset]);
 
   const clearAll = useCallback(() => {
     if (!window.confirm(`Clear all ${walls.length} walls? This can't be undone once you close the overlay.`)) return;
@@ -228,6 +295,29 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
           <span className="text-xs font-mono text-neutral-400 mr-3" data-testid="manual-trace-count">
             {walls.length} wall{walls.length === 1 ? "" : "s"}
           </span>
+          {/* Zoom controls — scroll wheel over the canvas also zooms. */}
+          <div className="flex items-center gap-1 border border-white/15 bg-black/60 px-1 py-0.5" title="Zoom (scroll wheel · Ctrl +/− · Ctrl 0 to reset)">
+            <button
+              data-testid="manual-trace-zoom-out"
+              onClick={zoomOut}
+              disabled={zoom <= MIN_ZOOM + 0.001}
+              className="label-mono px-2 py-1 text-neutral-300 hover:bg-white/10 disabled:opacity-30 text-sm"
+              title="Zoom out (Ctrl+−)"
+            >−</button>
+            <button
+              data-testid="manual-trace-zoom-reset"
+              onClick={zoomReset}
+              className="label-mono px-2 py-1 text-[#FFCC00] hover:bg-white/10 min-w-[54px] text-[11px]"
+              title="Reset zoom to 100% (Ctrl+0)"
+            >{Math.round(zoom * 100)}%</button>
+            <button
+              data-testid="manual-trace-zoom-in"
+              onClick={zoomIn}
+              disabled={zoom >= MAX_ZOOM - 0.001}
+              className="label-mono px-2 py-1 text-neutral-300 hover:bg-white/10 disabled:opacity-30 text-sm"
+              title="Zoom in (Ctrl+=)"
+            >+</button>
+          </div>
           <label className="flex items-center gap-2 text-xs font-mono cursor-pointer">
             <input
               data-testid="manual-trace-snap"
