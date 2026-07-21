@@ -108,6 +108,15 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-21 · Fix: React "Objects are not valid as a React child" crash in
+  Manual Trace overlay** — FastAPI 422 responses expose `detail` as a
+  `list[dict]` per Pydantic v2. `ManualTraceOverlay.saveAndReanalyze` was
+  setting that raw array into state and rendering it as `{error}`, which
+  crashed the reconciler. Added `formatApiError()` helper that stringifies
+  the list (`.map(.msg).join('; ')`), single-object, and fallback shapes.
+  Verified via `testing_agent_v3_fork` iter_52 (100% frontend, forced 422
+  via page.route → human-readable banner, no crash).
+
 - **2026-02-21 · Sheet Labeling + Manual Wall Trace** — Two linked features:
   1. **Sheet type hint** on upload — dropdown next to the drop zone
      (`upload-sheet-label-hint`) maps to the AI's `doc_type` enum
