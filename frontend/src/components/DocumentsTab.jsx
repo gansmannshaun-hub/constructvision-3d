@@ -1,7 +1,6 @@
 import React, { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient, useStore, API } from "../store";
-import ManualTraceOverlay from "./ManualTraceOverlay";
 
 const SHEET_TYPE_OPTIONS = [
   { value: "", label: "Auto-detect (recommended)" },
@@ -60,8 +59,6 @@ export default function DocumentsTab() {
   const [batch, setBatch] = useState([]);
   // Sheet-type hint sent to the AI on upload — empty = auto-detect.
   const [sheetLabelHint, setSheetLabelHint] = useState("");
-  // Manual-trace overlay state — { doc, sheet } when open.
-  const [traceTarget, setTraceTarget] = useState(null);
 
   // Auto-refresh whenever any document is still analyzing so users see progress
   // without needing to reload the page. Stops polling once everything settles.
@@ -443,32 +440,19 @@ export default function DocumentsTab() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
             {documents.map((d) => (
-              <DocCard key={d.id} doc={d} onTrace={setTraceTarget} />
+              <DocCard key={d.id} doc={d} />
             ))}
           </div>
         )}
       </section>
-
-      {traceTarget && (
-        <ManualTraceOverlay
-          doc={traceTarget.doc}
-          sheet={traceTarget.sheet}
-          onClose={() => setTraceTarget(null)}
-          onSaved={async () => {
-            await refreshDocuments();
-            await refreshBlueprint();
-          }}
-        />
-      )}
     </div>
   );
 }
 
-function DocCard({ doc, onTrace }) {
+function DocCard({ doc }) {
   const [imgUrl, setImgUrl] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [loadingTrace, setLoadingTrace] = useState(false);
-  const { currentProjectId, refreshDocuments, refreshMaterials, refreshBlueprint } = useStore();
+  const { refreshDocuments, refreshMaterials, refreshBlueprint } = useStore();
 
   React.useEffect(() => {
     let alive = true;
@@ -500,31 +484,8 @@ function DocCard({ doc, onTrace }) {
   };
 
   const openTrace = async () => {
-    if (!onTrace) return;
-    setLoadingTrace(true);
-    try {
-      // Find the sheet created from this doc so we can pre-load its walls.
-      const { data: sheets } = await apiClient.get(
-        `/projects/${currentProjectId}/blueprint/sheets`,
-      );
-      const sheet = (sheets || []).find(
-        (s) => s.source_document_id === doc.id,
-      );
-      if (!sheet) {
-        alert("No blueprint sheet linked to this document yet. Wait for analysis to finish, then try again.");
-        return;
-      }
-      onTrace({ doc, sheet });
-    } catch (e) {
-      const msg = typeof e?.response?.data?.detail === "string"
-        ? e.response.data.detail
-        : Array.isArray(e?.response?.data?.detail)
-        ? e.response.data.detail.map((d) => d?.msg || JSON.stringify(d)).join("; ")
-        : e?.message || "Failed to open trace";
-      alert(`Failed to open trace: ${msg}`);
-    } finally {
-      setLoadingTrace(false);
-    }
+    // Manual trace lives on the Blueprint tab now — this stub is kept so
+    // any straggler callers don't blow up but no longer opens an overlay.
   };
 
   const done = doc.status === "done";
@@ -636,20 +597,6 @@ function DocCard({ doc, onTrace }) {
             )}
             {doc.synced_3d && <Badge variant="blue">🏗 3D synced</Badge>}
           </div>
-        )}
-        {done && doc.synced_3d && (
-          <button
-            data-testid={`document-trace-${doc.id}`}
-            onClick={openTrace}
-            disabled={loadingTrace}
-            className="mt-3 w-full label-mono px-3 py-2 border border-[#00E5FF]/50 bg-[#00E5FF]/10 text-[#00E5FF] hover:bg-[#00E5FF] hover:text-black transition-colors flex items-center justify-center gap-2 disabled:opacity-40"
-            title="Open manual wall tracer — draw walls over the blueprint, AI re-extracts doors, windows, labels"
-          >
-            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 20l16-16M8 4h12v12" />
-            </svg>
-            {loadingTrace ? "OPENING…" : "TRACE WALLS MANUALLY"}
-          </button>
         )}
         {done && doc.dedup_audit?.some?.((a) => a.decision !== "new") && (
           <details className="mt-2">

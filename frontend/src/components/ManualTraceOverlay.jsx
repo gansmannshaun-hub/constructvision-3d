@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "../store";
+import { formatFeetInches } from "../lib/dim";
 
 /**
  * Normalize an axios/FastAPI error into a plain string safe to render as
@@ -266,14 +267,48 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
   const svgWalls = useMemo(() => walls.map((w) => {
     const s = feetToPx(w.start[0], w.start[1]);
     const e = feetToPx(w.end[0], w.end[1]);
-    return { id: w.id, x1: s.x, y1: s.y, x2: e.x, y2: e.y };
-  }), [walls, feetToPx]);
+    const dx_ft = w.end[0] - w.start[0];
+    const dy_ft = w.end[1] - w.start[1];
+    const lengthFt = Math.hypot(dx_ft, dy_ft);
+    // Midpoint in pixel space for the label.
+    const mx = (s.x + e.x) / 2;
+    const my = (s.y + e.y) / 2;
+    // Perpendicular offset so the label sits alongside the wall, not on top.
+    const wallLenPx = Math.hypot(e.x - s.x, e.y - s.y) || 1;
+    const nx = -(e.y - s.y) / wallLenPx;
+    const ny =  (e.x - s.x) / wallLenPx;
+    const OFFSET = Math.max(14, (imageBase.width || 1) * 0.012);
+    return {
+      id: w.id,
+      x1: s.x, y1: s.y, x2: e.x, y2: e.y,
+      lengthFt,
+      lengthLabel: formatFeetInches(lengthFt),
+      // Text anchor point offset perpendicular to the wall.
+      labelX: mx + nx * OFFSET,
+      labelY: my + ny * OFFSET,
+      // Rotation so text aligns with the wall direction (constrain to
+      // -90..90 so it's never upside-down).
+      angleDeg: (() => {
+        let a = Math.atan2(e.y - s.y, e.x - s.x) * (180 / Math.PI);
+        if (a > 90) a -= 180;
+        if (a < -90) a += 180;
+        return a;
+      })(),
+    };
+  }), [walls, feetToPx, imageBase.width]);
 
   const pendingPreview = useMemo(() => {
     if (!pending || !mouseFt) return null;
     const s = feetToPx(pending.start_ft[0], pending.start_ft[1]);
     const e = feetToPx(mouseFt[0], mouseFt[1]);
-    return { x1: s.x, y1: s.y, x2: e.x, y2: e.y };
+    const lengthFt = Math.hypot(mouseFt[0] - pending.start_ft[0], mouseFt[1] - pending.start_ft[1]);
+    return {
+      x1: s.x, y1: s.y, x2: e.x, y2: e.y,
+      lengthFt,
+      lengthLabel: formatFeetInches(lengthFt),
+      midX: (s.x + e.x) / 2,
+      midY: (s.y + e.y) / 2,
+    };
   }, [pending, mouseFt, feetToPx]);
 
   return (
@@ -420,28 +455,71 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
                 onMouseMove={onSvgMove}
                 onContextMenu={onContextMenu}
               >
-                {svgWalls.map((w) => (
-                  <g key={w.id}>
-                    <line
-                      x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2}
-                      stroke={selected === w.id ? "#FF3333" : "#FFCC00"}
-                      strokeWidth={selected === w.id ? 8 : 5}
-                      strokeLinecap="round"
-                      onClick={(e) => { e.stopPropagation(); setSelected(w.id); }}
-                      style={{ cursor: "pointer" }}
-                      data-testid={`manual-trace-wall-${w.id}`}
-                    />
-                  </g>
-                ))}
+                {svgWalls.map((w) => {
+                  const LABEL_FONT = Math.max(11, (imageBase.width || 1) * 0.011);
+                  const isSel = selected === w.id;
+                  return (
+                    <g key={w.id}>
+                      <line
+                        x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2}
+                        stroke={isSel ? "#FF3333" : "#FFCC00"}
+                        strokeWidth={isSel ? 8 : 5}
+                        strokeLinecap="round"
+                        onClick={(e) => { e.stopPropagation(); setSelected(w.id); }}
+                        style={{ cursor: "pointer" }}
+                        data-testid={`manual-trace-wall-${w.id}`}
+                      />
+                      {/* Length label — click passes through to the wall via pointer-events=none */}
+                      <text
+                        x={w.labelX}
+                        y={w.labelY}
+                        fill={isSel ? "#FF6666" : "#000"}
+                        stroke={isSel ? "none" : "#FFCC00"}
+                        strokeWidth={isSel ? 0 : 3}
+                        paintOrder="stroke"
+                        fontSize={LABEL_FONT}
+                        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                        fontWeight="700"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        transform={`rotate(${w.angleDeg} ${w.labelX} ${w.labelY})`}
+                        style={{ pointerEvents: "none", userSelect: "none" }}
+                        data-testid={`manual-trace-len-${w.id}`}
+                      >
+                        {w.lengthLabel}
+                      </text>
+                    </g>
+                  );
+                })}
                 {pendingPreview && (
-                  <line
-                    x1={pendingPreview.x1} y1={pendingPreview.y1}
-                    x2={pendingPreview.x2} y2={pendingPreview.y2}
-                    stroke="#00E5FF"
-                    strokeWidth={4}
-                    strokeDasharray="8 4"
-                    strokeLinecap="round"
-                  />
+                  <>
+                    <line
+                      x1={pendingPreview.x1} y1={pendingPreview.y1}
+                      x2={pendingPreview.x2} y2={pendingPreview.y2}
+                      stroke="#00E5FF"
+                      strokeWidth={4}
+                      strokeDasharray="8 4"
+                      strokeLinecap="round"
+                    />
+                    {pendingPreview.lengthFt > 0.1 && (
+                      <text
+                        data-testid="manual-trace-pending-length"
+                        x={pendingPreview.midX}
+                        y={pendingPreview.midY - Math.max(14, (imageBase.width || 1) * 0.012)}
+                        fill="#00E5FF"
+                        stroke="#000"
+                        strokeWidth={3}
+                        paintOrder="stroke"
+                        fontSize={Math.max(13, (imageBase.width || 1) * 0.013)}
+                        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                        fontWeight="700"
+                        textAnchor="middle"
+                        style={{ pointerEvents: "none", userSelect: "none" }}
+                      >
+                        {pendingPreview.lengthLabel}
+                      </text>
+                    )}
+                  </>
                 )}
                 {pending && (
                   <circle

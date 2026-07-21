@@ -2,17 +2,28 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { formatFeetInches, wallsAabb } from "../lib/dim";
 import { SheetTabBar } from "./SheetTabBar";
+import ManualTraceOverlay from "./ManualTraceOverlay";
 
 /** Read-only blueprint view: draws walls/doors/windows on the blueprint grid */
 export default function BlueprintTab() {
   const { blueprint, documents, createSheet, renameSheet, deleteSheet,
-          activateSheet, fetchDocumentImage } = useStore();
+          activateSheet, fetchDocumentImage, refreshBlueprint, refreshDocuments } = useStore();
   const sheets = blueprint?.sheets || [];
   const activeSheetId = blueprint?.active_sheet_id;
   const activeSheet = sheets.find((s) => s.id === activeSheetId) || null;
   const walls = blueprint?.walls || [];
   const doors = blueprint?.doors || [];
   const windows = blueprint?.windows || [];
+
+  // Manual-trace overlay state. Only openable when the active sheet has an
+  // underlay (i.e. a source_document_id) — otherwise there's no image to
+  // trace against.
+  const [traceTarget, setTraceTarget] = useState(null);
+  const traceableDoc = useMemo(() => {
+    const docId = activeSheet?.source_document_id;
+    if (!docId) return null;
+    return documents.find((d) => d.id === docId) || null;
+  }, [activeSheet?.source_document_id, documents]);
 
   const [underlayUrl, setUnderlayUrl] = useState(null);
   const [underlayOpacity, setUnderlayOpacity] = useState(0.65);
@@ -165,6 +176,19 @@ export default function BlueprintTab() {
             <h2 className="font-display text-2xl tracking-tighter">Live Blueprint</h2>
           </div>
           <div className="flex items-center gap-4">
+            {traceableDoc && (
+              <button
+                data-testid="blueprint-trace-walls"
+                onClick={() => setTraceTarget({ doc: traceableDoc, sheet: activeSheet })}
+                className="label-mono px-3 py-1.5 border border-[#00E5FF]/50 bg-[#00E5FF]/10 text-[#00E5FF] hover:bg-[#00E5FF] hover:text-black transition-colors flex items-center gap-2"
+                title="Draw walls manually over the blueprint underlay — AI re-extracts doors/windows/labels around your walls"
+              >
+                <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 20l16-16M8 4h12v12" />
+                </svg>
+                TRACE WALLS
+              </button>
+            )}
             <button
               data-testid="blueprint-dims-toggle"
               onClick={() => setShowDimensions((d) => !d)}
@@ -461,6 +485,17 @@ export default function BlueprintTab() {
         )}
       </aside>
       </div>
+      {traceTarget && (
+        <ManualTraceOverlay
+          doc={traceTarget.doc}
+          sheet={traceTarget.sheet}
+          onClose={() => setTraceTarget(null)}
+          onSaved={async () => {
+            await refreshBlueprint();
+            await refreshDocuments();
+          }}
+        />
+      )}
     </div>
   );
 }
