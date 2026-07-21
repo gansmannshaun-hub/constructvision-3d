@@ -1,0 +1,35 @@
+{
+  "summary": "Verified Manual Trace zoom regression fix — FIX IS NOT APPLIED. Zoom state/labels update but the DOM never scales because refs and transform are still missing from JSX. Bug reproduces exactly as user reported.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ManualTraceOverlay.jsx",
+        "issue": "Zoom controls disconnected from DOM. `scrollBoxRef` and `zoomWrapRef` are declared (lines 55-56) and used inside applyZoom/onWheel, but NEVER attached to any JSX element. The zoom wrapper div also has NO `transform: scale(${zoom})` style. Consequences: (1) +/- buttons update the '100%' label but the underlying image + walls SVG do NOT visually scale (SVG bounding box stays at 1600px whether zoom label reads 100% or 156%). (2) Scroll-wheel zoom over the canvas is completely dead because the native wheel listener useEffect (lines 215-221) bails out early on `if (!box) return` since `scrollBoxRef.current` is null. (3) Ctrl+= keyboard shortcut updates label only, no visual zoom. (4) Panning post-zoom is impossible since there is no scaled content to scroll.",
+        "selector": "[data-testid=manual-trace-svg] / scroll container at line 434 / wrapper divs at lines 440-441",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "APPLY THE INTENDED FIX in /app/frontend/src/components/ManualTraceOverlay.jsx (it was described but never committed):",
+    "  1. Line 434: change `<div className=\"flex-1 overflow-auto bg-[#111]\">` to `<div ref={scrollBoxRef} className=\"flex-1 overflow-auto bg-[#111]\">`",
+    "  2. Line 440 (or 441): attach `ref={zoomWrapRef}` and inline style `transform: scale(${zoom})` + `transformOrigin: '0 0'` to the zoom wrapper. Recommended: apply on the outer `p-8 min-h-full ...` div OR wrap the `.relative` div with a new wrapper that owns both the ref and transform. Note that with transformOrigin '0 0' the parent needs enough size — you may also need `width: max-content` on the wrapper so that native scrollbars appear when zoomed > 1.",
+    "After fix: retest that (a) SVG bounding box width scales with zoom-in, (b) wheel over SVG changes zoom % and does not scroll page, (c) Ctrl+= / Ctrl+- / Ctrl+0 work, (d) zoom clamps at 25% / 800%, (e) drawing a wall at 200% still lands on correct feet coordinates."
+  ],
+  "critical_code_review_comments": [
+    "Regression root cause is exactly what the request narrative predicted — refs & transform binding were dropped when the length-label edit landed. Nothing in JSX references scrollBoxRef or zoomWrapRef; grep confirms only the declarations exist.",
+    "Suggest adding an integration test / data-testid on the zoom wrapper (e.g., data-testid=manual-trace-zoom-wrap) so a future automated test can assert `getComputedStyle(el).transform` reflects the zoom scalar — this would catch this class of regression immediately."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "20% (label updates only; visual zoom + wheel + panning all broken)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*",
+  "seed_data_creation": "None — used existing project 'TEST_iter48_perpage' with sheet 'test_iter48_3pg.pdf · p1/3'.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After the two-line fix (attach refs + add transform style + transformOrigin '0 0'), rerun the same flow: login as admin -> /app -> tab-blueprint -> click cad-sheet-tab index 1 ('test_iter48_3pg.pdf · p1/3') -> blueprint-trace-walls. Then compare `document.querySelector('[data-testid=manual-trace-svg]').getBoundingClientRect().width` before vs after clicking manual-trace-zoom-in twice — it MUST grow by ~1.56x. Also test `page.mouse.wheel(0, -400)` while hovering the SVG changes the manual-trace-zoom-reset label.",
+  "rca of the issue": "In ManualTraceOverlay.jsx, zoom logic reads/writes to `scrollBoxRef.current` and expects the zoom wrapper's `transform: scale()` style, but neither ref is bound to any JSX element and no transform style is applied. Reproduction: open Manual Trace overlay, click +. The '100%' label increments to '156%' but the blueprint image and walls SVG stay the exact same size (measured: SVG width is 1600px before AND after). Scroll wheel over the SVG does nothing (native wheel listener's `if (!box) return` short-circuits because scrollBoxRef.current is null). Mitigation: bind `ref={scrollBoxRef}` on the `flex-1 overflow-auto` container (line 434) and bind `ref={zoomWrapRef}` + inline `style={{ transform: `scale(${zoom})`, transformOrigin: '0 0' }}` on the zoom wrapper div (around line 440-441). The `applyZoom` scroll-offset compensation math already assumes transformOrigin at (0,0), so use '0 0' — not 'center'."
+}
