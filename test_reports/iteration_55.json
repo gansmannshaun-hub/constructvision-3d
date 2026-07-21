@@ -1,0 +1,32 @@
+{
+  "summary": "Retested ManualTraceOverlay zoom after force-restart. New bundle IS confirmed loaded (transform: scale(...) present in DOM, manual-trace-zoom-reset test-id present, matrix(1.5625,0,0,1.5625,0,0) applied on wrapper at 156%). Zoom label updates on button/keyboard/wheel; clamp works (disabled at 800%); reset works; drawing/length labels/undo/clear/close all work; no error boundary. HOWEVER a NEW rendering bug is uncovered: the SVG wrapper's actual rendered width SHRINKS when zoom>1 instead of growing. At 100% svg.width=1600px, at 156% svg.width=1268.8px (ratio 0.793x). Root cause: computed style.width collapses from 1600px→812px at zoom=1.5625 because the `marginRight: (zoom-1)*100%` and `marginBottom: (zoom-1)*100%` on the wrapper, combined with the flex parent `flex items-start justify-center`, causes flex-shrink to shrink the wrapper. Transforms don't affect layout, so the 56.25% margins force the flex child to be squeezed. Net effect: user sees a SMALLER blueprint at higher zoom labels, opposite of intended.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ManualTraceOverlay.jsx (lines 440-453)",
+        "issue": "Zoom transform applied correctly (matrix confirms scale), but the wrapper's box is being flex-shrunk. At zoom=1.5625 wrapper computed width is 812px (from 1600px) — so scaled visual width = 812*1.5625 = 1268.8px, SMALLER than the 1600px baseline. Percentage-based marginRight/marginBottom pushes the wrapper's total layout box beyond flex parent, and flex-shrink:1 (default) shrinks the 1600px width down. Users see the blueprint SHRINK when they zoom in.",
+        "selector": "[data-testid=manual-trace-svg] parent (zoomWrapRef)",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix wrapper shrinking at zoom>1: add `flexShrink: 0` (and/or `flexBasis: '1600px'`) on the zoomWrapRef div so the 1600px width isn't compressed by percentage margins. Alternatively, replace percentage margins with pixel-based reserve (e.g., marginRight: `${(zoom-1)*1600}px`) or drop the flex parent for a simple block layout. After fix, rect2.width/rect1.width should be ~1.56."
+  ],
+  "critical_code_review_comments": [
+    "ManualTraceOverlay.jsx L451-452: percentage margins on a transform-scaled flex child creates a flex-shrink feedback loop. Use px reserve or flexShrink:0.",
+    "The parent `flex items-start justify-center` has no reason to shrink the child — either remove flex or lock child dimensions."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "70%"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*",
+  "seed_data_creation": "One extra manual wall drawn on tab1 (test_iter48_3pg.pdf p1/3) as part of test, then cleared via CLEAR ALL button.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bundle is fresh (confirmed via outerHTML introspection). All zoom triggers (button/keyboard/wheel/Ctrl+wheel) update the zoom state and apply the CSS transform matrix. The remaining bug is layout-only: the zoom wrapper's box collapses under flex-shrink because of percentage-based margins used to reserve scroll space. Verify by measuring `document.querySelector('[data-testid=manual-trace-svg]').getBoundingClientRect().width` before/after zoom-in — expected ratio ~1.56, actual 0.793. Repro requires opening a sheet that has an underlay image (tab index 1+ on TEST_iter48_perpage project).",
+  "rca of the issue": "Wrapper div at L442 has inline style {width: 'min(90vw, 1600px)', transform: scale(zoom), marginRight: (zoom-1)*100%, marginBottom: (zoom-1)*100%}. It's inside `flex items-start justify-center`. Transforms don't affect layout, so flex parent sees the wrapper as 1600px + 56.25% marginRight (at zoom=1.5625). That total exceeds the parent's available width; default flex-shrink:1 causes the 1600px width to be reduced (computed → 812px). Fix: set flexShrink:0 on the wrapper, or replace percentage margins with px-based reserve computed from the wrapper's own width."
+}

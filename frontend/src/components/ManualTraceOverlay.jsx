@@ -431,14 +431,27 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
       </div>
 
       {/* Trace canvas */}
-      <div className="flex-1 overflow-auto bg-[#111]">
+      <div ref={scrollBoxRef} className="flex-1 overflow-auto bg-[#111]">
         {!imageUrl ? (
           <div className="flex items-center justify-center h-full text-neutral-500 font-mono text-sm">
             Loading blueprint…
           </div>
         ) : (
           <div className="p-8 min-h-full flex items-start justify-center">
-            <div className="relative" style={{ width: "min(90vw, 1600px)" }}>
+            <div
+              ref={zoomWrapRef}
+              className="relative"
+              style={{
+                width: "min(90vw, 1600px)",
+                transform: `scale(${zoom})`,
+                transformOrigin: "top left",
+                // Reserve space so the outer scroll container knows how big
+                // the scaled content is — otherwise the flex parent stays
+                // small and there's nothing to scroll into after zoom-in.
+                marginRight: zoom > 1 ? `${(zoom - 1) * 100}%` : 0,
+                marginBottom: zoom > 1 ? `${(zoom - 1) * 100}%` : 0,
+              }}
+            >
               <img
                 src={imageUrl}
                 alt="blueprint underlay"
