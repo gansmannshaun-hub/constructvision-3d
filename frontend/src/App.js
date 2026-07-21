@@ -14,6 +14,7 @@ import PrivacyPage from "@/pages/PrivacyPage";
 import SharedProject from "@/pages/SharedProject";
 import AcceptInvite from "@/pages/AcceptInvite";
 import SupportBubble from "@/components/SupportBubble";
+import AppErrorBoundary from "@/components/AppErrorBoundary";
 import { useStore, apiClient } from "@/store";
 import "@/index.css";
 
@@ -45,24 +46,26 @@ export default function App() {
   }, []);
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/apps/:id" element={<AppDetail />} />
-        <Route path="/signin" element={<SignInRoute />} />
-        <Route path="/app" element={<Protected><Dashboard /></Protected>} />
-        <Route path="/billing" element={<Protected><Billing /></Protected>} />
-        <Route path="/settings" element={<Protected><Settings /></Protected>} />
-        <Route path="/admin" element={<Protected><Admin /></Protected>} />
-        <Route path="/admin/support" element={<Protected><AdminSupportInbox /></Protected>} />
-        <Route path="/accept-terms" element={<AcceptTerms />} />
-        <Route path="/terms" element={<TermsPage />} />
-        <Route path="/privacy" element={<PrivacyPage />} />
-        <Route path="/share/:token" element={<SharedProject />} />
-        <Route path="/invite/:token" element={<AcceptInvite />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-      <SupportBubble />
-    </BrowserRouter>
+    <AppErrorBoundary>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/apps/:id" element={<AppDetail />} />
+          <Route path="/signin" element={<SignInRoute />} />
+          <Route path="/app" element={<Protected><Dashboard /></Protected>} />
+          <Route path="/billing" element={<Protected><Billing /></Protected>} />
+          <Route path="/settings" element={<Protected><Settings /></Protected>} />
+          <Route path="/admin" element={<Protected><Admin /></Protected>} />
+          <Route path="/admin/support" element={<Protected><AdminSupportInbox /></Protected>} />
+          <Route path="/accept-terms" element={<AcceptTerms />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/share/:token" element={<SharedProject />} />
+          <Route path="/invite/:token" element={<AcceptInvite />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+        <SupportBubble />
+      </BrowserRouter>
+    </AppErrorBoundary>
   );
 }

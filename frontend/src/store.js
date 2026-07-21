@@ -20,6 +20,37 @@ apiClient.interceptors.request.use((cfg) => {
   return cfg;
 });
 
+// Response interceptor: normalize FastAPI validation-error `detail` payloads.
+// Pydantic v2 emits `detail` as `list[{type, loc, msg, input, ctx}]` on 422s;
+// many components then set `err.response.data.detail` directly into React
+// state (`setError(detail)`) which crashes the reconciler with
+// "Objects are not valid as a React child". Coerce every non-string
+// `detail` into a joined string at the ingress so callers never see raw
+// objects. Original untouched value is preserved as `detail_raw` for the
+// rare consumer that wants structured field info.
+apiClient.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    const d = err?.response?.data?.detail;
+    if (d != null && typeof d !== "string") {
+      let text;
+      if (Array.isArray(d)) {
+        text = d
+          .map((x) => (x && typeof x === "object" ? (x.msg || x.message || JSON.stringify(x)) : String(x)))
+          .filter(Boolean)
+          .join("; ");
+      } else if (typeof d === "object") {
+        text = d.msg || d.message || JSON.stringify(d);
+      } else {
+        text = String(d);
+      }
+      err.response.data.detail_raw = d;
+      err.response.data.detail = text || "Request failed";
+    }
+    return Promise.reject(err);
+  },
+);
+
 export const useStore = create((set, get) => ({
   user: JSON.parse(localStorage.getItem(USER_KEY) || "null"),
   token: localStorage.getItem(TOKEN_KEY),
