@@ -1,0 +1,37 @@
+{
+  "summary": "Tested iteration_51 (Sheet Labeling System + Manual Wall Tracing). Backend: 9/9 pytest cases pass end-to-end including happy-path reanalyze-with-walls (walls round-tripped exactly with scale_confidence='manual' + manual_walls_locked=True). Frontend: Documents tab renders upload-sheet-label-hint dropdown; document-trace-{id} button opens ManualTraceOverlay with all required testids; count updates on undo. Backward compat verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Documents Tab / upload-sheet-label-hint", "issues": ["Spec asked for 14 dropdown options (auto-detect + 13 sheet types) but UI renders 13 (auto-detect + 12 sheet types). Backend whitelist accepts 14 values including 'photo' and 'other' — dropdown omits both, which is arguably correct product-wise (users don't upload site photos as blueprints, and 'other' is not a useful hint), but it does deviate from the review-request wording."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter51_sheet_labels_and_manual_trace.py",
+    "/app/test_reports/pytest/iter51_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: If product wants dropdown to fully expose all 14 backend-accepted hint values, add 'Photo' and 'Other' to SHEET_TYPE_OPTIONS in DocumentsTab.jsx. Otherwise leave the whitelist as-is (backend still safely rejects nonsense values)."
+  ],
+  "critical_code_review_comments": [
+    "routes/documents/routes.py duplicates the VALID_HINTS whitelist inline in upload_document. Consider promoting it to a module-level constant (or import it alongside SHEET_TYPE_OPTIONS via a shared enum) so backend and frontend can't drift out of sync.",
+    "reanalyze-with-walls endpoint correctly returns 400 for empty walls / >400 walls, 404 for unknown sheet, 200 with walls unchanged + scale_confidence='manual' + manual_walls_locked=True on happy path. AI response sanitization is thorough (wall_index clamped, coordinate types coerced, fallback building_ft computed from walls).",
+    "ManualTraceOverlay.jsx: clicking on an existing wall's <line> stopPropagation() prevents adding a new wall from a first-click landing there — expected UX, but you may want a small toast/hint since users may click empty area but hit an invisible <line strokeWidth=5>.",
+    "SheetPatchIn.view_type has no enum validation server-side (only truncated to 32 chars). Fine for a manual override but could allow garbage values that break downstream 3D-assembly routing. Consider adding a Literal[...] restriction."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter51_sheet_labels_and_manual_trace.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "~95% (all testids present, dropdown count off-by-one vs spec but functional)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*",
+  "seed_data_creation": "Used existing admin project 'TEST_iter48_perpage' (has 2 done+synced docs with sheets). Test uploads used 1x1 PNGs; each auto-cleaned on completion.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter51 backend contract (upload sheet_label_hint whitelist, view_type PATCH, reanalyze-with-walls happy/error paths) is fully covered by /app/backend/tests/test_iter51_sheet_labels_and_manual_trace.py. AI budget was healthy during this run (happy-path reanalyze returned 200, not 502). ManualTraceOverlay pre-loads existing AI walls (27 in the test doc) — the 'count init' behavior is correct.",
+  "rca of the issue": "N/A — no bugs found. Only a minor spec-vs-implementation mismatch on dropdown option count (13 rendered vs 14 in review request), which is arguably intentional product hardening."
+}

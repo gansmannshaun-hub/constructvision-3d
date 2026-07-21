@@ -302,6 +302,8 @@ def build_projects_router(db, get_current_user) -> APIRouter:
             update["facing_override"] = None if payload.facing_override == "clear" else payload.facing_override
         if payload.assembly_data is not None:
             update["assembly_data"] = payload.assembly_data
+        if payload.view_type is not None:
+            update["view_type"] = payload.view_type[:32]
         result = await db.blueprint_sheets.update_one(
             {"id": sheet_id, "project_id": project_id},
             {"$set": update},

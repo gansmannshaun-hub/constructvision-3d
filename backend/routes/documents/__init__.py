@@ -9,6 +9,7 @@ from .ai_vision import (
     _analyze_image_with_ai,
     _analyze_view_structure,
     _llm_key,
+    _reanalyze_with_walls,
 )
 from .pipeline import _build_pipeline
 from .routes import build_documents_router

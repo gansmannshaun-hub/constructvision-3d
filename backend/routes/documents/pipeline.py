@@ -58,7 +58,7 @@ def _build_pipeline(db):
             {"$set": {"status": status_val, "updated_at": now_iso(), **extras}},
         )
 
-    async def _ai_with_retry(b64: str, working_existing: list[dict]) -> dict:
+    async def _ai_with_retry(b64: str, working_existing: list[dict], *, sheet_label_hint: str | None = None) -> dict:
         """GPT-4o call gated by the global LLM semaphore, with retry on transient
         errors (rate-limit, timeout). Raises on unrecoverable failure."""
         last_err: Exception | None = None
@@ -66,7 +66,7 @@ def _build_pipeline(db):
             try:
                 async with _llm_semaphore:
                     return await asyncio.wait_for(
-                        _analyze_image_with_ai(b64, working_existing),
+                        _analyze_image_with_ai(b64, working_existing, sheet_label_hint=sheet_label_hint),
                         timeout=90,
                     )
             except asyncio.TimeoutError as e:
@@ -83,7 +83,8 @@ def _build_pipeline(db):
             await asyncio.sleep(1.5 * (attempt + 1))
         raise last_err or RuntimeError("AI retries exhausted")
 
-    async def run(doc_id: str, project_id: str, pages_b64: list[str], mime: str) -> None:
+    async def run(doc_id: str, project_id: str, pages_b64: list[str], mime: str,
+                  sheet_label_hint: str | None = None) -> None:
         # Serialize per-project pipelines so batch uploads dedup + sheet-order
         # correctly — but with a lock-acquisition timeout so ONE stuck task
         # can't freeze the whole batch (this was the observed production bug).
@@ -99,7 +100,8 @@ def _build_pipeline(db):
             # block the queue slot indefinitely (15 minutes is well over
             # the sum of _ai_with_retry timeouts for a 5-page PDF).
             await asyncio.wait_for(
-                _run_locked(doc_id, project_id, pages_b64, mime, _set_doc_status, _ai_with_retry),
+                _run_locked(doc_id, project_id, pages_b64, mime, _set_doc_status, _ai_with_retry,
+                            sheet_label_hint=sheet_label_hint),
                 timeout=15 * 60,
             )
         except asyncio.TimeoutError:
@@ -115,7 +117,8 @@ def _build_pipeline(db):
                 pass
 
     async def _run_locked(doc_id: str, project_id: str, pages_b64: list[str], mime: str,
-                          _set_doc_status, _ai_with_retry) -> None:
+                          _set_doc_status, _ai_with_retry, *,
+                          sheet_label_hint: str | None = None) -> None:
         try:
             await asyncio.sleep(0.1)
             total_pages = len(pages_b64)
@@ -167,7 +170,7 @@ def _build_pipeline(db):
                     pages_total=total_pages, pages_done=page_idx,
                     current_page=page_idx + 1,
                 )
-                analysis = await _ai_with_retry(b64, working_existing)
+                analysis = await _ai_with_retry(b64, working_existing, sheet_label_hint=sheet_label_hint)
                 doc_type = analysis.get("doc_type")
                 if first_doc_type is None:
                     first_doc_type = doc_type

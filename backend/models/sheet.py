@@ -16,6 +16,13 @@ class SheetPatchIn(BaseModel):
     # or override the AI-extracted structural values.
     facing_override: Optional[str] = Field(default=None)  # "front" | "back" | "left" | "right" | "clear" (unset)
     assembly_data: Optional[dict] = Field(default=None)   # merge/replace the structured data blob
+    view_type: Optional[str] = Field(default=None)        # user override of AI's classification
+
+
+class SheetReanalyzeIn(BaseModel):
+    """Payload for the manual-trace re-analyze endpoint."""
+    walls: List[dict] = Field(default_factory=list)
+    building_ft: Optional[dict] = Field(default=None)
 
 
 class SheetGeometryIn(BaseModel):

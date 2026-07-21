@@ -214,18 +214,88 @@ Return ONLY valid JSON:
 Return ONLY JSON, no prose."""
 
 
-async def _analyze_image_with_ai(b64: str, existing_materials: list[dict]) -> dict:
+async def _analyze_image_with_ai(
+    b64: str,
+    existing_materials: list[dict],
+    *,
+    sheet_label_hint: str | None = None,
+    manual_walls: list[dict] | None = None,
+) -> dict:
     chat = LlmChat(
         api_key=_llm_key(),
         session_id=f"analyze-{uuid.uuid4()}",
         system_message="You are a construction blueprint analysis expert. You output only valid JSON.",
     ).with_model("openai", "gpt-4o")
+    hint_block = ""
+    if sheet_label_hint:
+        hint_block = (
+            f"\n\nUSER-PROVIDED SHEET LABEL HINT: The user has explicitly told us this drawing is a "
+            f"`{sheet_label_hint}`. Set `doc_type` to `{sheet_label_hint}` unless the image is CLEARLY "
+            f"a different type. Trust the user's classification when the image is ambiguous.\n"
+        )
+    if manual_walls:
+        walls_json = json.dumps(manual_walls[:200])
+        hint_block += (
+            "\n\nUSER-PROVIDED GROUND-TRUTH WALLS: The user has manually traced the walls below. "
+            "Use these EXACT walls as authoritative — copy them into the response `walls` array UNCHANGED. "
+            "Do NOT re-trace, simplify, or modify them. Extract only doors, windows, labels, and fixtures "
+            "that align with these walls.\n"
+            f"walls: {walls_json}\n"
+        )
     prompt = (
         ANALYSIS_PROMPT_HEADER
+        + hint_block
         + "\n\n"
         + _format_existing_materials_for_prompt(existing_materials)
         + ANALYSIS_PROMPT_FOOTER
     )
+    message = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=b64)])
+    response = await chat.send_message(message)
+    raw = response if isinstance(response, str) else str(response)
+    cleaned = _strip_code_fence(raw)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if not match:
+            raise ValueError(f"AI did not return valid JSON: {raw[:300]}")
+        return json.loads(match.group(0))
+
+
+REANALYZE_WITH_WALLS_PROMPT = """You are an architectural CAD engineer.
+
+The user has manually traced the walls of the floor plan below (in feet, TOP-LEFT origin, +x right, +y down). Your job: EXTRACT ONLY the doors, windows, room labels, and fixtures that align with these EXACT walls.
+
+DO NOT add or modify walls. DO NOT change wall coordinates. Copy the input walls into the response `walls` array unchanged.
+
+Return ONLY valid JSON:
+{
+  "walls": [<exactly the walls provided, unchanged>],
+  "doors": [{"position": [x, y], "width": 3, "wall_index": 0}],
+  "windows": [{"position": [x, y], "width": 4, "wall_index": 0}],
+  "labels": [{"position": [x, y], "text": "MASTER BEDROOM"}],
+  "fixtures": [{"kind": "toilet", "position": [x, y], "rotation_deg": 0, "size": [2, 2.5]}],
+  "building_ft": {"w": <max wall x>, "h": <max wall y>}
+}
+
+Rules:
+- Every door/window MUST reference its wall by 0-based `wall_index` into the walls array.
+- Extract every room label visible.
+- Fixture kinds MUST be one of: toilet, sink, shower, tub, vanity, stove, oven, refrigerator, dishwasher, washer, dryer, island, counter, closet, stairs, bed, sofa, dining_table, desk, fireplace, hvac_unit, water_heater, column, other.
+- Return ONLY the JSON. No prose."""
+
+
+async def _reanalyze_with_walls(b64: str, walls: list[dict]) -> dict:
+    """Targeted re-analysis: takes user-locked walls, returns matching
+    doors/windows/labels/fixtures. Skips wall re-tracing entirely so the
+    user's manual work is authoritative."""
+    chat = LlmChat(
+        api_key=_llm_key(),
+        session_id=f"reanalyze-{uuid.uuid4()}",
+        system_message="You are a construction blueprint expert. You output only valid JSON.",
+    ).with_model("openai", "gpt-4o")
+    walls_json = json.dumps(walls[:200])
+    prompt = REANALYZE_WITH_WALLS_PROMPT + f"\n\nUSER-TRACED WALLS (authoritative):\n{walls_json}\n"
     message = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=b64)])
     response = await chat.send_message(message)
     raw = response if isinstance(response, str) else str(response)
