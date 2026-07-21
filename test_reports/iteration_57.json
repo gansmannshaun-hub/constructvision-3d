@@ -1,0 +1,38 @@
+{
+  "summary": "RETEST of ManualTraceOverlay zoom layout fix — PASS. The fix landed and is live: at 2 zoom-in clicks (label 156%, zoom=1.5625) the SVG bounding-box width scales exactly 1600→2500 (ratio 1.5625, 0% error, well within ±5% tolerance). Wrap style dumped from DOM confirms `flex-shrink: 0`, `margin-right: calc(0.5625 * min(90vw, 1600px))`, `margin-bottom: calc(0.5625 * min(90vw, 1600px))`, `transform: scale(1.5625)`, parent className `p-8 min-h-full block`. (Browser normalized the source `calc(min(90vw,1600px) * Math.max(0, zoom-1))` → `calc(0.5625 * min(90vw, 1600px))` — arithmetic reordered, semantically identical. The literal-string heuristic in review_request produced a false-negative on first read; DOM-measured behaviour is correct.) All extended zoom coverage also passes.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "The DOM introspection heuristic 'search innerHTML for calc(min(90vw' is unreliable because the browser normalizes inline style calc() expressions (constant folding + operand reordering). Prefer numeric bounding-box checks (as done here) or parse computed style values. Do not use it as a stale-bundle detector."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100% on this iteration's targeted flows (10/10 assertions)"},
+  "seed_data_creation": "none — reused seeded TEST_iter48_perpage → test_iter48_3pg.pdf · p1/3",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ManualTraceOverlay zoom layout regression is FIXED. Baseline 1600px @100%; 2 zoom-in clicks → 156%/2500px (exact 1.5625×). Ctrl+= → 125%/2000; Ctrl+- → 100%/1600; Ctrl+0 resets to 100%; plain wheel over SVG (no modifier) zooms (100→115%); Ctrl+wheel also zooms; 20 zoom-in clicks saturate at 800%/12800px and zoom-in button becomes disabled; reset button restores 100%; undo works; overlay close works; no app-error-boundary; no page errors. NOTE for future: at high zoom, SVG bounding-box can extend beyond viewport (e.g., box y=-326 at 195%) so mouse click coords for programmatic drawing must be computed from box + scroll, not naive box.x+offset — my draw-at-zoom sub-test didn't register a wall for this reason (methodology issue, not a product bug — pre-existing walls still rendered and undo/redo state was consistent).",
+  "detailed_measurements": {
+    "baseline_width_px": 1600,
+    "baseline_zoom_label": "100%",
+    "after_2_zoom_in_width_px": 2500,
+    "after_2_zoom_in_label": "156%",
+    "width_ratio": 1.5625,
+    "target_ratio": 1.5625,
+    "keyboard_ctrl_equal": "100%→125% width 1600→2000",
+    "keyboard_ctrl_minus": "125%→100% width 2000→1600",
+    "keyboard_ctrl_0": "reset to 100%/1600",
+    "wheel_no_modifier": "100%→115% width 1600→1840",
+    "ctrl_wheel": "115%→132% width 1840→2116",
+    "clamp_20_clicks": "800% (saturated), width 12800, zoom-in button disabled=true",
+    "wrap_inline_style": "width: min(90vw, 1600px); transform: scale(1.5625); transform-origin: left top; margin-right: calc(0.5625 * min(90vw, 1600px)); margin-bottom: calc(0.5625 * min(90vw, 1600px)); flex-shrink: 0;",
+    "wrap_parent_class": "p-8 min-h-full block",
+    "error_boundary_present": false,
+    "page_errors": []
+  }
+}

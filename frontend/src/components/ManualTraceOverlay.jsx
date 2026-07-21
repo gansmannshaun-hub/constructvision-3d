@@ -437,19 +437,26 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
             Loading blueprint…
           </div>
         ) : (
-          <div className="p-8 min-h-full flex items-start justify-center">
+          <div className="p-8 min-h-full block">
             <div
               ref={zoomWrapRef}
               className="relative"
               style={{
+                // Baseline layout width — the scaled visual size is
+                // (this width) × zoom, so scroll-space reserve below is
+                // also expressed in px relative to this baseline.
                 width: "min(90vw, 1600px)",
                 transform: `scale(${zoom})`,
                 transformOrigin: "top left",
-                // Reserve space so the outer scroll container knows how big
-                // the scaled content is — otherwise the flex parent stays
-                // small and there's nothing to scroll into after zoom-in.
-                marginRight: zoom > 1 ? `${(zoom - 1) * 100}%` : 0,
-                marginBottom: zoom > 1 ? `${(zoom - 1) * 100}%` : 0,
+                // CSS transforms don't affect layout, so the browser thinks
+                // the wrapper is still 1-viewport wide even at zoom>1.
+                // Reserve extra scroll space with px-based margins so the
+                // parent scroll container gets scrollbars once zoom > 1.
+                // Use a CSS calc referencing the wrapper's own baseline
+                // width, NOT % of parent (which flex-shrunk the wrapper).
+                marginRight: `calc(min(90vw, 1600px) * ${Math.max(0, zoom - 1)})`,
+                marginBottom: `calc(min(90vw, 1600px) * ${Math.max(0, zoom - 1)})`,
+                flexShrink: 0,
               }}
             >
               <img
