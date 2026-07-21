@@ -1,0 +1,38 @@
+{
+  "summary": "RETEST of Manual Trace zoom layout regression. The code changes described in the review_request (parent switched to `block`, `flexShrink:0`, calc()-based px margins) are NOT present in /app/frontend/src/components/ManualTraceOverlay.jsx lines 440-453. Current code still uses `flex items-start justify-center` on the parent and `${(zoom-1)*100}%` percentage margins. As a result, the SVG width ratio at 156% zoom is 0.7930 — IDENTICAL to iter55. Layout bug persists.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ManualTraceOverlay",
+        "issue": "Zoom-in causes SVG rendered width to SHRINK instead of grow. At zoom=1.5625 (156% label), SVG width = 1268.75px vs baseline 1600px (ratio 0.7930 — should be 1.5625). Wrap style shows `transform: scale(1.5625)` correctly applied, but the wrap div's own width shrank to 1268.75px because the flex parent + percentage margin (56.25%) causes flex-shrink to steal space. Fix described in review_request was NOT actually applied to the file.",
+        "selector": "[data-testid=manual-trace-svg]",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "ManualTraceOverlay",
+        "issue": "Mouse-wheel zoom (page.mouse.wheel(0,-400) with cursor over SVG) does NOT change zoom level — label stays at 100%. Either wheel handler not attached or requires ctrlKey modifier. Not the primary regression, but flagged.",
+        "selector": "[data-testid=manual-trace-overlay]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "APPLY THE ACTUAL FIX to /app/frontend/src/components/ManualTraceOverlay.jsx lines 440-453. Current state is IDENTICAL to iter55 — no code change was persisted between iter55 and iter56. Specifically: change parent div className from `p-8 min-h-full flex items-start justify-center` to `p-8 min-h-full block`; add `flexShrink: 0` to wrapper inline style; replace `marginRight: ${(zoom-1)*100}%` with `marginRight: calc(min(90vw, 1600px) * ${zoom-1})` and same for marginBottom.",
+    "Verify wheel-zoom behavior — either implement it or update docs to require ctrl+wheel."
+  ],
+  "critical_code_review_comments": [
+    "Regression: percentage margins on a scale-transformed element under a flex parent are resolved against the FLEX ITEM's own hypothetical size, and flex-shrink then reallocates space away — this is exactly the root cause described in iter55. The described fix would resolve it, but was never written to disk.",
+    "Confirm hot-reload actually picked up any change — the wrap style dump proves the JSX in memory is unchanged."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "20% (baseline measure OK, reset OK, error-boundary clean; core zoom-scale flow BROKEN, wheel-zoom BROKEN)"},
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login: click 'Sign in' link on homepage (not /login route — goes to /signin). Testids: auth-email-input, auth-password-input. Admin creds work. After login lands on /app. tab-blueprint → 8 cad-sheet-tab-* tabs, use index 1. Then blueprint-trace-walls opens the ManualTraceOverlay. Baseline SVG width = 1600px (min(90vw,1600px)=1600px on 1920px viewport). Two clicks on manual-trace-zoom-in → label reads 156% (i.e. zoom=1.5625, 25% step + rounding). The KEY assertion: after those clicks, `document.querySelector('[data-testid=manual-trace-svg]').getBoundingClientRect().width` must be ~2500px. Currently it is 1268.75px. Also inspect wrap style attribute and parent className to confirm whether the fix landed.",
+  "rca of the issue": "Root cause (unchanged from iter55): The zoom wrapper is a flex item inside `flex items-start justify-center`. Its inline style sets `width: min(90vw,1600px)` and `transform: scale(zoom)`, then adds `marginRight/marginBottom: (zoom-1)*100%`. Percentage margins on flex items are resolved against the parent's inline-size; combined with the item's fixed width and the flex container's `justify-content: center`, the 56.25% right-margin (and matching bottom) forces the flex algorithm to shrink the item's actual box to fit within the container, dropping width from 1600→1268.75px. transform:scale then multiplies that reduced width by 1.5625 producing an on-screen box of ~1982px (still smaller than desired 2500px) — but bounding-box reports the post-transform size which equals wrap.getBoundingClientRect().width (1268.75) because we're using transform-origin:top-left. Mitigation: switch parent to `block` layout (removes flex-shrink), and reserve space via px-based margins tied to the wrapper's OWN width, e.g. `marginRight: calc(min(90vw,1600px) * (zoom-1))`."
+}
