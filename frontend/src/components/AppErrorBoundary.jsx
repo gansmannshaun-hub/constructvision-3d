@@ -17,7 +17,6 @@ export default class AppErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    // eslint-disable-next-line no-console
     console.error("AppErrorBoundary caught an error:", error, info);
   }
 

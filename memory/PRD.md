@@ -108,6 +108,21 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-21 · React-child crash fix (defense in depth)** — Earlier
+  narrow fix on ManualTraceOverlay wasn't enough: ~40 components across
+  the app call `setError(err.response.data.detail)` and would crash on
+  any FastAPI 422 (Pydantic v2 emits `detail` as `list[{type,loc,msg,...}]`).
+  Two-layer fix:
+  1. **Axios response interceptor** in `store.js` mutates `err.response.data.detail`
+     from list/object → joined string BEFORE it reaches any component
+     catch block. Original list preserved on `detail_raw`.
+  2. **`AppErrorBoundary`** component wraps `<BrowserRouter>` in `App.js`
+     — if anything still tries to render a raw object as a child, the app
+     shows a friendly "Something broke — try again / reload" screen
+     instead of a white page.
+  Verified via `testing_agent_v3_fork` iter_53 (100% frontend, live 422
+  injection on `/api/auth/me`, zero React-child crashes across all tabs).
+
 - **2026-02-21 · Fix: React "Objects are not valid as a React child" crash in
   Manual Trace overlay** — FastAPI 422 responses expose `detail` as a
   `list[dict]` per Pydantic v2. `ManualTraceOverlay.saveAndReanalyze` was
