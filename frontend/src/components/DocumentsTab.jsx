@@ -516,7 +516,12 @@ function DocCard({ doc, onTrace }) {
       }
       onTrace({ doc, sheet });
     } catch (e) {
-      alert(`Failed to open trace: ${e?.response?.data?.detail || e?.message}`);
+      const msg = typeof e?.response?.data?.detail === "string"
+        ? e.response.data.detail
+        : Array.isArray(e?.response?.data?.detail)
+        ? e.response.data.detail.map((d) => d?.msg || JSON.stringify(d)).join("; ")
+        : e?.message || "Failed to open trace";
+      alert(`Failed to open trace: ${msg}`);
     } finally {
       setLoadingTrace(false);
     }

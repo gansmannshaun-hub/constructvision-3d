@@ -2,6 +2,24 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { apiClient } from "../store";
 
 /**
+ * Normalize an axios/FastAPI error into a plain string safe to render as
+ * a React child. FastAPI 422 responses expose `detail` as a list of
+ * validation-error objects — rendering those directly crashes React.
+ */
+function formatApiError(err, fallback = "Request failed") {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((d) => d?.msg || d?.message || JSON.stringify(d));
+    return msgs.filter(Boolean).join("; ") || fallback;
+  }
+  if (detail && typeof detail === "object") {
+    return detail.msg || detail.message || JSON.stringify(detail);
+  }
+  return err?.message || fallback;
+}
+
+/**
  * Full-screen overlay for MANUAL WALL TRACING over a blueprint image.
  *
  * Workflow:
@@ -47,7 +65,6 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
       .catch(() => alive && setError("Failed to load blueprint image."));
     return () => { alive = false; };
   }, [doc.id, sheet?.source_page]);
-
   // Feet ↔ SVG pixel conversion. The SVG uses the image's intrinsic pixel
   // dimensions; the wall coordinates are in feet against building_ft.
   // We render the SVG at a fixed viewBox so scaling is CSS-driven.
@@ -172,8 +189,7 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
       onSaved?.(data);
       onClose();
     } catch (e) {
-      const detail = e?.response?.data?.detail || e?.message || "Re-analyze failed";
-      setError(detail);
+      setError(formatApiError(e, "Re-analyze failed"));
     } finally {
       setSaving(false);
       setReanalyzing(false);
@@ -356,7 +372,7 @@ export default function ManualTraceOverlay({ doc, sheet, onClose, onSaved }) {
           data-testid="manual-trace-error"
           className="border-t border-[#FF3333]/40 bg-[#FF3333]/10 text-[#FF6666] text-xs font-mono px-5 py-3"
         >
-          {error}
+          {typeof error === "string" ? error : formatApiError({ response: { data: { detail: error } } })}
         </div>
       )}
     </div>

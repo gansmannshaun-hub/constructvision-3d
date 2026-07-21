@@ -1,0 +1,24 @@
+{
+  "summary": "Verified iter52 formatApiError bug fix for the 'Objects are not valid as a React child' crash in ManualTraceOverlay. Backend confirmed to return detail=[{type,loc,msg,input,ctx}] on 422 (exact crash-shape). Frontend now stringifies it: rendered 'Input should be a valid list; Input should be a valid dictionary' with NO React crash and overlay stayed mounted. String-detail 400 path also renders as-is ('No valid walls provided'). Prior iter51 testids all still present (svg, count 28 walls, snap, undo, clear, save, close, bf-w, bf-h).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter52_format_api_error.py",
+    "/app/backend/tests/test_iter51_sheet_labels_and_manual_trace.py",
+    "/app/test_reports/pytest/iter52_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "formatApiError() in ManualTraceOverlay.jsx handles all 4 shapes correctly: string, array-of-Pydantic-objs, single object, and fallback to err.message. Defensive render fallback in the error banner (`typeof error === 'string' ? error : formatApiError(...)`) is a nice belt-and-suspenders.",
+    "DocumentsTab.jsx openTrace catch inlines the same 3-branch stringification (string / array / object) instead of importing formatApiError. Minor DRY concern — consider exporting formatApiError from ManualTraceOverlay.jsx (or a shared util) so both paths stay in sync.",
+    "The rest of DocumentsTab.jsx still calls `e?.response?.data?.detail` directly in the retry-all and delete alerts (lines ~317, 497, 612). Those endpoints currently only return string detail so no crash, but if any of them ever start returning Pydantic 422s the same crash could recur. Low priority."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter52_format_api_error.py (new)"],
+  "success_rate": {"backend": "100% (2/2 new + 9/9 iter51 previously)", "frontend": "100% (both 422 and 400 error paths render cleanly, overlay stays mounted, no React child crash)"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*",
+  "seed_data_creation": "Reused existing TEST_iter48_perpage project with 2 done+synced docs. Live browser test used page.route interception to force 422 and 400 responses without mutating backend state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug fix verified end-to-end via live UI test on production preview URL. The exact crash-shape (FastAPI 422 with detail as list of Pydantic error objects) was intercepted via page.route and returned to the running overlay — result was a human-readable joined string with no crash, no [object Object]. String-detail 400 path also intact. iter51 backend contract still fully covered.",
+  "rca of the issue": "N/A — targeted fix already verified working. Root cause of the original bug (unchanged): FastAPI 422 responses expose `detail` as `list[dict]` per Pydantic v2. React cannot render objects as children, so `{error}` where error was set to the raw array crashed the reconciler. Fix: formatApiError() joins the list by '; ' using each item's .msg. Live-verified renderable output: 'Input should be a valid list; Input should be a valid dictionary'."
+}
