@@ -108,6 +108,23 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-22 · Section-Cut Tool — Peel-Back Visualization** —
+  New floating toolbar (top-right of the 3D viewport) with a `SECTION
+  CUT` toggle. Turn it on and click-drag a rectangle across the model:
+  the front-most chunk in that region gets hidden while deeper geometry
+  (walls behind, back of the roof, interior rooms/fixtures) remains
+  visible. A tolerance slider (0.3-6 m) controls the depth "slice"
+  thickness. Multiple simultaneous cuts supported; each shows as a
+  restorable row in the toolbar with a `RESTORE ALL` button. Cuts are
+  ephemeral — cleared on phase change / blueprint rebuild. Engine
+  exposes `applySectionCut(cssRect, {tolerance})`,
+  `restoreSectionCut(id)`, `restoreAllSectionCuts()`,
+  `getSectionCuts()`, `enableSectionMode(on)`. New file:
+  `components/renderer/SectionCutTool.jsx`. UI verified 10/12
+  (`iter60.json`); positive-hit path is user-verified only (Playwright
+  can't reliably raycast against a WebGL canvas — same limitation as
+  fixture/opening pick tests).
+
 - **2026-02-22 · 3D Editor Sessions 5, 6, 7 — Fixtures, Doors/Windows, Trim** —
   Three sessions shipped back-to-back on the same edit tool:
   1. **Fixtures (S5)**: 24 kind-specific low-poly meshes (`fixtureMeshes.js`)
