@@ -265,20 +265,24 @@ function buildWallSheeting(walls) {
   for (const w of walls) {
     const s = wallSegment(w);
     if (!s) continue;
+    // Per-wall height override — falls back to the sheet-wide WALL_HEIGHT
+    // when the wall doesn't carry an explicit `height_ft` (Session 2 3D-editor feature).
+    const hFt = Number(w.height_ft);
+    const wh = (Number.isFinite(hFt) && hFt > 0) ? hFt * SCALE : WALL_HEIGHT;
     const nx = -Math.sin(-s.angle), nz = Math.cos(-s.angle);
-    const panel = makeBox(s.length, WALL_HEIGHT, PANEL_THICKNESS, CFG.wall_color, { roughness: 0.5, metalness: 0.6 });
+    const panel = makeBox(s.length, wh, PANEL_THICKNESS, CFG.wall_color, { roughness: 0.5, metalness: 0.6 });
     panel.position.set(s.cx + nx * (PANEL_THICKNESS / 2 + 0.05),
-                       WALL_HEIGHT / 2 + SLAB_THICK,
+                       wh / 2 + SLAB_THICK,
                        s.cz + nz * (PANEL_THICKNESS / 2 + 0.05));
     panel.rotation.y = -s.angle;
     g.add(panel);
     const ribCount = Math.max(2, Math.floor(s.length / 0.6));
     for (let i = 0; i < ribCount; i++) {
       const t = (i + 0.5) / ribCount;
-      const rib = makeBox(0.04, WALL_HEIGHT * 0.98, 0.02, "#C6C2BA", { roughness: 0.6, metalness: 0.5, noShadow: true });
+      const rib = makeBox(0.04, wh * 0.98, 0.02, "#C6C2BA", { roughness: 0.6, metalness: 0.5, noShadow: true });
       const x = s.sx + s.dx * t + nx * (PANEL_THICKNESS / 2 + 0.07);
       const z = s.sz + s.dz * t + nz * (PANEL_THICKNESS / 2 + 0.07);
-      rib.position.set(x, WALL_HEIGHT / 2 + SLAB_THICK, z);
+      rib.position.set(x, wh / 2 + SLAB_THICK, z);
       rib.rotation.y = -s.angle;
       g.add(rib);
     }
@@ -1270,6 +1274,139 @@ export function createSceneEngine(mount) {
       renderer.domElement.style.cursor = "";
       renderer.domElement.removeEventListener("click", _onEditorClick);
       setSelectedWall(null);
+      enableEndpointDrag(false);
+    }
+  }
+
+  // ---------- Endpoint drag (Session 2) ----------
+  // Two draggable sphere handles at the selected wall's start/end. On
+  // mousedown the OrbitControls are disabled so the drag doesn't fight
+  // the camera. Ground-plane raycast during mousemove translates screen
+  // motion into modelRoot-local (feet) coordinates, snapped to 0.5 ft.
+  // On mouseup the callback fires with the final start/end so the hook
+  // can persist. All handles live in `endpointGroup` — never rendered
+  // when drag is off.
+  const endpointGroup = new THREE.Group();
+  endpointGroup.name = "wall_endpoint_handles";
+  modelRoot.add(endpointGroup);
+  let endpointDragEnabled = false;
+  let endpointDragCallback = null;
+  let endpointHandles = [];   // [{mesh, side: 'start'|'end', wall_id, other_ft}]
+  let activeHandle = null;
+  let dragMoved = false;
+  const _dragGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -SLAB_THICK);
+  const _dragHitPt = new THREE.Vector3();
+  const _dragRay = new THREE.Raycaster();
+  const _dragNdc = new THREE.Vector2();
+
+  function _clearEndpointHandles() {
+    for (const h of endpointHandles) {
+      endpointGroup.remove(h.mesh);
+      h.mesh.geometry?.dispose?.();
+      h.mesh.material?.dispose?.();
+    }
+    endpointHandles = [];
+  }
+
+  function _snap05Ft(v_ft) { return Math.round(v_ft * 2) / 2; }
+
+  function _showEndpointHandles(wallUserData) {
+    _clearEndpointHandles();
+    if (!wallUserData) return;
+    const mat = new THREE.MeshBasicMaterial({ color: 0x00E5FF, depthTest: false });
+    const geo = new THREE.SphereGeometry(0.28, 16, 12);
+    for (const side of ["start", "end"]) {
+      const ptFt = wallUserData[side];
+      const [wx, wz] = toWorld(ptFt);
+      const mesh = new THREE.Mesh(geo.clone(), mat.clone());
+      mesh.position.set(wx, SLAB_THICK + 0.2, wz);
+      mesh.renderOrder = 999;
+      mesh.userData = {
+        handle: true,
+        side,
+        wall_id: wallUserData.wall_id,
+        other_ft: wallUserData[side === "start" ? "end" : "start"],
+      };
+      endpointGroup.add(mesh);
+      endpointHandles.push({ mesh, side, wall_id: wallUserData.wall_id });
+    }
+  }
+
+  function _screenToGroundFt(clientX, clientY) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    _dragNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    _dragNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    _dragRay.setFromCamera(_dragNdc, camera);
+    if (!_dragRay.ray.intersectPlane(_dragGroundPlane, _dragHitPt)) return null;
+    const local = modelRoot.worldToLocal(_dragHitPt.clone());
+    // toWorld applies a fixed 5-unit centering offset, so we invert both
+    // when converting the ground-plane hit back to blueprint feet.
+    return [ _snap05Ft((local.x + 5) / SCALE), _snap05Ft((local.z + 5) / SCALE) ];
+  }
+
+  function _onDragDown(e) {
+    if (!endpointDragEnabled) return;
+    if (e.button !== 0) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    _dragNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    _dragNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    _dragRay.setFromCamera(_dragNdc, camera);
+    const hits = _dragRay.intersectObjects(endpointHandles.map((h) => h.mesh), false);
+    if (!hits.length) return;
+    activeHandle = hits[0].object;
+    dragMoved = false;
+    // Suspend OrbitControls so drag doesn't orbit the camera.
+    controls.enabled = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }
+
+  function _onDragMove(e) {
+    if (!activeHandle) return;
+    const nextFt = _screenToGroundFt(e.clientX, e.clientY);
+    if (!nextFt) return;
+    dragMoved = true;
+    const [wx, wz] = toWorld(nextFt);
+    activeHandle.position.x = wx;
+    activeHandle.position.z = wz;
+    endpointDragCallback?.("dragging", {
+      wall_id: activeHandle.userData.wall_id,
+      side: activeHandle.userData.side,
+      point_ft: nextFt,
+      other_ft: activeHandle.userData.other_ft,
+    });
+  }
+
+  function _onDragUp(e) {
+    if (!activeHandle) return;
+    const wallId = activeHandle.userData.wall_id;
+    const side = activeHandle.userData.side;
+    const other = activeHandle.userData.other_ft;
+    const nextFt = _screenToGroundFt(e.clientX, e.clientY);
+    activeHandle = null;
+    controls.enabled = true;
+    if (dragMoved && nextFt) {
+      endpointDragCallback?.("commit", { wall_id: wallId, side, point_ft: nextFt, other_ft: other });
+    }
+    dragMoved = false;
+  }
+
+  function enableEndpointDrag(on, wallUserData, cb) {
+    if (on && wallUserData) {
+      endpointDragEnabled = true;
+      endpointDragCallback = cb || null;
+      _showEndpointHandles(wallUserData);
+      renderer.domElement.addEventListener("pointerdown", _onDragDown);
+      window.addEventListener("pointermove", _onDragMove);
+      window.addEventListener("pointerup", _onDragUp);
+    } else {
+      endpointDragEnabled = false;
+      endpointDragCallback = null;
+      _clearEndpointHandles();
+      renderer.domElement.removeEventListener("pointerdown", _onDragDown);
+      window.removeEventListener("pointermove", _onDragMove);
+      window.removeEventListener("pointerup", _onDragUp);
+      controls.enabled = true;
     }
   }
 
@@ -1828,5 +1965,6 @@ export function createSceneEngine(mount) {
            enableMeasureTool, setMeasurements, addMeasurement,
            removeMeasurement, setSnapEnabled, getMeasureFtPerUnit,
            formatFtIn,
-           enableWallEditor, setSelectedWall, getWallSnapshot };
+           enableWallEditor, setSelectedWall, getWallSnapshot,
+           enableEndpointDrag };
 }

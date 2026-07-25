@@ -8,8 +8,10 @@ import { formatFeetInches } from "../../lib/dim";
 export function WallEditorPanel({
   selected, cutMode, setCutMode, busy, error,
   onDelete, onUndo, onRedo, canUndo, canRedo,
+  onSetHeight,
   onExit,
 }) {
+  const heightFt = Number(selected?.height_ft) > 0 ? Number(selected.height_ft) : 10;
   return (
     <div
       data-testid="wall-editor-panel"
@@ -42,6 +44,26 @@ export function WallEditorPanel({
             <div>length: <span className="text-[#FFCC00]">{formatFeetInches(selected.length_ft)}</span></div>
             <div>start: <span className="text-neutral-400">{selected.start[0].toFixed(1)}, {selected.start[1].toFixed(1)}</span></div>
             <div>end: <span className="text-neutral-400">{selected.end[0].toFixed(1)}, {selected.end[1].toFixed(1)}</span></div>
+          </div>
+          <div className="text-[10px] text-[#00E5FF] mt-2 font-mono">
+            💡 Drag the cyan spheres on this wall&apos;s endpoints to reshape it.
+          </div>
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="label-mono text-neutral-500">HEIGHT</span>
+              <span className="label-mono text-[#FFCC00]">{heightFt.toFixed(1)} ft</span>
+            </div>
+            <input
+              data-testid="wall-editor-height"
+              type="range" min="4" max="30" step="0.5"
+              value={heightFt}
+              disabled={busy}
+              onChange={(e) => onSetHeight?.(Number(e.target.value))}
+              className="w-full accent-[#FFCC00] disabled:opacity-40"
+            />
+            <div className="flex justify-between text-[9px] font-mono text-neutral-600">
+              <span>4</span><span>10</span><span>20</span><span>30 ft</span>
+            </div>
           </div>
         </div>
       )}

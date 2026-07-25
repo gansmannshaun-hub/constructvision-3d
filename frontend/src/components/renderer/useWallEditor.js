@@ -28,27 +28,6 @@ export function useWallEditor({ engineRef, refreshBlueprint }) {
     engineRef.current?.setSelectedWall?.(id || null);
   }, [engineRef]);
 
-  useEffect(() => {
-    const engine = engineRef.current;
-    if (!engine?.enableWallEditor) return;
-    if (!editing) {
-      engine.enableWallEditor(false);
-      setSelected(null);
-      setCutMode(false);
-      return;
-    }
-    engine.enableWallEditor(true, (action, payload) => {
-      if (action === "pick") {
-        setSelected(payload);
-        setEngineSelected(payload.wall_id);
-      } else if (action === "deselect") {
-        setSelected(null);
-        setEngineSelected(null);
-      }
-    });
-    return () => engine.enableWallEditor(false);
-  }, [editing, engineRef, setEngineSelected]);
-
   const _getSheet = useCallback((sheet_id) => {
     return sheetsRef.current.find((s) => s.id === sheet_id) || null;
   }, []);
@@ -74,6 +53,27 @@ export function useWallEditor({ engineRef, refreshBlueprint }) {
     if (undoRef.current.length > 20) undoRef.current.shift();
     redoRef.current = [];
   }, []);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine?.enableWallEditor) return;
+    if (!editing) {
+      engine.enableWallEditor(false);
+      setSelected(null);
+      setCutMode(false);
+      return;
+    }
+    engine.enableWallEditor(true, (action, payload) => {
+      if (action === "pick") {
+        setSelected(payload);
+        setEngineSelected(payload.wall_id);
+      } else if (action === "deselect") {
+        setSelected(null);
+        setEngineSelected(null);
+      }
+    });
+    return () => engine.enableWallEditor(false);
+  }, [editing, engineRef, setEngineSelected]);
 
   const deleteSelected = useCallback(async () => {
     if (!selected) return;
@@ -210,6 +210,89 @@ export function useWallEditor({ engineRef, refreshBlueprint }) {
     } finally { setBusy(false); }
   }, [_getSheet, _saveSheet, refreshBlueprint, setEngineSelected]);
 
+  // Endpoint drag: enable engine handles whenever a wall is selected.
+  // `commit` fires on mouseup with the final feet position; we write
+  // it into the sheet and refresh. Placed AFTER _saveSheet + _pushUndo
+  // to avoid TDZ errors in the useEffect closure.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine?.enableEndpointDrag) return;
+    if (!selected || cutMode) {
+      engine.enableEndpointDrag(false);
+      return;
+    }
+    engine.enableEndpointDrag(true, {
+      wall_id: selected.wall_id,
+      start: selected.start,
+      end: selected.end,
+    }, async (kind, payload) => {
+      if (kind !== "commit") return;
+      const sheet = sheetsRef.current.find((s) => s.id === selected.sheet_id);
+      if (!sheet) return;
+      const walls = sheet.walls || [];
+      const idx = walls.findIndex((w) => w.id === selected.wall_id);
+      if (idx < 0) return;
+      const orig = walls[idx];
+      const nextWall = payload.side === "start"
+        ? { ...orig, start: payload.point_ft }
+        : { ...orig, end:   payload.point_ft };
+      if (JSON.stringify(nextWall.start) === JSON.stringify(orig.start) &&
+          JSON.stringify(nextWall.end)   === JSON.stringify(orig.end)) return;
+      _pushUndo({
+        sheet_id: sheet.id,
+        walls, doors: sheet.doors || [], windows: sheet.windows || [],
+        labels: sheet.labels || [], fixtures: sheet.fixtures || [],
+      });
+      const nextWalls = [...walls.slice(0, idx), nextWall, ...walls.slice(idx + 1)];
+      try {
+        setBusy(true);
+        await _saveSheet(sheet.id, {
+          walls: nextWalls,
+          doors: sheet.doors || [],
+          windows: sheet.windows || [],
+          labels: sheet.labels || [],
+          fixtures: sheet.fixtures || [],
+        });
+        setSelected((prev) => prev ? { ...prev, start: nextWall.start, end: nextWall.end } : prev);
+        await refreshBlueprint();
+      } catch (e) {
+        setError(e?.response?.data?.detail || e?.message || "Move failed");
+      } finally { setBusy(false); }
+    });
+    return () => { engine.enableEndpointDrag(false); };
+  }, [selected?.wall_id, cutMode, engineRef, _pushUndo, _saveSheet, refreshBlueprint]);
+
+  const setWallHeight = useCallback(async (heightFt) => {
+    if (!selected) return;
+    const h = Math.max(4, Math.min(40, Number(heightFt) || 10));
+    setBusy(true); setError("");
+    try {
+      const sheet = _getSheet(selected.sheet_id);
+      if (!sheet) throw new Error("Sheet not found");
+      const walls = sheet.walls || [];
+      const idx = walls.findIndex((w) => w.id === selected.wall_id);
+      if (idx < 0) throw new Error("Wall not found");
+      _pushUndo({
+        sheet_id: sheet.id,
+        walls, doors: sheet.doors || [], windows: sheet.windows || [],
+        labels: sheet.labels || [], fixtures: sheet.fixtures || [],
+      });
+      const nextWalls = [...walls];
+      nextWalls[idx] = { ...nextWalls[idx], height_ft: h };
+      await _saveSheet(sheet.id, {
+        walls: nextWalls,
+        doors: sheet.doors || [],
+        windows: sheet.windows || [],
+        labels: sheet.labels || [],
+        fixtures: sheet.fixtures || [],
+      });
+      setSelected((prev) => prev ? { ...prev, height_ft: h } : prev);
+      await refreshBlueprint();
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || "Height update failed");
+    } finally { setBusy(false); }
+  }, [selected, _getSheet, _saveSheet, _pushUndo, refreshBlueprint]);
+
   useEffect(() => {
     if (!editing) return;
     const onKey = (e) => {
@@ -227,6 +310,7 @@ export function useWallEditor({ engineRef, refreshBlueprint }) {
     selected, cutMode, setCutMode,
     busy, error,
     deleteSelected, undo, redo,
+    setWallHeight,
     canUndo: () => undoRef.current.length > 0,
     canRedo: () => redoRef.current.length > 0,
   };

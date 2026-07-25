@@ -211,6 +211,7 @@ export default function RendererTab() {
             onRedo={wallEditor.redo}
             canUndo={wallEditor.canUndo}
             canRedo={wallEditor.canRedo}
+            onSetHeight={wallEditor.setWallHeight}
             onExit={() => wallEditor.setEditing(false)}
           />
         )}
