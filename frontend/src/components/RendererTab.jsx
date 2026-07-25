@@ -53,7 +53,7 @@ export default function RendererTab() {
   });
   const measure = useTapeMeasure({ engineRef, currentProjectId });
   const exporter = useSceneExport({ engineRef, setPhase, setAutoMode });
-  const wallEditor = useWallEditor({ engineRef, refreshBlueprint });
+  const wallEditor = useWallEditor({ engineRef, refreshBlueprint, updateBlueprint: (patch) => updateCfg(patch) });
 
   const updateCfg = useCallback(async (patch) => {
     setSavingCfg(true);
@@ -212,6 +212,9 @@ export default function RendererTab() {
             canUndo={wallEditor.canUndo}
             canRedo={wallEditor.canRedo}
             onSetHeight={wallEditor.setWallHeight}
+            selectedRoof={wallEditor.selectedRoof}
+            blueprintRoof={wallEditor.blueprintRoof}
+            onSetRoof={wallEditor.updateRoof}
             onExit={() => wallEditor.setEditing(false)}
           />
         )}

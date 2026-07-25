@@ -11,11 +11,13 @@ const API = process.env.REACT_APP_BACKEND_URL + "/api";
  * to, and an in-memory undo stack lets the user step back through recent
  * edits (Ctrl+Z or the ↺ UNDO button).
  */
-export function useWallEditor({ engineRef, refreshBlueprint }) {
+export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) {
   const currentProjectId = useStore((s) => s.currentProjectId);
   const sheetsFromStore = useStore((s) => s.blueprint?.sheets || []);
+  const blueprint = useStore((s) => s.blueprint);
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [selectedRoof, setSelectedRoof] = useState(false);
   const [cutMode, setCutMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -66,9 +68,15 @@ export function useWallEditor({ engineRef, refreshBlueprint }) {
     engine.enableWallEditor(true, (action, payload) => {
       if (action === "pick") {
         setSelected(payload);
+        setSelectedRoof(false);
         setEngineSelected(payload.wall_id);
+      } else if (action === "roof-pick") {
+        setSelectedRoof(true);
+        setSelected(null);
+        setEngineSelected(null);
       } else if (action === "deselect") {
         setSelected(null);
+        setSelectedRoof(false);
         setEngineSelected(null);
       }
     });
@@ -293,6 +301,15 @@ export function useWallEditor({ engineRef, refreshBlueprint }) {
     } finally { setBusy(false); }
   }, [selected, _getSheet, _saveSheet, _pushUndo, refreshBlueprint]);
 
+  const updateRoof = useCallback(async (patch) => {
+    setBusy(true); setError("");
+    try {
+      await updateBlueprint(patch);
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || "Roof update failed");
+    } finally { setBusy(false); }
+  }, [updateBlueprint]);
+
   useEffect(() => {
     if (!editing) return;
     const onKey = (e) => {
@@ -308,9 +325,16 @@ export function useWallEditor({ engineRef, refreshBlueprint }) {
   return {
     editing, setEditing,
     selected, cutMode, setCutMode,
+    selectedRoof, setSelectedRoof,
     busy, error,
     deleteSelected, undo, redo,
     setWallHeight,
+    updateRoof,
+    blueprintRoof: {
+      type:  blueprint?.roof_type      || "gable",
+      pitch: blueprint?.roof_pitch_deg ?? 12,
+      color: blueprint?.roof_color     || "#7A2E2E",
+    },
     canUndo: () => undoRef.current.length > 0,
     canRedo: () => redoRef.current.length > 0,
   };

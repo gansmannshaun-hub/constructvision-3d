@@ -9,9 +9,17 @@ export function WallEditorPanel({
   selected, cutMode, setCutMode, busy, error,
   onDelete, onUndo, onRedo, canUndo, canRedo,
   onSetHeight,
+  selectedRoof, blueprintRoof, onSetRoof,
   onExit,
 }) {
   const heightFt = Number(selected?.height_ft) > 0 ? Number(selected.height_ft) : 10;
+  const ROOF_TYPES = [
+    { id: "gable",   label: "Gable" },
+    { id: "hip",     label: "Hip" },
+    { id: "shed",    label: "Shed" },
+    { id: "flat",    label: "Flat" },
+    { id: "gambrel", label: "Gambrel" },
+  ];
   return (
     <div
       data-testid="wall-editor-panel"
@@ -23,9 +31,11 @@ export function WallEditorPanel({
           <div className="text-xs text-neutral-400 font-mono mt-1">
             {cutMode
               ? "CUT — click any wall to split at that point. ESC cancels."
+              : selectedRoof
+              ? "Roof selected. Change type / pitch / color below."
               : selected
               ? "Wall selected. DEL removes · CUT splits at click point."
-              : "Click any wall in the 3D view to select it."}
+              : "Click any wall or roof in the 3D view to select it."}
           </div>
         </div>
         <button
@@ -65,6 +75,49 @@ export function WallEditorPanel({
               <span>4</span><span>10</span><span>20</span><span>30 ft</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {selectedRoof && (
+        <div data-testid="roof-editor-card" className="border border-[#00E5FF]/40 bg-[#00E5FF]/5 p-3 mb-3 text-xs font-mono">
+          <div className="label-mono text-neutral-500 mb-2">// SELECTED ROOF</div>
+          <label className="block mb-2">
+            <div className="label-mono text-neutral-500 mb-1">TYPE</div>
+            <select
+              data-testid="roof-editor-type"
+              value={blueprintRoof.type}
+              onChange={(e) => onSetRoof?.({ roof_type: e.target.value })}
+              disabled={busy}
+              className="w-full bg-black border border-white/15 px-2 py-1.5 text-xs disabled:opacity-40"
+            >
+              {ROOF_TYPES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+            </select>
+          </label>
+          <label className="block mb-2">
+            <div className="flex justify-between mb-1">
+              <span className="label-mono text-neutral-500">PITCH</span>
+              <span className="label-mono text-[#00E5FF]">{blueprintRoof.pitch}°</span>
+            </div>
+            <input
+              data-testid="roof-editor-pitch"
+              type="range" min="0" max="45" step="1"
+              value={blueprintRoof.pitch}
+              disabled={busy || blueprintRoof.type === "flat"}
+              onChange={(e) => onSetRoof?.({ roof_pitch_deg: Number(e.target.value) })}
+              className="w-full accent-[#00E5FF] disabled:opacity-40"
+            />
+          </label>
+          <label className="block">
+            <div className="label-mono text-neutral-500 mb-1">COLOR</div>
+            <input
+              data-testid="roof-editor-color"
+              type="color"
+              value={blueprintRoof.color}
+              disabled={busy}
+              onChange={(e) => onSetRoof?.({ roof_color: e.target.value })}
+              className="w-full h-8 bg-black border border-white/15 cursor-pointer disabled:opacity-40"
+            />
+          </label>
         </div>
       )}
 

@@ -293,6 +293,8 @@ function buildWallSheeting(walls) {
 function buildRoofSheeting(aabb) {
   const g = new THREE.Group();
   if (!aabb) return g;
+  // Every roof panel added below is tagged pickable_roof so the 3D
+  // wall editor's raycaster can also select roofs.
   const color = CFG.roof_color;
   const ridgeAlongX = aabb.w >= aabb.d;
   const ph = pitchH(aabb);
@@ -562,7 +564,13 @@ const BUILDERS = {
   electrical:  (aabb, walls) => buildElectrical(walls, aabb),
   girts:       (_, walls)    => buildGirts(walls),
   purlins:     (aabb)        => buildPurlins(aabb),
-  roofSheet:   (aabb)        => buildRoofSheeting(aabb),
+  roofSheet:   (aabb)        => {
+    const g = buildRoofSheeting(aabb);
+    // Tag every mesh in the roof group as pickable so the 3D editor's
+    // raycaster can identify roof clicks (used by roof-face editing).
+    g.traverse((obj) => { if (obj.isMesh) obj.userData.pickable_roof = true; });
+    return g;
+  },
   wallSheet:   (_, walls)    => buildWallSheeting(walls),
   openings:    (_, walls, doors, windows) => buildOpenings(walls, doors, windows),
   trim:        (aabb, walls) => buildTrim(walls, aabb),
@@ -1182,7 +1190,18 @@ export function createSceneEngine(mount) {
     } else {
       setSelectedWall(null);
     }
+    // Also refresh the roof-pickable list by walking the current scene.
+    // Roof meshes live inside their layer groups (built per-sheet), so
+    // rebuild picks them up implicitly.
+    roofPickables.length = 0;
+    scene.traverse((obj) => {
+      if (obj.isMesh && obj.userData?.pickable_roof) {
+        roofPickables.push(obj);
+      }
+    });
   }
+
+  const roofPickables = [];
 
   function _makeHighlightForWall(userData) {
     if (!userData) return null;
@@ -1228,13 +1247,17 @@ export function createSceneEngine(mount) {
     _clickVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     _clickVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     _raycaster.setFromCamera(_clickVec, camera);
-    const hits = _raycaster.intersectObjects(wallPickables, false);
+    const hits = _raycaster.intersectObjects([...wallPickables, ...roofPickables], false);
     if (!hits.length) {
       wallEditorCallback?.("deselect", null);
       return;
     }
     const hit = hits[0];
     const userData = hit.object.userData;
+    if (userData.pickable_roof) {
+      wallEditorCallback?.("roof-pick", { via: "3d" });
+      return;
+    }
     // Compute the click point on the wall in feet so the CUT tool can
     // know exactly WHERE to split. Project the hit point onto the
     // wall's start→end line and return t in [0,1] plus the feet pos.
