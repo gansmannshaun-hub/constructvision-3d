@@ -13,6 +13,7 @@ import { useSiteTerrain } from "./renderer/useSiteTerrain";
 import { useModelPlacement } from "./renderer/useModelPlacement";
 import { useTapeMeasure } from "./renderer/useTapeMeasure";
 import { useSceneExport } from "./renderer/useSceneExport";
+import { useWallEditor } from "./renderer/useWallEditor";
 import { TopActionBar } from "./renderer/TopActionBar";
 import { PhaseControls } from "./renderer/PhaseControls";
 import { PlacementPanel } from "./renderer/PlacementPanel";
@@ -22,9 +23,10 @@ import { ExportPreviewModal } from "./renderer/ExportPreviewModal";
 import { SidebarSite } from "./renderer/SidebarSite";
 import { SidebarAssembly } from "./renderer/SidebarAssembly";
 import { SidebarLayers } from "./renderer/SidebarLayers";
+import { WallEditorPanel } from "./renderer/WallEditorPanel";
 
 export default function RendererTab() {
-  const { blueprint, saveBlueprint, currentProjectId } = useStore();
+  const { blueprint, saveBlueprint, currentProjectId, refreshBlueprint } = useStore();
   const walls = blueprint.walls || [];
   const doors = blueprint.doors || [];
   const windows = blueprint.windows || [];
@@ -51,6 +53,7 @@ export default function RendererTab() {
   });
   const measure = useTapeMeasure({ engineRef, currentProjectId });
   const exporter = useSceneExport({ engineRef, setPhase, setAutoMode });
+  const wallEditor = useWallEditor({ engineRef, refreshBlueprint });
 
   const updateCfg = useCallback(async (patch) => {
     setSavingCfg(true);
@@ -142,6 +145,8 @@ export default function RendererTab() {
           measuring={measure.measuring}
           onStartMeasure={measure.startMeasure}
           onStopMeasure={measure.stopMeasure}
+          editing={wallEditor.editing}
+          onToggleEdit={() => wallEditor.setEditing((v) => !v)}
           onFitCamera={() => engineRef.current?.fitCamera()}
         />
 
@@ -191,6 +196,22 @@ export default function RendererTab() {
             measurements={measure.measurements}
             onDelete={measure.deleteMeasurement}
             fmtFtIn={measure.fmtFtIn}
+          />
+        )}
+
+        {wallEditor.editing && (
+          <WallEditorPanel
+            selected={wallEditor.selected}
+            cutMode={wallEditor.cutMode}
+            setCutMode={wallEditor.setCutMode}
+            busy={wallEditor.busy}
+            error={wallEditor.error}
+            onDelete={wallEditor.deleteSelected}
+            onUndo={wallEditor.undo}
+            onRedo={wallEditor.redo}
+            canUndo={wallEditor.canUndo}
+            canRedo={wallEditor.canRedo}
+            onExit={() => wallEditor.setEditing(false)}
           />
         )}
 

@@ -10,6 +10,7 @@ export function TopActionBar({
   recording, recProgress, onRecordWalkthrough,
   site, placing, onStartPlacement,
   measuring, onStartMeasure, onStopMeasure,
+  editing, onToggleEdit,
   onFitCamera,
 }) {
   return (
@@ -70,6 +71,23 @@ export function TopActionBar({
           EXIT MEASURE
         </button>
       )}
+      <button
+        data-testid="renderer-edit-walls"
+        onClick={onToggleEdit}
+        disabled={empty}
+        className={`label-mono px-3 py-2 border transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${
+          editing
+            ? "bg-[#FFCC00] text-black border-[#FFCC00]"
+            : "bg-black/80 border-[#FFCC00]/60 text-[#FFCC00] hover:bg-[#FFCC00] hover:text-black"
+        }`}
+        title="Edit walls in 3D — click a wall to select, then DELETE / CUT"
+      >
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M3 21v-3l11-11 3 3-11 11z"/>
+          <path d="M14 4l3 3"/>
+        </svg>
+        {editing ? "EXIT EDIT" : "EDIT WALLS"}
+      </button>
       <button
         data-testid="renderer-fit-camera"
         onClick={onFitCamera}

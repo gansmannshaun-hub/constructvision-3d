@@ -1092,6 +1092,7 @@ export function createSceneEngine(mount) {
         hasFitCamera = true;
       }
     }
+    _rebuildPickTargets(sheets);
   }
 
   // Cache of the most-recent bounding box so fitCamera() can be called
@@ -1110,6 +1111,171 @@ export function createSceneEngine(mount) {
   }
 
   function fitCamera() { fitCameraToAabb(lastAabb); }
+
+  // ---------- Wall Editor ----------
+  // Invisible pick-target meshes live on `modelRoot` so they follow the
+  // model's placement/rotation. Each mesh carries the wall id + its
+  // in-feet start/end coordinates on `userData` so the editor hook can
+  // reason about the wall without another lookup. This group is never
+  // affected by setVisibility (it's a sibling of the layer groups) so
+  // picking works even when all layers are hidden.
+  const pickTargetsRoot = new THREE.Group();
+  pickTargetsRoot.name = "wall_pick_targets";
+  modelRoot.add(pickTargetsRoot);
+  let wallPickables = [];
+  let currentWallsSnapshot = [];  // full wall list from last build
+  let selectionHighlight = null;
+  let selectedWallId = null;
+
+  function _clearPickTargets() {
+    for (const m of pickTargetsRoot.children.slice()) {
+      pickTargetsRoot.remove(m);
+      m.geometry?.dispose?.();
+      m.material?.dispose?.();
+    }
+    wallPickables = [];
+  }
+
+  function _rebuildPickTargets(sheets) {
+    _clearPickTargets();
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.001, depthWrite: false,
+    });
+    currentWallsSnapshot = [];
+    for (const sheet of sheets) {
+      const walls = sheet.walls || [];
+      // Only offer picking on floor-level sheets so 3D editing doesn't
+      // conflict with elevation/reference views that live at floor_level < 0.
+      if ((sheet.floor_level || 0) < 0) continue;
+      const yOffset = (sheet.floor_level || 0) * (WALL_HEIGHT + SLAB_THICK + 0.02);
+      for (const w of walls) {
+        const s = wallSegment(w);
+        if (!s) continue;
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(s.length + 0.15, WALL_HEIGHT, 0.35),
+          mat,
+        );
+        mesh.position.set(s.cx, WALL_HEIGHT / 2 + SLAB_THICK + yOffset, s.cz);
+        mesh.rotation.y = -s.angle;
+        mesh.userData = {
+          wall_id: w.id,
+          sheet_id: sheet.id,
+          start: w.start,
+          end: w.end,
+          length_ft: s.length / SCALE,
+          thickness: w.thickness || 0.5,
+        };
+        pickTargetsRoot.add(mesh);
+        wallPickables.push(mesh);
+        currentWallsSnapshot.push({ ...w, sheet_id: sheet.id, floor_level: sheet.floor_level || 0 });
+      }
+    }
+    // Re-apply the selection highlight if the wall still exists in the
+    // new snapshot — otherwise clear it. This keeps the editor UX stable
+    // across auto-rebuilds triggered by the sheet PATCH.
+    if (selectedWallId && wallPickables.some((m) => m.userData.wall_id === selectedWallId)) {
+      setSelectedWall(selectedWallId);
+    } else {
+      setSelectedWall(null);
+    }
+  }
+
+  function _makeHighlightForWall(userData) {
+    if (!userData) return null;
+    const s = wallSegment({ start: userData.start, end: userData.end });
+    if (!s) return null;
+    const yOffset = 0; // highlight assumes floor 0; if we later support multi-floor edit, thread the sheet's yOffset
+    const geo = new THREE.BoxGeometry(s.length + 0.2, WALL_HEIGHT + 0.1, 0.55);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffcc00, transparent: true, opacity: 0.28,
+      depthWrite: false, depthTest: true,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(s.cx, WALL_HEIGHT / 2 + SLAB_THICK + yOffset, s.cz);
+    mesh.rotation.y = -s.angle;
+    return mesh;
+  }
+
+  function setSelectedWall(wall_id) {
+    if (selectionHighlight) {
+      pickTargetsRoot.remove(selectionHighlight);
+      selectionHighlight.geometry?.dispose?.();
+      selectionHighlight.material?.dispose?.();
+      selectionHighlight = null;
+    }
+    selectedWallId = wall_id || null;
+    if (!wall_id) return;
+    const target = wallPickables.find((m) => m.userData.wall_id === wall_id);
+    if (!target) return;
+    selectionHighlight = _makeHighlightForWall(target.userData);
+    if (selectionHighlight) pickTargetsRoot.add(selectionHighlight);
+  }
+
+  let wallEditorEnabled = false;
+  let wallEditorCallback = null;
+  const _raycaster = new THREE.Raycaster();
+  const _clickVec = new THREE.Vector2();
+
+  function _onEditorClick(event) {
+    if (!wallEditorEnabled) return;
+    // Only respond to left click; ignore drags used by OrbitControls.
+    if (event.button !== 0) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    _clickVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    _clickVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    _raycaster.setFromCamera(_clickVec, camera);
+    const hits = _raycaster.intersectObjects(wallPickables, false);
+    if (!hits.length) {
+      wallEditorCallback?.("deselect", null);
+      return;
+    }
+    const hit = hits[0];
+    const userData = hit.object.userData;
+    // Compute the click point on the wall in feet so the CUT tool can
+    // know exactly WHERE to split. Project the hit point onto the
+    // wall's start→end line and return t in [0,1] plus the feet pos.
+    const s = wallSegment({ start: userData.start, end: userData.end });
+    let t = 0.5, cut_ft = null;
+    if (s) {
+      // Convert hit.point (world) → modelRoot-local space.
+      const local = modelRoot.worldToLocal(hit.point.clone());
+      const wx = local.x - s.sx;
+      const wz = local.z - s.sz;
+      const proj = (wx * s.dx + wz * s.dz) / (s.length * s.length);
+      t = Math.max(0.02, Math.min(0.98, proj));
+      cut_ft = [
+        userData.start[0] + t * (userData.end[0] - userData.start[0]),
+        userData.start[1] + t * (userData.end[1] - userData.start[1]),
+      ];
+    }
+    wallEditorCallback?.("pick", {
+      wall_id: userData.wall_id,
+      sheet_id: userData.sheet_id,
+      start: userData.start,
+      end: userData.end,
+      length_ft: userData.length_ft,
+      thickness: userData.thickness,
+      hit_t: t,
+      hit_ft: cut_ft,
+    });
+  }
+
+  function enableWallEditor(on, callback) {
+    wallEditorEnabled = !!on;
+    wallEditorCallback = callback || null;
+    if (wallEditorEnabled) {
+      renderer.domElement.style.cursor = "pointer";
+      renderer.domElement.addEventListener("click", _onEditorClick);
+    } else {
+      renderer.domElement.style.cursor = "";
+      renderer.domElement.removeEventListener("click", _onEditorClick);
+      setSelectedWall(null);
+    }
+  }
+
+  function getWallSnapshot() {
+    return currentWallsSnapshot.slice();
+  }
 
   function setVisibility(map) {
     for (const id of Object.keys(groups)) {
@@ -1661,5 +1827,6 @@ export function createSceneEngine(mount) {
            captureHiRes, startDolly, getDomElement, dispose,
            enableMeasureTool, setMeasurements, addMeasurement,
            removeMeasurement, setSnapEnabled, getMeasureFtPerUnit,
-           formatFtIn };
+           formatFtIn,
+           enableWallEditor, setSelectedWall, getWallSnapshot };
 }
