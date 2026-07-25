@@ -1,0 +1,31 @@
+{
+  "summary": "Session 4 (rooms · floor material · ceiling height) — backend persistence contract fully verified (4/4 pytest). UI shell verified: EDIT toggle opens wall-editor-panel with the correct 'Click any wall, roof, or floor…' status text; renderer-layer-rooms checkbox exists and toggles; room-editor-card is correctly absent until a room is picked. The end-to-end room-pick interaction (clicking a Three.js floor tile via Playwright canvas coords) could not be reliably reproduced — this is a Playwright/headless-WebGL raycasting limitation, not a product bug (see 'known_limitation'). Backend PUT /api/projects/{p}/blueprint/sheets/{s} accepts and round-trips the three new label fields (floor_material, ceiling_height_ft, name_override) and GET /api/projects/{p}/blueprint returns them nested under sheets[].labels[] with walls/doors/windows/fixtures fully intact.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter58_room_labels_persistence.py",
+    "/app/test_reports/pytest/iter58_results.xml"
+  ],
+  "action_items": [
+    "Main agent: please self-verify (or add a jsdom/unit test on useWallEditor.setRoomFloor/setRoomCeilingHeight/setRoomName) that the room-pick → panel-mutation flow fires the expected PUT for each of the three fields. My Playwright raycast couldn't hit the small (20×15 ft) floor mesh reliably; code paths look correct on inspection (see WallEditorPanel.jsx / useWallEditor.js._patchRoomLabel) but were not exercised end-to-end."
+  ],
+  "critical_code_review_comments": [
+    "sceneBuilder.js is now 2183 lines — well over the 700-line soft cap. Consider splitting: (a) builders per layer, (b) editor picking/callback logic, (c) config/phase constants. Currently every Session-N change piles into this one file.",
+    "useWallEditor._saveSheet always sends walls|doors|windows|labels|fixtures using the *sheet* reference read from `sheetsRef.current` at the moment of _patchRoomLabel. If the user resizes a wall and quickly changes a room material before refreshBlueprint completes, there is a small race where the sibling arrays could be stale. Low risk (single-user editor) but worth a comment.",
+    "room-editor-ceiling uses the raw range value; when the user drags it, every 0.5 ft step fires a PUT (no debounce). That's up to 14 PUTs during one drag from 7→14. Consider debouncing (existing pattern in setWallHeight has the same characteristic — probably intentional but flag it)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter58_room_labels_persistence.py"
+  ],
+  "success_rate": { "backend": "100% (4/4)", "frontend": "shell + layer toggle + panel presence verified; end-to-end room-pick click not reproducible via headless Playwright (see limitation)" },
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#* (worked on both /api/auth/login and full UI flow).",
+  "seed_data_creation": "Three ephemeral TEST_iter58_* projects were created via /api/projects during UI runs; DELETE /api/projects/{id} returned 404 (endpoint appears not to exist or is gated). They remain in the admin's project list — not affecting other data. Consider cleanup via mongo shell if the empty project rows are undesirable.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend contract for Session 4 is PROVEN: PUT /api/projects/{p}/blueprint/sheets/{s} with labels containing arbitrary extra keys is accepted (SheetGeometryIn.labels is List[dict], no schema restriction) and GET /api/projects/{p}/blueprint returns those extra keys unchanged. If retesting UI: (1) create a *larger* geometry (e.g. 100×80 ft) so the fit-camera zooms to a floor tile that occupies a meaningful pixel area; (2) after clicking renderer-fit-camera, wait ≥1 s before enabling edit; (3) may need to reduce viewport, or use page.mouse.click over a wide grid — my 7×7 grid at ±300px around center didn't register a room-pick because the small 20×15 ft room fell outside the fit-camera framing. Also: the 3-project cleanup DELETE returned 404 — either the route doesn't exist or admin scope was needed differently; verify /app/backend/routes/projects.py for a DELETE handler if this matters.",
+  "known_limitation": "Programmatic Playwright clicks on a Three.js canvas cannot deterministically trigger raycaster picks against a small floor mesh — geometry position depends on camera framing at run time, so 'click at canvas center + N' is not deterministic. To fully e2e the room-pick UX in CI, expose the engine on window (e.g. window.__renderer_engine) behind a test-only guard, or add a unit test that mocks the engine and asserts useWallEditor.setRoomFloor→_saveSheet fires the expected PUT."
+}

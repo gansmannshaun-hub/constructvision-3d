@@ -215,6 +215,10 @@ export default function RendererTab() {
             selectedRoof={wallEditor.selectedRoof}
             blueprintRoof={wallEditor.blueprintRoof}
             onSetRoof={wallEditor.updateRoof}
+            selectedRoom={wallEditor.selectedRoom}
+            onSetRoomFloor={wallEditor.setRoomFloor}
+            onSetRoomCeiling={wallEditor.setRoomCeilingHeight}
+            onSetRoomName={wallEditor.setRoomName}
             onExit={() => wallEditor.setEditing(false)}
           />
         )}

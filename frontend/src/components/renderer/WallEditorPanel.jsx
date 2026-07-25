@@ -1,15 +1,24 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { formatFeetInches } from "../../lib/dim";
+import {
+  FLOOR_MATERIALS,
+  CEILING_MIN_FT,
+  CEILING_MAX_FT,
+  CEILING_STEP_FT,
+  CEILING_DEFAULT_FT,
+} from "../../lib/renderer/floorMaterials";
 
 /**
  * Floating panel shown while the 3D wall editor is active. Sits at the
- * bottom-center; shows the selected wall's stats and the mutating tools.
+ * bottom-center; shows the selected wall / roof / room stats and the
+ * mutating tools.
  */
 export function WallEditorPanel({
   selected, cutMode, setCutMode, busy, error,
   onDelete, onUndo, onRedo, canUndo, canRedo,
   onSetHeight,
   selectedRoof, blueprintRoof, onSetRoof,
+  selectedRoom, onSetRoomFloor, onSetRoomCeiling, onSetRoomName,
   onExit,
 }) {
   const heightFt = Number(selected?.height_ft) > 0 ? Number(selected.height_ft) : 10;
@@ -20,23 +29,37 @@ export function WallEditorPanel({
     { id: "flat",    label: "Flat" },
     { id: "gambrel", label: "Gambrel" },
   ];
+
+  // Local editable state for the room name so typing doesn't fire a PUT
+  // on every keystroke. The commit happens on blur.
+  const [roomNameDraft, setRoomNameDraft] = useState("");
+  useEffect(() => {
+    setRoomNameDraft(selectedRoom?.name || "");
+  }, [selectedRoom?.label_index, selectedRoom?.sheet_id, selectedRoom?.name]);
+
+  const ceilFt = Number(selectedRoom?.ceiling_height_ft) > 0
+    ? Number(selectedRoom.ceiling_height_ft)
+    : CEILING_DEFAULT_FT;
+
+  const status = cutMode
+    ? "CUT — click any wall to split at that point. ESC cancels."
+    : selectedRoof
+    ? "Roof selected. Change type / pitch / color below."
+    : selectedRoom
+    ? "Room selected. Rename it, pick a floor material, or set a drop ceiling."
+    : selected
+    ? "Wall selected. DEL removes · CUT splits at click point."
+    : "Click any wall, roof, or floor in the 3D view to select it.";
+
   return (
     <div
       data-testid="wall-editor-panel"
-      className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 bg-black/90 border border-[#FFCC00]/50 backdrop-blur-sm px-5 py-4 w-[520px] max-w-[95%]"
+      className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 bg-black/90 border border-[#FFCC00]/50 backdrop-blur-sm px-5 py-4 w-[560px] max-w-[95%]"
     >
       <div className="flex items-center justify-between mb-3">
         <div>
-          <div className="label-mono text-[#FFCC00]">// EDIT WALLS · 3D</div>
-          <div className="text-xs text-neutral-400 font-mono mt-1">
-            {cutMode
-              ? "CUT — click any wall to split at that point. ESC cancels."
-              : selectedRoof
-              ? "Roof selected. Change type / pitch / color below."
-              : selected
-              ? "Wall selected. DEL removes · CUT splits at click point."
-              : "Click any wall or roof in the 3D view to select it."}
-          </div>
+          <div className="label-mono text-[#FFCC00]">// EDIT · 3D</div>
+          <div className="text-xs text-neutral-400 font-mono mt-1">{status}</div>
         </div>
         <button
           data-testid="wall-editor-exit"
@@ -117,6 +140,83 @@ export function WallEditorPanel({
               onChange={(e) => onSetRoof?.({ roof_color: e.target.value })}
               className="w-full h-8 bg-black border border-white/15 cursor-pointer disabled:opacity-40"
             />
+          </label>
+        </div>
+      )}
+
+      {selectedRoom && (
+        <div data-testid="room-editor-card" className="border border-[#FF9933]/40 bg-[#FF9933]/5 p-3 mb-3 text-xs font-mono">
+          <div className="label-mono text-neutral-500 mb-2">// SELECTED ROOM</div>
+
+          <label className="block mb-3">
+            <div className="label-mono text-neutral-500 mb-1">NAME</div>
+            <input
+              data-testid="room-editor-name"
+              type="text"
+              value={roomNameDraft}
+              disabled={busy}
+              onChange={(e) => setRoomNameDraft(e.target.value)}
+              onBlur={() => {
+                const next = roomNameDraft.trim();
+                if (next && next !== (selectedRoom.name || "")) onSetRoomName?.(next);
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+              className="w-full bg-black border border-white/15 px-2 py-1.5 text-xs text-[#FF9933] disabled:opacity-40"
+              placeholder="Living Room"
+              maxLength={80}
+            />
+          </label>
+
+          <label className="block mb-3">
+            <div className="label-mono text-neutral-500 mb-1">FLOOR MATERIAL</div>
+            <select
+              data-testid="room-editor-floor"
+              value={selectedRoom.floor_material || "concrete"}
+              disabled={busy}
+              onChange={(e) => onSetRoomFloor?.(e.target.value)}
+              className="w-full bg-black border border-white/15 px-2 py-1.5 text-xs text-[#FF9933] disabled:opacity-40"
+            >
+              {FLOOR_MATERIALS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <div className="flex justify-between mb-1">
+              <span className="label-mono text-neutral-500">CEILING HEIGHT</span>
+              <span className="label-mono text-[#FF9933]">
+                {selectedRoom.ceiling_height_ft ? `${ceilFt.toFixed(1)} ft` : "— (use wall top)"}
+              </span>
+            </div>
+            <input
+              data-testid="room-editor-ceiling"
+              type="range"
+              min={CEILING_MIN_FT}
+              max={CEILING_MAX_FT}
+              step={CEILING_STEP_FT}
+              value={ceilFt}
+              disabled={busy}
+              onChange={(e) => onSetRoomCeiling?.(Number(e.target.value))}
+              className="w-full accent-[#FF9933] disabled:opacity-40"
+            />
+            <div className="flex justify-between text-[9px] font-mono text-neutral-600 mb-1">
+              <span>{CEILING_MIN_FT}</span>
+              <span>10</span>
+              <span>12</span>
+              <span>{CEILING_MAX_FT} ft</span>
+            </div>
+            {selectedRoom.ceiling_height_ft && (
+              <button
+                data-testid="room-editor-ceiling-clear"
+                type="button"
+                onClick={() => onSetRoomCeiling?.(null)}
+                disabled={busy}
+                className="text-[10px] text-neutral-500 hover:text-[#FF9933] underline disabled:opacity-40"
+              >
+                clear drop ceiling
+              </button>
+            )}
           </label>
         </div>
       )}

@@ -7,6 +7,7 @@
 //   PHASES, ALL_LAYERS, MAX_PHASE, ROOF_TYPES, DEFAULT_CFG
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { getFloorMaterial, DEFAULT_FLOOR_MATERIAL_ID, CEILING_DEFAULT_FT } from "./floorMaterials.js";
 
 // ---------- Constants ----------
 // WALL_HEIGHT can be overridden per-build from elevation-sheet assembly
@@ -56,7 +57,7 @@ export const PHASES = [
   { id: 11, label: "Wall Sheet",  layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet"] },
   { id: 12, label: "Openings",    layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet", "openings"] },
   { id: 13, label: "Trim",        layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet", "openings", "trim"] },
-  { id: 14, label: "Finished",    layers: ["foundation", "wallSheet", "roofSheet", "openings", "trim"] },
+  { id: 14, label: "Finished",    layers: ["foundation", "wallSheet", "roofSheet", "openings", "trim", "rooms"] },
 ];
 export const MAX_PHASE = PHASES.length - 1;
 
@@ -75,6 +76,7 @@ export const ALL_LAYERS = [
   { id: "wallSheet",   label: "Wall Sheeting",         color: "#D8D4CC" },
   { id: "openings",    label: "Doors & Windows",       color: "#FFCC00" },
   { id: "trim",        label: "Trim & Flashing",       color: "#FFFFFF" },
+  { id: "rooms",       label: "Rooms (Floor & Ceiling)", color: "#8B5A2B" },
 ];
 
 // Mutable config consumed by builders (set inside build()).
@@ -553,6 +555,135 @@ function buildElectrical(walls, aabb) {
   return g;
 }
 
+// ---------- Rooms (Session 4) ----------
+// Each label (e.g. "MASTER BEDROOM") is treated as a room seed. We find
+// the axis-aligned rectangle around each label by casting rays in ±x
+// and ±z from the label center and finding the nearest wall crossing.
+// Result: one floor tile per label with the user-selected material,
+// plus (optionally) a semi-transparent ceiling plane if the room's
+// ceiling_height_ft differs from the sheet-wide WALL_HEIGHT.
+// Every room mesh is tagged with `userData.pickable_room = true` so
+// the 3D wall-editor's raycaster can select rooms.
+function _computeRoomRectFt(labelXy, walls, aabb) {
+  // labelXy is in feet (blueprint local space). Walls: {start:[x,y], end:[x,y]}.
+  // Returns { x0, y0, x1, y1 } bounding box in feet, clipped to the aabb.
+  const [lx, ly] = labelXy;
+  const PAD_FT = 0.25;   // shrink slightly so the tile doesn't Z-fight the wall
+  // aabb is in scene units (meters, with the fixed 5-unit centering offset).
+  // Convert aabb back to feet space for clipping.
+  const bboxMinXFt = ((aabb.minX + 5) / SCALE);
+  const bboxMaxXFt = ((aabb.maxX + 5) / SCALE);
+  const bboxMinYFt = ((aabb.minZ + 5) / SCALE);
+  const bboxMaxYFt = ((aabb.maxZ + 5) / SCALE);
+  let x0 = bboxMinXFt, x1 = bboxMaxXFt, y0 = bboxMinYFt, y1 = bboxMaxYFt;
+  const EPS = 0.05;
+  for (const w of walls) {
+    if (!w.start || !w.end) continue;
+    const [ax, ay] = w.start;
+    const [bx, by] = w.end;
+    const wminX = Math.min(ax, bx), wmaxX = Math.max(ax, bx);
+    const wminY = Math.min(ay, by), wmaxY = Math.max(ay, by);
+    // Horizontal ray (constant y = ly, sweeping ±x): wall must span ly
+    if (wminY - EPS <= ly && ly <= wmaxY + EPS) {
+      // Wall's x at y=ly. If wall is exactly horizontal (ay==by) skip.
+      let wx;
+      if (Math.abs(by - ay) < 1e-6) {
+        // Fully horizontal wall — treat as blocker at min/max of its extent
+        // only if ly is on the same y-line (already true from spanning test).
+        wx = (wminX + wmaxX) / 2;  // won't tighten box meaningfully
+        continue;
+      } else {
+        const t = (ly - ay) / (by - ay);
+        wx = ax + t * (bx - ax);
+      }
+      if (wx > lx && wx < x1) x1 = wx;
+      if (wx < lx && wx > x0) x0 = wx;
+    }
+    // Vertical ray (constant x = lx, sweeping ±y): wall must span lx
+    if (wminX - EPS <= lx && lx <= wmaxX + EPS) {
+      let wy;
+      if (Math.abs(bx - ax) < 1e-6) {
+        wy = (wminY + wmaxY) / 2;
+        continue;
+      } else {
+        const t = (lx - ax) / (bx - ax);
+        wy = ay + t * (by - ay);
+      }
+      if (wy > ly && wy < y1) y1 = wy;
+      if (wy < ly && wy > y0) y0 = wy;
+    }
+  }
+  // Reject degenerate rooms (<4 ft either direction)
+  if (x1 - x0 < 4 || y1 - y0 < 4) return null;
+  return {
+    x0: x0 + PAD_FT, y0: y0 + PAD_FT,
+    x1: x1 - PAD_FT, y1: y1 - PAD_FT,
+  };
+}
+
+function buildRooms(walls, aabb, labels) {
+  const g = new THREE.Group();
+  if (!aabb || !Array.isArray(labels) || labels.length === 0) return g;
+  const wallTopY = WALL_HEIGHT + SLAB_THICK;
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i];
+    if (!label?.position || !Array.isArray(label.position) || label.position.length < 2) continue;
+    const rect = _computeRoomRectFt(label.position, walls, aabb);
+    if (!rect) continue;
+    const wFt = rect.x1 - rect.x0;
+    const dFt = rect.y1 - rect.y0;
+    const wM = wFt * SCALE;
+    const dM = dFt * SCALE;
+    // Convert feet center back to scene meters (using the fixed 5-unit
+    // centering offset that `toWorld` applies).
+    const cx = ((rect.x0 + rect.x1) / 2) * SCALE - 5;
+    const cz = ((rect.y0 + rect.y1) / 2) * SCALE - 5;
+    const materialId = label.floor_material || DEFAULT_FLOOR_MATERIAL_ID;
+    const mat = getFloorMaterial(materialId);
+    const floor = makeBox(wM, 0.03, dM, mat.color, {
+      roughness: mat.roughness,
+      metalness: mat.metalness,
+    });
+    floor.position.set(cx, SLAB_THICK + 0.02, cz);
+    floor.userData.pickable_room = true;
+    floor.userData.label_index = i;
+    floor.userData.room_center_ft = label.position;
+    floor.userData.room_rect_ft = rect;
+    floor.userData.floor_material = materialId;
+    floor.userData.ceiling_height_ft = Number(label.ceiling_height_ft) || null;
+    floor.userData.name = label.name_override || label.text || "Room";
+    g.add(floor);
+
+    // Optional ceiling plane if the room has an explicit ceiling height
+    // AND that height is BELOW the current wall top (drop ceiling).
+    const ceilFt = Number(label.ceiling_height_ft);
+    if (ceilFt > 0) {
+      const ceilY = ceilFt * SCALE + SLAB_THICK;
+      // Only render if the ceiling is at least 0.15 m below the wall top
+      // (avoids Z-fighting with the roof/wall top plate).
+      if (ceilY < wallTopY - 0.15) {
+        const ceilMat = new THREE.MeshStandardMaterial({
+          color: 0xEEEBE1,
+          roughness: 0.85,
+          metalness: 0.02,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+        });
+        const ceil = new THREE.Mesh(new THREE.PlaneGeometry(wM * 0.98, dM * 0.98), ceilMat);
+        ceil.rotation.x = Math.PI / 2;
+        ceil.position.set(cx, ceilY, cz);
+        ceil.receiveShadow = true;
+        // Ceiling is NOT pickable_room — clicking the ceiling would be
+        // confusing UX. Only the floor tile is the selectable target.
+        g.add(ceil);
+      }
+    }
+  }
+  return g;
+}
+
+
 const BUILDERS = {
   excavation:  (aabb, walls) => buildExcavation(aabb),
   underground: (aabb)        => buildUnderground(aabb),
@@ -574,6 +705,7 @@ const BUILDERS = {
   wallSheet:   (_, walls)    => buildWallSheeting(walls),
   openings:    (_, walls, doors, windows) => buildOpenings(walls, doors, windows),
   trim:        (aabb, walls) => buildTrim(walls, aabb),
+  rooms:       (aabb, walls, doors, windows, labels) => buildRooms(walls, aabb, labels),
 };
 
 // ---------- Engine ----------
@@ -1066,6 +1198,7 @@ export function createSceneEngine(mount) {
       const walls = sheet.walls || [];
       const doors = sheet.doors || [];
       const windows = sheet.windows || [];
+      const labels = sheet.labels || [];
       const yOffset = (sheet.floor_level || 0) * FLOOR_STEP;
       const aabb = footprintAabb(walls);
       if (aabb) {
@@ -1082,11 +1215,19 @@ export function createSceneEngine(mount) {
         }
       }
       for (const layer of ALL_LAYERS) {
-        const sheetLayer = BUILDERS[layer.id](aabb, walls, doors, windows);
+        const sheetLayer = BUILDERS[layer.id](aabb, walls, doors, windows, labels);
         // Ground-only layers (excavation, foundation, underground, septic) skip
         // upper floors so we don't get stacked dirt / duplicate slabs.
         const groundOnly = ["excavation", "underground", "septic"].includes(layer.id);
         if (groundOnly && (sheet.floor_level || 0) !== 0) continue;
+        // Rooms carry a sheet_id in their userData so the picker knows
+        // which sheet's `labels` array to patch on edit. Attach it here
+        // so we don't need to thread it through the builder API.
+        if (layer.id === "rooms") {
+          sheetLayer.traverse((obj) => {
+            if (obj.userData?.pickable_room) obj.userData.sheet_id = sheet.id;
+          });
+        }
         sheetLayer.position.y += yOffset;
         groups[layer.id].add(sheetLayer);
       }
@@ -1192,16 +1333,18 @@ export function createSceneEngine(mount) {
     }
     // Also refresh the roof-pickable list by walking the current scene.
     // Roof meshes live inside their layer groups (built per-sheet), so
-    // rebuild picks them up implicitly.
+    // rebuild picks them up implicitly. Same for room floor meshes.
     roofPickables.length = 0;
+    roomPickables.length = 0;
     scene.traverse((obj) => {
-      if (obj.isMesh && obj.userData?.pickable_roof) {
-        roofPickables.push(obj);
-      }
+      if (!obj.isMesh) return;
+      if (obj.userData?.pickable_roof) roofPickables.push(obj);
+      if (obj.userData?.pickable_room) roomPickables.push(obj);
     });
   }
 
   const roofPickables = [];
+  const roomPickables = [];
 
   function _makeHighlightForWall(userData) {
     if (!userData) return null;
@@ -1234,6 +1377,39 @@ export function createSceneEngine(mount) {
     if (selectionHighlight) pickTargetsRoot.add(selectionHighlight);
   }
 
+  // Selected-room highlight — a translucent orange plane over the room's
+  // floor tile. Cleared when null is passed.
+  let roomHighlight = null;
+  function setSelectedRoom(label_index, sheet_id) {
+    if (roomHighlight) {
+      pickTargetsRoot.remove(roomHighlight);
+      roomHighlight.geometry?.dispose?.();
+      roomHighlight.material?.dispose?.();
+      roomHighlight = null;
+    }
+    if (label_index === null || label_index === undefined) return;
+    const room = roomPickables.find(
+      (m) => m.userData.label_index === label_index && m.userData.sheet_id === sheet_id,
+    );
+    if (!room) return;
+    // Room mesh is a BoxGeometry(wM, 0.03, dM). Extract w/d from its geometry.
+    const params = room.geometry.parameters || {};
+    const w = params.width  || 1;
+    const d = params.depth  || 1;
+    const geo = new THREE.PlaneGeometry(w * 0.96, d * 0.96);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xFFCC00, transparent: true, opacity: 0.30,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+    const hl = new THREE.Mesh(geo, mat);
+    hl.rotation.x = -Math.PI / 2;
+    // Position slightly above the floor tile so it doesn't Z-fight
+    hl.position.set(room.position.x, room.position.y + 0.03, room.position.z);
+    hl.renderOrder = 998;
+    pickTargetsRoot.add(hl);
+    roomHighlight = hl;
+  }
+
   let wallEditorEnabled = false;
   let wallEditorCallback = null;
   const _raycaster = new THREE.Raycaster();
@@ -1247,7 +1423,7 @@ export function createSceneEngine(mount) {
     _clickVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     _clickVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     _raycaster.setFromCamera(_clickVec, camera);
-    const hits = _raycaster.intersectObjects([...wallPickables, ...roofPickables], false);
+    const hits = _raycaster.intersectObjects([...wallPickables, ...roofPickables, ...roomPickables], false);
     if (!hits.length) {
       wallEditorCallback?.("deselect", null);
       return;
@@ -1256,6 +1432,18 @@ export function createSceneEngine(mount) {
     const userData = hit.object.userData;
     if (userData.pickable_roof) {
       wallEditorCallback?.("roof-pick", { via: "3d" });
+      return;
+    }
+    if (userData.pickable_room) {
+      wallEditorCallback?.("room-pick", {
+        label_index: userData.label_index,
+        sheet_id: userData.sheet_id,
+        name: userData.name,
+        floor_material: userData.floor_material,
+        ceiling_height_ft: userData.ceiling_height_ft,
+        room_center_ft: userData.room_center_ft,
+        room_rect_ft: userData.room_rect_ft,
+      });
       return;
     }
     // Compute the click point on the wall in feet so the CUT tool can
@@ -1297,6 +1485,7 @@ export function createSceneEngine(mount) {
       renderer.domElement.style.cursor = "";
       renderer.domElement.removeEventListener("click", _onEditorClick);
       setSelectedWall(null);
+      setSelectedRoom(null);
       enableEndpointDrag(false);
     }
   }
@@ -1988,6 +2177,6 @@ export function createSceneEngine(mount) {
            enableMeasureTool, setMeasurements, addMeasurement,
            removeMeasurement, setSnapEnabled, getMeasureFtPerUnit,
            formatFtIn,
-           enableWallEditor, setSelectedWall, getWallSnapshot,
+           enableWallEditor, setSelectedWall, setSelectedRoom, getWallSnapshot,
            enableEndpointDrag };
 }

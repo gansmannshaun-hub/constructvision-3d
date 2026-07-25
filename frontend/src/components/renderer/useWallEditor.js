@@ -18,6 +18,7 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState(null);
   const [selectedRoof, setSelectedRoof] = useState(false);
+  const [selectedRoom, setSelectedRoom] = useState(null);
   const [cutMode, setCutMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -28,6 +29,13 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
 
   const setEngineSelected = useCallback((id) => {
     engineRef.current?.setSelectedWall?.(id || null);
+  }, [engineRef]);
+
+  const setEngineSelectedRoom = useCallback((labelIndex, sheetId) => {
+    engineRef.current?.setSelectedRoom?.(
+      labelIndex === null || labelIndex === undefined ? null : labelIndex,
+      sheetId || null,
+    );
   }, [engineRef]);
 
   const _getSheet = useCallback((sheet_id) => {
@@ -62,6 +70,8 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
     if (!editing) {
       engine.enableWallEditor(false);
       setSelected(null);
+      setSelectedRoof(false);
+      setSelectedRoom(null);
       setCutMode(false);
       return;
     }
@@ -69,19 +79,31 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
       if (action === "pick") {
         setSelected(payload);
         setSelectedRoof(false);
+        setSelectedRoom(null);
         setEngineSelected(payload.wall_id);
+        setEngineSelectedRoom(null);
       } else if (action === "roof-pick") {
         setSelectedRoof(true);
         setSelected(null);
+        setSelectedRoom(null);
         setEngineSelected(null);
-      } else if (action === "deselect") {
+        setEngineSelectedRoom(null);
+      } else if (action === "room-pick") {
+        setSelectedRoom(payload);
         setSelected(null);
         setSelectedRoof(false);
         setEngineSelected(null);
+        setEngineSelectedRoom(payload.label_index, payload.sheet_id);
+      } else if (action === "deselect") {
+        setSelected(null);
+        setSelectedRoof(false);
+        setSelectedRoom(null);
+        setEngineSelected(null);
+        setEngineSelectedRoom(null);
       }
     });
     return () => engine.enableWallEditor(false);
-  }, [editing, engineRef, setEngineSelected]);
+  }, [editing, engineRef, setEngineSelected, setEngineSelectedRoom]);
 
   const deleteSelected = useCallback(async () => {
     if (!selected) return;
@@ -310,6 +332,67 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
     } finally { setBusy(false); }
   }, [updateBlueprint]);
 
+  // ---------- Room editing (Session 4) ----------
+  // Rooms are seeded by label positions. Persisting a change means
+  // patching `sheet.labels[label_index]` with:
+  //   floor_material     – palette id from FLOOR_MATERIALS
+  //   ceiling_height_ft  – number, 7-14 ft (or null to clear)
+  //   name_override      – user-typed name (falls back to label.text)
+  // We use `_saveSheet` (PUT) so the labels array is re-saved as a whole.
+  const _patchRoomLabel = useCallback(async (patch) => {
+    if (!selectedRoom) return;
+    const sheet = _getSheet(selectedRoom.sheet_id);
+    if (!sheet) throw new Error("Sheet not found");
+    const labels = Array.isArray(sheet.labels) ? sheet.labels : [];
+    const idx = selectedRoom.label_index;
+    if (idx < 0 || idx >= labels.length) throw new Error("Label not found");
+    _pushUndo({
+      sheet_id: sheet.id,
+      walls:    sheet.walls    || [],
+      doors:    sheet.doors    || [],
+      windows:  sheet.windows  || [],
+      labels,
+      fixtures: sheet.fixtures || [],
+    });
+    const nextLabels = [...labels];
+    nextLabels[idx] = { ...nextLabels[idx], ...patch };
+    await _saveSheet(sheet.id, {
+      walls:    sheet.walls    || [],
+      doors:    sheet.doors    || [],
+      windows:  sheet.windows  || [],
+      labels:   nextLabels,
+      fixtures: sheet.fixtures || [],
+    });
+    // Keep the in-panel state in sync so the sliders show the new value.
+    setSelectedRoom((prev) => prev ? { ...prev, ...patch } : prev);
+    await refreshBlueprint();
+  }, [selectedRoom, _getSheet, _saveSheet, _pushUndo, refreshBlueprint]);
+
+  const setRoomFloor = useCallback(async (material_id) => {
+    setBusy(true); setError("");
+    try { await _patchRoomLabel({ floor_material: material_id }); }
+    catch (e) { setError(e?.response?.data?.detail || e?.message || "Floor material update failed"); }
+    finally { setBusy(false); }
+  }, [_patchRoomLabel]);
+
+  const setRoomCeilingHeight = useCallback(async (height_ft) => {
+    setBusy(true); setError("");
+    try {
+      // null clears the override (falls back to wall height / no drop ceiling)
+      const h = (height_ft === null || height_ft === undefined) ? null : Number(height_ft);
+      await _patchRoomLabel({ ceiling_height_ft: h });
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || "Ceiling height update failed");
+    } finally { setBusy(false); }
+  }, [_patchRoomLabel]);
+
+  const setRoomName = useCallback(async (name) => {
+    setBusy(true); setError("");
+    try { await _patchRoomLabel({ name_override: (name || "").slice(0, 80) }); }
+    catch (e) { setError(e?.response?.data?.detail || e?.message || "Room name update failed"); }
+    finally { setBusy(false); }
+  }, [_patchRoomLabel]);
+
   useEffect(() => {
     if (!editing) return;
     const onKey = (e) => {
@@ -326,10 +409,12 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
     editing, setEditing,
     selected, cutMode, setCutMode,
     selectedRoof, setSelectedRoof,
+    selectedRoom, setSelectedRoom,
     busy, error,
     deleteSelected, undo, redo,
     setWallHeight,
     updateRoof,
+    setRoomFloor, setRoomCeilingHeight, setRoomName,
     blueprintRoof: {
       type:  blueprint?.roof_type      || "gable",
       pitch: blueprint?.roof_pitch_deg ?? 12,
