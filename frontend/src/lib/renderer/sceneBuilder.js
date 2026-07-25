@@ -2061,6 +2061,15 @@ export function createSceneEngine(mount) {
     renderer.domElement.style.cursor = addOpeningMode ? "crosshair" : (wallEditorEnabled ? "pointer" : "");
   }
 
+  // Test-only hook: fire the wall-editor pick callback synthetically so
+  // Playwright / integration tests can drive FixtureCard / OpeningCard /
+  // RoomCard / RoofCard / WallCard mounting without relying on WebGL
+  // raycasting (which is unreliable in headless mode). Real users never
+  // touch this — it's just a testability escape hatch.
+  function __test_firePick(action, payload) {
+    if (wallEditorCallback) wallEditorCallback(action, payload || null);
+  }
+
   function getWallSnapshot() {
     return currentWallsSnapshot.slice();
   }
@@ -2619,5 +2628,6 @@ export function createSceneEngine(mount) {
            enableWallEditor, setSelectedWall, setSelectedRoom, getWallSnapshot,
            enableEndpointDrag,
            setSelectedFixture, enableFixtureDrag, setFixtureRotation,
-           setSelectedOpening, enableOpeningDrag, setAddOpeningMode };
+           setSelectedOpening, enableOpeningDrag, setAddOpeningMode,
+           __test_firePick };
 }

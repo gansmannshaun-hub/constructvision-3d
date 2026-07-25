@@ -108,6 +108,30 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
+- **2026-02-22 · 3D Editor Sessions 5, 6, 7 — Fixtures, Doors/Windows, Trim** —
+  Three sessions shipped back-to-back on the same edit tool:
+  1. **Fixtures (S5)**: 24 kind-specific low-poly meshes (`fixtureMeshes.js`)
+     — toilet, tub, sink, vanity, stove, oven, fridge, dishwasher, washer,
+     dryer, bed, sofa, table, desk, fireplace, stairs, columns, etc.
+     Click to select → drag on ground (0.25 ft snap) → rotate slider
+     (0-360° step 15°) → delete. `fixture-editor-card` in the panel.
+  2. **Doors + Windows (S6)**: openings now tagged `pickable_opening`
+     with `wall_index`; drag along wall constrains to the wall line;
+     width slider (1.5–12 ft, 0.25 step); `+ DOOR` / `+ WINDOW` add-mode
+     — click-to-place on any wall with proper orientation. Every opening
+     auto-orients to its host wall. `opening-editor-card` in the panel.
+  3. **Trim takeoff (S7)**: 3 checkboxes per wall (baseboard, crown,
+     chair rail) persist on `wall.trim_*` booleans. New
+     `TrimTakeoffPanel.jsx` sidebar widget computes per-room LF using
+     axis-aligned room-rect + wall-perimeter matching. Door casings @
+     17 LF / window casings @ 16 LF auto-count from openings on tagged
+     perimeter walls. Empty state only exits once the user tags at least
+     one baseboard/crown/chair-rail — auto casings alone don't populate.
+  Backend contract verified 5/5 (`test_iter59_sessions_567_persistence.py`)
+  plus 4/4 iter58 regression. Engine now exposes `__test_firePick` for
+  deterministic Playwright end-to-end tests. New shared file:
+  `lib/renderer/fixtureMeshes.js`.
+
 - **2026-02-22 · 3D Editor Session 4 — Rooms · Floor Material · Ceiling Height** —
   Clicking any room floor tile in the 3D Renderer's EDIT mode now selects
   the room. A new `room-editor-card` in `WallEditorPanel` lets the user:

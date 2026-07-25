@@ -128,8 +128,14 @@ function _computeTrim(sheets) {
       const doorCasing = doorCount * DOOR_CASING_LF;
       const windowCasing = windowCount * WINDOW_CASING_LF;
       const name = (lbl.name_override || lbl.text || "Room").trim();
-      const total = baseboardLF + crownLF + chairRailLF + doorCasing + windowCasing;
-      if (total <= 0.5) continue;  // hide rooms with zero trim tagged
+      // A room only participates in the takeoff once the user has
+      // explicitly tagged at least ONE trim boolean on one of its
+      // perimeter walls. Auto door/window casings alone don't qualify
+      // (otherwise every room with a door would show up without user
+      // intent).
+      const taggedTotal = baseboardLF + crownLF + chairRailLF;
+      if (taggedTotal <= 0.5) continue;
+      const total = taggedTotal + doorCasing + windowCasing;
       perRoom.push({
         key: `${sheet.id}-${li}`,
         name,
@@ -154,9 +160,13 @@ const fmt = (n) => n > 0 ? `${n.toFixed(1)} LF` : "—";
 
 export function TrimTakeoffPanel({ sheets }) {
   const { perRoom, totals } = useMemo(() => _computeTrim(sheets), [sheets]);
-  const grandTotal = totals.baseboard + totals.crown + totals.chair_rail + totals.door_casing + totals.window_casing;
+  const taggedGrandTotal = totals.baseboard + totals.crown + totals.chair_rail;
+  const grandTotal = taggedGrandTotal + totals.door_casing + totals.window_casing;
 
-  if (grandTotal <= 0.5) {
+  // Empty state: only show the "start tagging trim" hint until the user
+  // has tagged at least one baseboard/crown/chair-rail boolean. Auto
+  // door/window casings alone won't populate the table.
+  if (taggedGrandTotal <= 0.5) {
     return (
       <div data-testid="trim-takeoff-panel" className="mt-6 border border-white/10 bg-black/40 p-3">
         <div className="label-mono text-neutral-400 mb-2">// TRIM TAKEOFF</div>
