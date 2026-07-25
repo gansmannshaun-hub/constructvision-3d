@@ -24,6 +24,7 @@ import { SidebarSite } from "./renderer/SidebarSite";
 import { SidebarAssembly } from "./renderer/SidebarAssembly";
 import { SidebarLayers } from "./renderer/SidebarLayers";
 import { WallEditorPanel } from "./renderer/WallEditorPanel";
+import { SectionCutTool } from "./renderer/SectionCutTool";
 import { TrimTakeoffPanel } from "./renderer/TrimTakeoffPanel";
 
 export default function RendererTab() {
@@ -172,6 +173,12 @@ export default function RendererTab() {
           </div>
         )}
         <div ref={mountRef} data-testid="renderer-canvas-mount" className="w-full h-full bg-[#f5f5f5]" />
+
+        {/* Section-cut tool — always mounted so the toolbar is always
+            visible; the SVG overlay only intercepts pointer events when
+            the tool is toggled on. Sits above orbit controls in z-order
+            (z-30) so the drag rectangle isn't swallowed by other panels. */}
+        <SectionCutTool engineRef={engineRef} containerRef={mountRef} />
 
         {placement.placing && (
           <PlacementPanel

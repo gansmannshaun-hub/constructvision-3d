@@ -1157,6 +1157,12 @@ export function createSceneEngine(mount) {
   }
 
   function build(blueprint) {
+    // Every rebuild disposes the old meshes; any active section-cut
+    // references are now stale, so clear the map. If the user wants
+    // cuts to survive phase changes, we'd need to snapshot the css
+    // rect + camera pose here and re-apply — deferred (MVP is
+    // "cut disappears on phase change / blueprint edit").
+    activeCuts.clear();
     // ---------- Building assembly from all sheets ----------
     // Aggregate assembly_data from every elevation + roof_plan sheet in the
     // project so we can override defaults with data extracted by GPT-4o.
@@ -2600,6 +2606,113 @@ export function createSceneEngine(mount) {
   /** Direct accessors for capture/video features. */
   function getDomElement() { return renderer.domElement; }
 
+  // ---------- Section Cut (peel-back tool) ----------
+  // The user drags a rectangle on the viewport. We:
+  //   1. Raycast the CENTER of the rectangle → foreground depth.
+  //   2. Walk every visible mesh; project its bounding-sphere center to
+  //      NDC. If it lies inside the box AND its distance from the camera
+  //      is within `tolerance` of the foreground depth, hide it.
+  // Effect: the front-most chunk is "cut out" while deeper geometry
+  // (walls behind, back of the roof, interior fixtures) stays visible.
+  //
+  // Cuts are EPHEMERAL — a fresh `build()` clears them. On each rebuild
+  // the caller can re-apply saved cut regions if they want persistence.
+  const activeCuts = new Map();     // cutId → [{mesh, wasVisible}]
+  let sectionModeOn = false;
+
+  function _collectVisibleMeshes() {
+    const out = [];
+    scene.traverse((o) => { if (o.isMesh && o.visible) out.push(o); });
+    return out;
+  }
+
+  function _cssRectToNdc(cssRect) {
+    const r = renderer.domElement.getBoundingClientRect();
+    return {
+      minX: ((cssRect.x - r.left) / r.width) * 2 - 1,
+      maxX: ((cssRect.x - r.left + cssRect.width) / r.width) * 2 - 1,
+      minY: -((cssRect.y - r.top + cssRect.height) / r.height) * 2 + 1,
+      maxY: -((cssRect.y - r.top) / r.height) * 2 + 1,
+    };
+  }
+
+  function applySectionCut(cssRect, opts = {}) {
+    if (!cssRect || cssRect.width < 4 || cssRect.height < 4) return null;
+    const tolerance = Number.isFinite(opts.tolerance) ? opts.tolerance : 1.5;
+    const ndc = _cssRectToNdc(cssRect);
+    // 1) Foreground depth = closest hit under the box center
+    const centerNdc = new THREE.Vector2((ndc.minX + ndc.maxX) / 2, (ndc.minY + ndc.maxY) / 2);
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(centerNdc, camera);
+    const meshes = _collectVisibleMeshes();
+    const centerHits = rc.intersectObjects(meshes, false);
+    if (!centerHits.length) return null;
+    const frontDepth = centerHits[0].distance;
+    // 2) Walk all visible meshes; hide ones inside NDC box AND within depth window
+    const camPos = new THREE.Vector3(); camera.getWorldPosition(camPos);
+    const hidden = [];
+    const _tmp = new THREE.Vector3();
+    for (const mesh of meshes) {
+      if (mesh.userData?.__section_hidden) continue;   // already cut
+      if (!mesh.geometry) continue;
+      if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+      const bs = mesh.geometry.boundingSphere;
+      if (!bs) continue;
+      _tmp.copy(bs.center).applyMatrix4(mesh.matrixWorld);
+      const dist = camPos.distanceTo(_tmp);
+      // Cut window: [frontDepth - 0.25, frontDepth + tolerance]. The
+      // asymmetric range lets the front sliver be selected without
+      // pulling in the deep interior when tolerance is large.
+      if (dist < frontDepth - 0.25 || dist > frontDepth + tolerance) continue;
+      const proj = _tmp.clone().project(camera);
+      if (proj.x < ndc.minX || proj.x > ndc.maxX) continue;
+      if (proj.y < ndc.minY || proj.y > ndc.maxY) continue;
+      if (proj.z < -1 || proj.z > 1) continue;
+      hidden.push({ mesh, wasVisible: mesh.visible });
+      mesh.visible = false;
+      mesh.userData.__section_hidden = true;
+    }
+    if (!hidden.length) return null;
+    const cutId = `cut-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    activeCuts.set(cutId, hidden);
+    return { cutId, count: hidden.length, frontDepth: Number(frontDepth.toFixed(2)) };
+  }
+
+  function restoreSectionCut(cutId) {
+    const hidden = activeCuts.get(cutId);
+    if (!hidden) return false;
+    for (const { mesh, wasVisible } of hidden) {
+      mesh.visible = wasVisible;
+      delete mesh.userData.__section_hidden;
+    }
+    activeCuts.delete(cutId);
+    return true;
+  }
+
+  function restoreAllSectionCuts() {
+    for (const hidden of activeCuts.values()) {
+      for (const { mesh, wasVisible } of hidden) {
+        mesh.visible = wasVisible;
+        delete mesh.userData.__section_hidden;
+      }
+    }
+    activeCuts.clear();
+  }
+
+  function getSectionCuts() {
+    return Array.from(activeCuts.entries()).map(([id, meshes]) => ({
+      id, count: meshes.length,
+    }));
+  }
+
+  function enableSectionMode(on) {
+    sectionModeOn = !!on;
+    // Disable orbit while active so the pointer drag traces a rectangle
+    // instead of orbiting the camera.
+    controls.enabled = !sectionModeOn;
+    renderer.domElement.style.cursor = sectionModeOn ? "crosshair" : "";
+  }
+
   function dispose() {
     cancelAnimationFrame(animHandle);
     window.removeEventListener("resize", onResize);
@@ -2629,5 +2742,7 @@ export function createSceneEngine(mount) {
            enableEndpointDrag,
            setSelectedFixture, enableFixtureDrag, setFixtureRotation,
            setSelectedOpening, enableOpeningDrag, setAddOpeningMode,
+           enableSectionMode, applySectionCut, restoreSectionCut,
+           restoreAllSectionCuts, getSectionCuts,
            __test_firePick };
 }
