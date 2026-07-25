@@ -1,0 +1,51 @@
+{
+  "summary": "Sessions 5 (fixtures) + 6 (openings) + 7 (trim) — backend persistence contract fully verified (5/5 pytest iter59, plus 4/4 iter58 regression still green). Frontend SHELL verified: enabling EDIT WALLS opens wall-editor-panel; the new wall-editor-add-door and wall-editor-add-window buttons exist and toggle their active style (bg-[#FFCC00] / bg-[#3a78d6]) on click, with the canvas cursor switching to 'crosshair' when active and reverting when toggled off. trim-takeoff-panel exists in the sidebar and renders a per-room table with trim-takeoff-row-{sheet.id}-{label_index} rows and a trim-takeoff-grand-total element. Trim tags PUT via the API persist across reload (17 LF door-casing baseline → 77 LF after tagging Baseboard+Crown on a 30 ft perimeter wall). Engine is exposed on window.__renderer_engine in non-prod with all required methods (setSelectedFixture, enableFixtureDrag, setFixtureRotation, setSelectedOpening, enableOpeningDrag, setAddOpeningMode). No React console errors, no TDZ / _createOpeningAt ReferenceError. Fixture-editor-card and opening-editor-card render paths could NOT be exercised end-to-end because engine.setSelectedFixture / setSelectedOpening only update the visual highlight — they do NOT invoke the useWallEditor pick callback that sets React state, so the cards never mount. This is a testability gap the review request implicitly assumed was covered; the product code path is correct on inspection.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "SESSION 5 fixture card / SESSION 6 opening card / SESSION 6 ADD mode",
+        "issue": "engine.setSelectedFixture(idx,sid), engine.setSelectedOpening(type,idx,sid), and engine.setAddOpeningMode(mode) are wired but only mutate scene highlight state. They do NOT invoke the enableWallEditor callback that sets useWallEditor's React state, so FixtureCard / OpeningCard never mount via the test hook. Real-user raycast picks still work in the browser. To make these Playwright-testable, expose a test-only pick-callback shim on window.__renderer_engine (e.g. engine.__test_firePick('fixture-pick', {fixture_index, sheet_id, kind, position_ft, size_ft, rotation_deg}) that calls the current wallEditorCallback), or expose the useWallEditor setters on window.__wall_editor. Similarly setAddOpeningMode('door') updates cursor+internal state but the click-to-place flow requires an actual canvas mousedown to hit the raycaster.",
+        "affected_selectors": ["fixture-editor-card", "fixture-editor-rotation", "fixture-editor-delete", "opening-editor-card", "opening-editor-width", "opening-editor-delete"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "TrimTakeoffPanel",
+        "issues": [
+          "Panel exits its empty-state hint as soon as ANY door/window sits on a wall that lies on a room-rect perimeter, even before the user tags any trim boolean. Example: fresh 30×20 room with a single 3 ft door already shows '17.0 LF total' and 1 row with only D.Cas populated. The review request said 'Before any trim is tagged, it shows the empty-state hint.' Consider gating the panel visibility on grandTotal-only-from-tagged-booleans > 0 (baseboard/crown/chair_rail sum > 0.5) instead of the current 'grandTotal including auto casings > 0.5'. Verify with product whether this is intended (auto door/window casings before user opts in)."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter59_sessions_567_persistence.py",
+    "/app/test_reports/pytest/iter59_results.xml"
+  ],
+  "action_items": [
+    "Add a test-only pick hook on window.__renderer_engine so Playwright can drive FixtureCard/OpeningCard mounting deterministically (see integration_issues above).",
+    "Decide product behavior for TrimTakeoffPanel empty state: should auto door/window casings alone qualify a room as 'trimmed', or must at least one baseboard/crown/chair_rail boolean be set on that room's walls first?",
+    "sceneBuilder.js is now 2624 lines (was 2183 last iter). Split-file refactor is overdue; recommend factoring out per-layer builders and the wall-editor picking/callback logic."
+  ],
+  "critical_code_review_comments": [
+    "sceneBuilder.js is 2624 lines — hard limit exceeded. Split into: sceneBuilder/index.js (orchestration), sceneBuilder/builders/*.js (per-layer), sceneBuilder/editor.js (picking, callbacks, drag handlers).",
+    "engine.setSelectedFixture / setSelectedOpening violate the principle of least surprise: they share names with useWallEditor.setSelectedFixture (which sets React state) but only do highlight. Either rename the engine variants (e.g. highlightFixture) or make them fire the pick callback so a single test-driven call path exists.",
+    "TrimTakeoffPanel._roomRectFt uses shadowing local `x0/x1/y0/y1` initialized from aabb but the reduction only ratchets values *toward* the label — for rooms that don't have both an X-crossing wall and a Y-crossing wall, this returns the full building AABB and every wall on the outer perimeter gets counted for the room. Works for a simple axis-aligned rectangular building; will over-count for L-shaped or multi-room layouts. Add unit tests for a 2-room house.",
+    "Door casing 17 LF / window casing 16 LF are hard-coded flat rates in TrimTakeoffPanel; the comment above admits per-unit rates should be derived from actual header height + width. Ship as v1 note in the sidebar footer already says as much.",
+    "useWallEditor._createOpeningAt is bound via a ref (createOpeningAtRef) to dodge TDZ. Works, but the pattern is fragile — adding a new mode later means remembering to also `useEffect(() => { createOpeningAtRef.current = _createOpeningAt })`. Consider inlining the add-opening handler inside the enableWallEditor useEffect instead of routing through an out-of-order forward ref."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter59_sessions_567_persistence.py",
+    "/app/test_reports/iteration_59.json"
+  ],
+  "success_rate": {
+    "backend": "100% (5/5 iter59 + 4/4 iter58 regression)",
+    "frontend": "shell verified (edit-panel, add-door/window buttons, trim-takeoff-panel, trim persistence across reload, engine surface, no console errors); FixtureCard / OpeningCard / add-mode click-to-place NOT end-to-end verifiable via current test hooks (see action_items)."
+  },
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*  (works on /api/auth/login + UI)",
+  "seed_data_creation": "Multiple TEST_iter59_ui_* projects created via /api/projects. DELETE /api/projects/{id} still returns 404 in preview env (same as iter58) so they persist in the admin's list. Non-blocking.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The engine is exposed on window.__renderer_engine in non-prod but its setSelectedFixture/setSelectedOpening are highlight-only — do NOT rely on them to summon the React cards. If future sessions add a firePick(action, payload) test hook, all UI flows will be testable end-to-end. Backend PUT /api/projects/{p}/blueprint/sheets/{s} accepts arbitrary extra keys on walls/doors/windows/fixtures/labels — verified for trim_baseboard/trim_crown/trim_chair_rail booleans, door/window width+wall_index+id, and fixture kind/rotation_deg/size/position. TrimTakeoffPanel counts door_casing @ 17 LF / window_casing @ 16 LF per opening whose wall_index lies on a room's perimeter, regardless of the wall's trim booleans."
+}

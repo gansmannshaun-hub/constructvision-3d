@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getFloorMaterial, DEFAULT_FLOOR_MATERIAL_ID, CEILING_DEFAULT_FT } from "./floorMaterials.js";
+import { buildFixtureGroup } from "./fixtureMeshes.js";
 
 // ---------- Constants ----------
 // WALL_HEIGHT can be overridden per-build from elevation-sheet assembly
@@ -57,7 +58,7 @@ export const PHASES = [
   { id: 11, label: "Wall Sheet",  layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet"] },
   { id: 12, label: "Openings",    layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet", "openings"] },
   { id: 13, label: "Trim",        layers: ["foundation", "columns", "frame", "girts", "purlins", "roofSheet", "wallSheet", "openings", "trim"] },
-  { id: 14, label: "Finished",    layers: ["foundation", "wallSheet", "roofSheet", "openings", "trim", "rooms"] },
+  { id: 14, label: "Finished",    layers: ["foundation", "wallSheet", "roofSheet", "openings", "trim", "rooms", "fixtures"] },
 ];
 export const MAX_PHASE = PHASES.length - 1;
 
@@ -77,6 +78,7 @@ export const ALL_LAYERS = [
   { id: "openings",    label: "Doors & Windows",       color: "#FFCC00" },
   { id: "trim",        label: "Trim & Flashing",       color: "#FFFFFF" },
   { id: "rooms",       label: "Rooms (Floor & Ceiling)", color: "#8B5A2B" },
+  { id: "fixtures",    label: "Fixtures",              color: "#5C7A8C" },
 ];
 
 // Mutable config consumed by builders (set inside build()).
@@ -342,16 +344,29 @@ function buildRoofSheeting(aabb) {
 
 function buildOpenings(walls, doors, windows) {
   const g = new THREE.Group();
-  for (const d of doors || []) {
+  const _wallAtIndex = (i) => (i >= 0 && i < walls.length) ? wallSegment(walls[i]) : null;
+  for (let di = 0; di < (doors || []).length; di++) {
+    const d = doors[di];
     if (!d.position) continue;
     const [x, z] = toWorld(d.position);
     const w = Math.max(0.7, (d.width || 3) * SCALE * 0.5);
     const h = 2.1;
     const mesh = makeBox(w, h, 0.06, "#FFCC00", { roughness: 0.45, metalness: 0.3 });
     mesh.position.set(x, h / 2 + SLAB_THICK, z);
+    // If the door references a wall, rotate to align with that wall's angle
+    // so the panel visually cuts through it.
+    const ws = _wallAtIndex(d.wall_index);
+    if (ws) mesh.rotation.y = -ws.angle;
+    mesh.userData.pickable_opening = true;
+    mesh.userData.opening_type = "door";
+    mesh.userData.opening_index = di;
+    mesh.userData.opening_id = d.id || null;
+    mesh.userData.wall_index = (d.wall_index >= 0) ? d.wall_index : null;
+    mesh.userData.width_ft = Number(d.width) || 3;
     g.add(mesh);
   }
-  for (const w of windows || []) {
+  for (let wi = 0; wi < (windows || []).length; wi++) {
+    const w = windows[wi];
     if (!w.position) continue;
     const [x, z] = toWorld(w.position);
     const ww = Math.max(0.6, (w.width || 4) * SCALE * 0.5);
@@ -361,7 +376,51 @@ function buildOpenings(walls, doors, windows) {
       emissive: 0x1133aa, emissiveIntensity: 0.25,
     });
     m.position.set(x, 1.2 + SLAB_THICK, z);
+    const ws = _wallAtIndex(w.wall_index);
+    if (ws) m.rotation.y = -ws.angle;
+    m.userData.pickable_opening = true;
+    m.userData.opening_type = "window";
+    m.userData.opening_index = wi;
+    m.userData.opening_id = w.id || null;
+    m.userData.wall_index = (w.wall_index >= 0) ? w.wall_index : null;
+    m.userData.width_ft = Number(w.width) || 4;
     g.add(m);
+  }
+  return g;
+}
+
+// ---------- Fixtures (Session 5) ----------
+// Renders each `fixture` as a low-poly kind-specific group at its
+// [x, y]_ft position on the slab. Rotation comes from `rotation_deg`
+// (0 = facing +z). Every top-level fixture group carries `userData`
+// with fixture_id / fixture_index / sheet_id so the 3D editor's
+// raycaster can identify picks and route to the right sheet.
+function buildFixtures(fixtures) {
+  const g = new THREE.Group();
+  if (!Array.isArray(fixtures)) return g;
+  for (let i = 0; i < fixtures.length; i++) {
+    const f = fixtures[i];
+    if (!f?.position || !Array.isArray(f.position) || f.position.length < 2) continue;
+    const [x, z] = toWorld(f.position);
+    const meshGroup = buildFixtureGroup(f);
+    meshGroup.position.set(x, SLAB_THICK, z);
+    meshGroup.rotation.y = THREE.MathUtils.degToRad(Number(f.rotation_deg) || 0);
+    meshGroup.userData.pickable_fixture = true;
+    meshGroup.userData.fixture_index = i;
+    meshGroup.userData.fixture_id = f.id || null;
+    meshGroup.userData.fixture_kind = String(f.kind || "other");
+    meshGroup.userData.rotation_deg = Number(f.rotation_deg) || 0;
+    meshGroup.userData.position_ft = f.position;
+    meshGroup.userData.size_ft = Array.isArray(f.size) ? f.size : [2, 2];
+    // Tag EVERY child mesh with pickable_fixture too so raycaster hits
+    // any part of the model and we can walk up to the parent group.
+    meshGroup.traverse((o) => {
+      if (o.isMesh) {
+        o.userData.pickable_fixture = true;
+        o.userData._parent_group = meshGroup;
+      }
+    });
+    g.add(meshGroup);
   }
   return g;
 }
@@ -706,6 +765,7 @@ const BUILDERS = {
   openings:    (_, walls, doors, windows) => buildOpenings(walls, doors, windows),
   trim:        (aabb, walls) => buildTrim(walls, aabb),
   rooms:       (aabb, walls, doors, windows, labels) => buildRooms(walls, aabb, labels),
+  fixtures:    (_, walls, doors, windows, labels, fixtures) => buildFixtures(fixtures),
 };
 
 // ---------- Engine ----------
@@ -1199,6 +1259,7 @@ export function createSceneEngine(mount) {
       const doors = sheet.doors || [];
       const windows = sheet.windows || [];
       const labels = sheet.labels || [];
+      const fixtures = sheet.fixtures || [];
       const yOffset = (sheet.floor_level || 0) * FLOOR_STEP;
       const aabb = footprintAabb(walls);
       if (aabb) {
@@ -1215,17 +1276,18 @@ export function createSceneEngine(mount) {
         }
       }
       for (const layer of ALL_LAYERS) {
-        const sheetLayer = BUILDERS[layer.id](aabb, walls, doors, windows, labels);
+        const sheetLayer = BUILDERS[layer.id](aabb, walls, doors, windows, labels, fixtures);
         // Ground-only layers (excavation, foundation, underground, septic) skip
         // upper floors so we don't get stacked dirt / duplicate slabs.
         const groundOnly = ["excavation", "underground", "septic"].includes(layer.id);
         if (groundOnly && (sheet.floor_level || 0) !== 0) continue;
-        // Rooms carry a sheet_id in their userData so the picker knows
-        // which sheet's `labels` array to patch on edit. Attach it here
-        // so we don't need to thread it through the builder API.
-        if (layer.id === "rooms") {
+        // Rooms + fixtures + openings carry a sheet_id in their userData so
+        // the picker knows which sheet's arrays to patch on edit.
+        if (layer.id === "rooms" || layer.id === "fixtures" || layer.id === "openings") {
           sheetLayer.traverse((obj) => {
-            if (obj.userData?.pickable_room) obj.userData.sheet_id = sheet.id;
+            if (obj.userData?.pickable_room || obj.userData?.pickable_fixture || obj.userData?.pickable_opening) {
+              obj.userData.sheet_id = sheet.id;
+            }
           });
         }
         sheetLayer.position.y += yOffset;
@@ -1333,18 +1395,24 @@ export function createSceneEngine(mount) {
     }
     // Also refresh the roof-pickable list by walking the current scene.
     // Roof meshes live inside their layer groups (built per-sheet), so
-    // rebuild picks them up implicitly. Same for room floor meshes.
+    // rebuild picks them up implicitly. Same for room / fixture / opening.
     roofPickables.length = 0;
     roomPickables.length = 0;
+    fixturePickables.length = 0;
+    openingPickables.length = 0;
     scene.traverse((obj) => {
       if (!obj.isMesh) return;
       if (obj.userData?.pickable_roof) roofPickables.push(obj);
       if (obj.userData?.pickable_room) roomPickables.push(obj);
+      if (obj.userData?.pickable_fixture) fixturePickables.push(obj);
+      if (obj.userData?.pickable_opening) openingPickables.push(obj);
     });
   }
 
   const roofPickables = [];
   const roomPickables = [];
+  const fixturePickables = [];
+  const openingPickables = [];
 
   function _makeHighlightForWall(userData) {
     if (!userData) return null;
@@ -1412,6 +1480,7 @@ export function createSceneEngine(mount) {
 
   let wallEditorEnabled = false;
   let wallEditorCallback = null;
+  let addOpeningMode = null;   // null | "door" | "window" — click a wall to place
   const _raycaster = new THREE.Raycaster();
   const _clickVec = new THREE.Vector2();
 
@@ -1419,17 +1488,74 @@ export function createSceneEngine(mount) {
     if (!wallEditorEnabled) return;
     // Only respond to left click; ignore drags used by OrbitControls.
     if (event.button !== 0) return;
+    // If we're mid-fixture-drag or mid-opening-drag, this click is the
+    // release — swallow it so we don't reselect / deselect.
+    if (activeFixtureDrag || activeOpeningDrag) return;
     const rect = renderer.domElement.getBoundingClientRect();
     _clickVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     _clickVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     _raycaster.setFromCamera(_clickVec, camera);
-    const hits = _raycaster.intersectObjects([...wallPickables, ...roofPickables, ...roomPickables], false);
+    // In add-opening mode, only walls are targets (place new door/window
+    // at the click point on the wall).
+    if (addOpeningMode) {
+      const hits = _raycaster.intersectObjects(wallPickables, false);
+      if (!hits.length) return;
+      const ud = hits[0].object.userData;
+      const s = wallSegment({ start: ud.start, end: ud.end });
+      if (!s) return;
+      const local = modelRoot.worldToLocal(hits[0].point.clone());
+      const wx = local.x - s.sx;
+      const wz = local.z - s.sz;
+      const t = Math.max(0.05, Math.min(0.95, (wx * s.dx + wz * s.dz) / (s.length * s.length)));
+      const point_ft = [
+        ud.start[0] + t * (ud.end[0] - ud.start[0]),
+        ud.start[1] + t * (ud.end[1] - ud.start[1]),
+      ];
+      wallEditorCallback?.("add-opening", {
+        opening_type: addOpeningMode,
+        wall_index: wallPickables.indexOf(hits[0].object),
+        wall_id: ud.wall_id,
+        sheet_id: ud.sheet_id,
+        position_ft: point_ft,
+      });
+      return;
+    }
+    const hits = _raycaster.intersectObjects(
+      [...wallPickables, ...roofPickables, ...roomPickables, ...fixturePickables, ...openingPickables],
+      false,
+    );
     if (!hits.length) {
       wallEditorCallback?.("deselect", null);
       return;
     }
     const hit = hits[0];
     const userData = hit.object.userData;
+    if (userData.pickable_opening) {
+      wallEditorCallback?.("opening-pick", {
+        opening_type: userData.opening_type,
+        opening_index: userData.opening_index,
+        opening_id: userData.opening_id,
+        wall_index: userData.wall_index,
+        sheet_id: userData.sheet_id,
+        width_ft: userData.width_ft,
+      });
+      return;
+    }
+    if (userData.pickable_fixture) {
+      // Traverse up to the fixture Group (mesh children carry the flag too)
+      const grp = userData._parent_group || hit.object;
+      const gd = grp.userData;
+      wallEditorCallback?.("fixture-pick", {
+        fixture_index: gd.fixture_index,
+        fixture_id: gd.fixture_id,
+        kind: gd.fixture_kind,
+        sheet_id: gd.sheet_id,
+        position_ft: gd.position_ft,
+        rotation_deg: gd.rotation_deg,
+        size_ft: gd.size_ft,
+      });
+      return;
+    }
     if (userData.pickable_roof) {
       wallEditorCallback?.("roof-pick", { via: "3d" });
       return;
@@ -1486,7 +1612,12 @@ export function createSceneEngine(mount) {
       renderer.domElement.removeEventListener("click", _onEditorClick);
       setSelectedWall(null);
       setSelectedRoom(null);
+      setSelectedFixture(null);
+      setSelectedOpening(null, null, null);
       enableEndpointDrag(false);
+      enableFixtureDrag(false);
+      enableOpeningDrag(false);
+      addOpeningMode = null;
     }
   }
 
@@ -1620,6 +1751,314 @@ export function createSceneEngine(mount) {
       window.removeEventListener("pointerup", _onDragUp);
       controls.enabled = true;
     }
+  }
+
+  // ---------- Fixture drag (Session 5) ----------
+  // Grab the selected fixture group and drag it across the ground plane.
+  // Uses the same _dragGroundPlane / _dragRay + toWorld conversion as the
+  // endpoint handles. Commit fires on mouseup with the final position_ft.
+  let selectedFixtureIdx = null;
+  let selectedFixtureSheetId = null;
+  let fixtureHighlight = null;
+  let fixtureDragEnabled = false;
+  let fixtureDragCallback = null;
+  let activeFixtureDrag = null;   // {group, startFt}
+
+  function _resolveFixtureGroup(fixture_index, sheet_id) {
+    const layerGroup = groups["fixtures"];
+    if (!layerGroup) return null;
+    // Layer contains one child Group per sheet; that group contains the
+    // per-fixture sub-groups. Walk 2 levels down.
+    let found = null;
+    layerGroup.traverse((obj) => {
+      if (found) return;
+      if (obj.userData?.pickable_fixture &&
+          obj.userData?.fixture_index === fixture_index &&
+          obj.userData?.sheet_id === sheet_id &&
+          obj.type === "Group") {
+        found = obj;
+      }
+    });
+    return found;
+  }
+
+  function _clearFixtureHighlight() {
+    if (fixtureHighlight) {
+      pickTargetsRoot.remove(fixtureHighlight);
+      fixtureHighlight.geometry?.dispose?.();
+      fixtureHighlight.material?.dispose?.();
+      fixtureHighlight = null;
+    }
+  }
+
+  function setSelectedFixture(fixture_index, sheet_id) {
+    _clearFixtureHighlight();
+    selectedFixtureIdx = (fixture_index === null || fixture_index === undefined) ? null : fixture_index;
+    selectedFixtureSheetId = sheet_id || null;
+    if (selectedFixtureIdx === null) return;
+    const grp = _resolveFixtureGroup(selectedFixtureIdx, selectedFixtureSheetId);
+    if (!grp) return;
+    // Wireframe box around the fixture using its bounding box.
+    const bbox = new THREE.Box3().setFromObject(grp);
+    if (!Number.isFinite(bbox.min.x)) return;
+    const sz = new THREE.Vector3();
+    bbox.getSize(sz);
+    const geo = new THREE.BoxGeometry(sz.x * 1.05, sz.y * 1.05, sz.z * 1.05);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xFFCC00, wireframe: true, transparent: true, opacity: 0.85, depthTest: false,
+    });
+    const hl = new THREE.Mesh(geo, mat);
+    const ctr = new THREE.Vector3();
+    bbox.getCenter(ctr);
+    // Convert world center back to modelRoot-local so the highlight
+    // follows model transform (placement rotation/scale).
+    modelRoot.worldToLocal(ctr);
+    hl.position.copy(ctr);
+    hl.renderOrder = 998;
+    pickTargetsRoot.add(hl);
+    fixtureHighlight = hl;
+  }
+
+  function _snap025Ft(v) { return Math.round(v * 4) / 4; }
+
+  function _onFixtureDragDown(e) {
+    if (!fixtureDragEnabled || selectedFixtureIdx === null) return;
+    if (e.button !== 0) return;
+    // Only start drag if the pointer is over the SELECTED fixture (or its
+    // highlight). Any other pointer-down should stay with orbit controls.
+    const rect = renderer.domElement.getBoundingClientRect();
+    _dragNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    _dragNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    _dragRay.setFromCamera(_dragNdc, camera);
+    const grp = _resolveFixtureGroup(selectedFixtureIdx, selectedFixtureSheetId);
+    if (!grp) return;
+    // Test against ALL descendant meshes of the selected group.
+    const meshes = [];
+    grp.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    const hits = _dragRay.intersectObjects(meshes, false);
+    if (!hits.length) return;
+    activeFixtureDrag = { group: grp };
+    controls.enabled = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }
+
+  function _onFixtureDragMove(e) {
+    if (!activeFixtureDrag) return;
+    if (!_dragRay.ray.intersectPlane) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    _dragNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    _dragNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    _dragRay.setFromCamera(_dragNdc, camera);
+    if (!_dragRay.ray.intersectPlane(_dragGroundPlane, _dragHitPt)) return;
+    const local = modelRoot.worldToLocal(_dragHitPt.clone());
+    const ft = [_snap025Ft((local.x + 5) / SCALE), _snap025Ft((local.z + 5) / SCALE)];
+    const [x, z] = toWorld(ft);
+    activeFixtureDrag.group.position.x = x;
+    activeFixtureDrag.group.position.z = z;
+    activeFixtureDrag.lastFt = ft;
+    // Move highlight to follow the fixture.
+    if (fixtureHighlight) {
+      fixtureHighlight.position.x = x;
+      fixtureHighlight.position.z = z;
+    }
+    fixtureDragCallback?.("dragging", { position_ft: ft });
+  }
+
+  function _onFixtureDragUp() {
+    if (!activeFixtureDrag) return;
+    const finalFt = activeFixtureDrag.lastFt || null;
+    activeFixtureDrag = null;
+    controls.enabled = true;
+    if (finalFt) fixtureDragCallback?.("commit", { position_ft: finalFt });
+  }
+
+  function enableFixtureDrag(on, cb) {
+    fixtureDragEnabled = !!on;
+    fixtureDragCallback = cb || null;
+    if (on) {
+      renderer.domElement.addEventListener("pointerdown", _onFixtureDragDown);
+      window.addEventListener("pointermove", _onFixtureDragMove);
+      window.addEventListener("pointerup", _onFixtureDragUp);
+    } else {
+      renderer.domElement.removeEventListener("pointerdown", _onFixtureDragDown);
+      window.removeEventListener("pointermove", _onFixtureDragMove);
+      window.removeEventListener("pointerup", _onFixtureDragUp);
+      activeFixtureDrag = null;
+      controls.enabled = true;
+    }
+  }
+
+  function setFixtureRotation(fixture_index, sheet_id, deg) {
+    const grp = _resolveFixtureGroup(fixture_index, sheet_id);
+    if (!grp) return;
+    grp.rotation.y = THREE.MathUtils.degToRad(Number(deg) || 0);
+  }
+
+  // ---------- Opening drag along wall (Session 6) ----------
+  // Drag a door/window along its host wall. The drag is CONSTRAINED to
+  // the wall's line segment (start→end). We compute t in [0.05, 0.95]
+  // from the mouse hit projected onto the wall line, then set both the
+  // opening's world position AND its rotation to match the wall.
+  let selectedOpening = null;    // {type, index, sheet_id, wall_index, width_ft}
+  let openingHighlight = null;
+  let openingDragEnabled = false;
+  let openingDragCallback = null;
+  let activeOpeningDrag = null;  // {mesh, wall_index, wallSeg, sheet_id, opening_type, opening_index, width_ft, lastFt}
+
+  function _resolveOpeningMesh(opening_type, opening_index, sheet_id) {
+    let found = null;
+    (groups["openings"] || new THREE.Group()).traverse((obj) => {
+      if (found) return;
+      if (obj.isMesh && obj.userData?.pickable_opening &&
+          obj.userData.opening_type === opening_type &&
+          obj.userData.opening_index === opening_index &&
+          obj.userData.sheet_id === sheet_id) {
+        found = obj;
+      }
+    });
+    return found;
+  }
+
+  function _clearOpeningHighlight() {
+    if (openingHighlight) {
+      pickTargetsRoot.remove(openingHighlight);
+      openingHighlight.geometry?.dispose?.();
+      openingHighlight.material?.dispose?.();
+      openingHighlight = null;
+    }
+  }
+
+  function setSelectedOpening(opening_type, opening_index, sheet_id) {
+    _clearOpeningHighlight();
+    if (opening_index === null || opening_index === undefined) {
+      selectedOpening = null;
+      return;
+    }
+    selectedOpening = { type: opening_type, index: opening_index, sheet_id };
+    const mesh = _resolveOpeningMesh(opening_type, opening_index, sheet_id);
+    if (!mesh) return;
+    const bbox = new THREE.Box3().setFromObject(mesh);
+    if (!Number.isFinite(bbox.min.x)) return;
+    const sz = new THREE.Vector3();
+    bbox.getSize(sz);
+    const ctr = new THREE.Vector3();
+    bbox.getCenter(ctr);
+    modelRoot.worldToLocal(ctr);
+    const hl = new THREE.Mesh(
+      new THREE.BoxGeometry(sz.x * 1.15, sz.y * 1.1, sz.z * 3),
+      new THREE.MeshBasicMaterial({ color: 0x00E5FF, wireframe: true, transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    hl.position.copy(ctr);
+    hl.rotation.copy(mesh.rotation);
+    hl.renderOrder = 998;
+    pickTargetsRoot.add(hl);
+    openingHighlight = hl;
+  }
+
+  function _wallFromIndex(idx) {
+    if (idx === null || idx === undefined) return null;
+    const walls = currentWallsSnapshot;
+    if (idx < 0 || idx >= walls.length) return null;
+    const w = walls[idx];
+    return { wall: w, seg: wallSegment(w) };
+  }
+
+  function _projectMouseToWallFt(clientX, clientY, seg, wall) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    _dragNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    _dragNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    _dragRay.setFromCamera(_dragNdc, camera);
+    if (!_dragRay.ray.intersectPlane(_dragGroundPlane, _dragHitPt)) return null;
+    const local = modelRoot.worldToLocal(_dragHitPt.clone());
+    // Project local ground-plane hit onto the wall's line
+    const wx = local.x - seg.sx;
+    const wz = local.z - seg.sz;
+    const t = Math.max(0.03, Math.min(0.97, (wx * seg.dx + wz * seg.dz) / (seg.length * seg.length)));
+    return [
+      wall.start[0] + t * (wall.end[0] - wall.start[0]),
+      wall.start[1] + t * (wall.end[1] - wall.start[1]),
+    ];
+  }
+
+  function _onOpeningDragDown(e) {
+    if (!openingDragEnabled || !selectedOpening) return;
+    if (e.button !== 0) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    _dragNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    _dragNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    _dragRay.setFromCamera(_dragNdc, camera);
+    const mesh = _resolveOpeningMesh(selectedOpening.type, selectedOpening.index, selectedOpening.sheet_id);
+    if (!mesh) return;
+    const hits = _dragRay.intersectObject(mesh, false);
+    if (!hits.length) return;
+    const wi = mesh.userData.wall_index;
+    const wr = _wallFromIndex(wi);
+    if (!wr?.seg) return;
+    activeOpeningDrag = {
+      mesh, wall: wr.wall, wallSeg: wr.seg,
+      opening_type: selectedOpening.type,
+      opening_index: selectedOpening.index,
+      sheet_id: selectedOpening.sheet_id,
+      wall_index: wi,
+    };
+    controls.enabled = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }
+
+  function _onOpeningDragMove(e) {
+    if (!activeOpeningDrag) return;
+    const nextFt = _projectMouseToWallFt(e.clientX, e.clientY, activeOpeningDrag.wallSeg, activeOpeningDrag.wall);
+    if (!nextFt) return;
+    const [x, z] = toWorld(nextFt);
+    activeOpeningDrag.mesh.position.x = x;
+    activeOpeningDrag.mesh.position.z = z;
+    if (openingHighlight) {
+      openingHighlight.position.x = x;
+      openingHighlight.position.z = z;
+    }
+    activeOpeningDrag.lastFt = nextFt;
+    openingDragCallback?.("dragging", { position_ft: nextFt });
+  }
+
+  function _onOpeningDragUp() {
+    if (!activeOpeningDrag) return;
+    const finalFt = activeOpeningDrag.lastFt || null;
+    const packet = { ...activeOpeningDrag };
+    activeOpeningDrag = null;
+    controls.enabled = true;
+    if (finalFt) {
+      openingDragCallback?.("commit", {
+        opening_type: packet.opening_type,
+        opening_index: packet.opening_index,
+        sheet_id: packet.sheet_id,
+        wall_index: packet.wall_index,
+        position_ft: finalFt,
+      });
+    }
+  }
+
+  function enableOpeningDrag(on, cb) {
+    openingDragEnabled = !!on;
+    openingDragCallback = cb || null;
+    if (on) {
+      renderer.domElement.addEventListener("pointerdown", _onOpeningDragDown);
+      window.addEventListener("pointermove", _onOpeningDragMove);
+      window.addEventListener("pointerup", _onOpeningDragUp);
+    } else {
+      renderer.domElement.removeEventListener("pointerdown", _onOpeningDragDown);
+      window.removeEventListener("pointermove", _onOpeningDragMove);
+      window.removeEventListener("pointerup", _onOpeningDragUp);
+      activeOpeningDrag = null;
+      controls.enabled = true;
+    }
+  }
+
+  function setAddOpeningMode(mode) {
+    // mode: null | "door" | "window"
+    addOpeningMode = (mode === "door" || mode === "window") ? mode : null;
+    renderer.domElement.style.cursor = addOpeningMode ? "crosshair" : (wallEditorEnabled ? "pointer" : "");
   }
 
   function getWallSnapshot() {
@@ -2178,5 +2617,7 @@ export function createSceneEngine(mount) {
            removeMeasurement, setSnapEnabled, getMeasureFtPerUnit,
            formatFtIn,
            enableWallEditor, setSelectedWall, setSelectedRoom, getWallSnapshot,
-           enableEndpointDrag };
+           enableEndpointDrag,
+           setSelectedFixture, enableFixtureDrag, setFixtureRotation,
+           setSelectedOpening, enableOpeningDrag, setAddOpeningMode };
 }

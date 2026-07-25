@@ -24,6 +24,7 @@ import { SidebarSite } from "./renderer/SidebarSite";
 import { SidebarAssembly } from "./renderer/SidebarAssembly";
 import { SidebarLayers } from "./renderer/SidebarLayers";
 import { WallEditorPanel } from "./renderer/WallEditorPanel";
+import { TrimTakeoffPanel } from "./renderer/TrimTakeoffPanel";
 
 export default function RendererTab() {
   const { blueprint, saveBlueprint, currentProjectId, refreshBlueprint } = useStore();
@@ -224,6 +225,7 @@ export default function RendererTab() {
             canUndo={wallEditor.canUndo}
             canRedo={wallEditor.canRedo}
             onSetHeight={wallEditor.setWallHeight}
+            onSetWallTrim={wallEditor.setWallTrim}
             selectedRoof={wallEditor.selectedRoof}
             blueprintRoof={wallEditor.blueprintRoof}
             onSetRoof={wallEditor.updateRoof}
@@ -231,6 +233,15 @@ export default function RendererTab() {
             onSetRoomFloor={wallEditor.setRoomFloor}
             onSetRoomCeiling={wallEditor.setRoomCeilingHeight}
             onSetRoomName={wallEditor.setRoomName}
+            selectedFixture={wallEditor.selectedFixture}
+            onSetFixtureRotation={wallEditor.setFixtureRotation}
+            onPreviewFixtureRotation={wallEditor.previewFixtureRotation}
+            onDeleteFixture={wallEditor.deleteFixture}
+            selectedOpening={wallEditor.selectedOpening}
+            onSetOpeningWidth={wallEditor.setOpeningWidth}
+            onDeleteOpening={wallEditor.deleteOpening}
+            addOpeningMode={wallEditor.addOpeningMode}
+            onToggleAddMode={wallEditor.setAddOpeningMode}
             onExit={() => wallEditor.setEditing(false)}
           />
         )}
@@ -313,6 +324,8 @@ export default function RendererTab() {
           setAutoMode={setAutoMode}
           setLayerOverrides={setLayerOverrides}
         />
+
+        <TrimTakeoffPanel sheets={blueprint.sheets || []} />
 
         <div className="mt-6 label-mono mb-2">// CONTROLS</div>
         <div className="text-xs text-neutral-400 font-mono space-y-1.5 leading-relaxed">

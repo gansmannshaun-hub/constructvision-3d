@@ -19,12 +19,16 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
   const [selected, setSelected] = useState(null);
   const [selectedRoof, setSelectedRoof] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState(null);
+  const [selectedFixture, setSelectedFixture] = useState(null);
+  const [selectedOpening, setSelectedOpening] = useState(null);
+  const [addOpeningMode, setAddOpeningMode] = useState(null);   // null | "door" | "window"
   const [cutMode, setCutMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const undoRef = useRef([]);
   const redoRef = useRef([]);
   const sheetsRef = useRef(sheetsFromStore);
+  const createOpeningAtRef = useRef(null);
   useEffect(() => { sheetsRef.current = sheetsFromStore; }, [sheetsFromStore]);
 
   const setEngineSelected = useCallback((id) => {
@@ -34,6 +38,21 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
   const setEngineSelectedRoom = useCallback((labelIndex, sheetId) => {
     engineRef.current?.setSelectedRoom?.(
       labelIndex === null || labelIndex === undefined ? null : labelIndex,
+      sheetId || null,
+    );
+  }, [engineRef]);
+
+  const setEngineSelectedFixture = useCallback((idx, sheetId) => {
+    engineRef.current?.setSelectedFixture?.(
+      idx === null || idx === undefined ? null : idx,
+      sheetId || null,
+    );
+  }, [engineRef]);
+
+  const setEngineSelectedOpening = useCallback((type, idx, sheetId) => {
+    engineRef.current?.setSelectedOpening?.(
+      type || null,
+      idx === null || idx === undefined ? null : idx,
       sheetId || null,
     );
   }, [engineRef]);
@@ -72,6 +91,9 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
       setSelected(null);
       setSelectedRoof(false);
       setSelectedRoom(null);
+      setSelectedFixture(null);
+      setSelectedOpening(null);
+      setAddOpeningMode(null);
       setCutMode(false);
       return;
     }
@@ -80,30 +102,69 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
         setSelected(payload);
         setSelectedRoof(false);
         setSelectedRoom(null);
+        setSelectedFixture(null);
+        setSelectedOpening(null);
         setEngineSelected(payload.wall_id);
         setEngineSelectedRoom(null);
+        setEngineSelectedFixture(null);
+        setEngineSelectedOpening(null, null, null);
       } else if (action === "roof-pick") {
         setSelectedRoof(true);
         setSelected(null);
         setSelectedRoom(null);
+        setSelectedFixture(null);
+        setSelectedOpening(null);
         setEngineSelected(null);
         setEngineSelectedRoom(null);
+        setEngineSelectedFixture(null);
+        setEngineSelectedOpening(null, null, null);
       } else if (action === "room-pick") {
         setSelectedRoom(payload);
         setSelected(null);
         setSelectedRoof(false);
+        setSelectedFixture(null);
+        setSelectedOpening(null);
         setEngineSelected(null);
         setEngineSelectedRoom(payload.label_index, payload.sheet_id);
+        setEngineSelectedFixture(null);
+        setEngineSelectedOpening(null, null, null);
+      } else if (action === "fixture-pick") {
+        setSelectedFixture(payload);
+        setSelected(null);
+        setSelectedRoof(false);
+        setSelectedRoom(null);
+        setSelectedOpening(null);
+        setEngineSelected(null);
+        setEngineSelectedRoom(null);
+        setEngineSelectedFixture(payload.fixture_index, payload.sheet_id);
+        setEngineSelectedOpening(null, null, null);
+      } else if (action === "opening-pick") {
+        setSelectedOpening(payload);
+        setSelected(null);
+        setSelectedRoof(false);
+        setSelectedRoom(null);
+        setSelectedFixture(null);
+        setEngineSelected(null);
+        setEngineSelectedRoom(null);
+        setEngineSelectedFixture(null);
+        setEngineSelectedOpening(payload.opening_type, payload.opening_index, payload.sheet_id);
+      } else if (action === "add-opening") {
+        // Fire-and-forget: create the opening at the click point on the wall.
+        createOpeningAtRef.current?.(payload).catch(() => {});
       } else if (action === "deselect") {
         setSelected(null);
         setSelectedRoof(false);
         setSelectedRoom(null);
+        setSelectedFixture(null);
+        setSelectedOpening(null);
         setEngineSelected(null);
         setEngineSelectedRoom(null);
+        setEngineSelectedFixture(null);
+        setEngineSelectedOpening(null, null, null);
       }
     });
     return () => engine.enableWallEditor(false);
-  }, [editing, engineRef, setEngineSelected, setEngineSelectedRoom]);
+  }, [editing, engineRef, setEngineSelected, setEngineSelectedRoom, setEngineSelectedFixture, setEngineSelectedOpening]);
 
   const deleteSelected = useCallback(async () => {
     if (!selected) return;
@@ -393,28 +454,297 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
     finally { setBusy(false); }
   }, [_patchRoomLabel]);
 
+  // ---------- Fixture editing (Session 5) ----------
+  // Persist fixture position / rotation / delete by rewriting the sheet's
+  // fixtures array through the same _saveSheet PUT.
+  const _patchFixture = useCallback(async (patch, opts = {}) => {
+    if (!selectedFixture) return;
+    const sheet = _getSheet(selectedFixture.sheet_id);
+    if (!sheet) throw new Error("Sheet not found");
+    const fixtures = Array.isArray(sheet.fixtures) ? sheet.fixtures : [];
+    const idx = selectedFixture.fixture_index;
+    if (idx < 0 || idx >= fixtures.length) throw new Error("Fixture not found");
+    if (!opts.skipUndo) {
+      _pushUndo({
+        sheet_id: sheet.id,
+        walls:    sheet.walls    || [],
+        doors:    sheet.doors    || [],
+        windows:  sheet.windows  || [],
+        labels:   sheet.labels   || [],
+        fixtures,
+      });
+    }
+    const nextFixtures = [...fixtures];
+    if (patch === null) {
+      nextFixtures.splice(idx, 1);
+    } else {
+      nextFixtures[idx] = { ...nextFixtures[idx], ...patch };
+    }
+    await _saveSheet(sheet.id, {
+      walls:    sheet.walls    || [],
+      doors:    sheet.doors    || [],
+      windows:  sheet.windows  || [],
+      labels:   sheet.labels   || [],
+      fixtures: nextFixtures,
+    });
+    if (patch === null) {
+      setSelectedFixture(null);
+    } else {
+      setSelectedFixture((prev) => prev ? { ...prev, ...patch } : prev);
+    }
+    await refreshBlueprint();
+  }, [selectedFixture, _getSheet, _saveSheet, _pushUndo, refreshBlueprint]);
+
+  const setFixtureRotation = useCallback(async (deg) => {
+    setBusy(true); setError("");
+    try { await _patchFixture({ rotation_deg: Number(deg) || 0 }); }
+    catch (e) { setError(e?.response?.data?.detail || e?.message || "Fixture rotate failed"); }
+    finally { setBusy(false); }
+  }, [_patchFixture]);
+
+  // Live preview: update engine rotation without saving; final commit is a
+  // separate call once the slider is released.
+  const previewFixtureRotation = useCallback((deg) => {
+    if (!selectedFixture) return;
+    engineRef.current?.setFixtureRotation?.(
+      selectedFixture.fixture_index,
+      selectedFixture.sheet_id,
+      Number(deg) || 0,
+    );
+  }, [selectedFixture, engineRef]);
+
+  const deleteFixture = useCallback(async () => {
+    setBusy(true); setError("");
+    try { await _patchFixture(null); }
+    catch (e) { setError(e?.response?.data?.detail || e?.message || "Fixture delete failed"); }
+    finally { setBusy(false); }
+  }, [_patchFixture]);
+
+  // Enable fixture drag whenever a fixture is selected.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine?.enableFixtureDrag) return;
+    if (!selectedFixture) {
+      engine.enableFixtureDrag(false);
+      return;
+    }
+    engine.enableFixtureDrag(true, async (kind, payload) => {
+      if (kind !== "commit") return;
+      setBusy(true); setError("");
+      try { await _patchFixture({ position: payload.position_ft }); }
+      catch (e) { setError(e?.response?.data?.detail || e?.message || "Fixture move failed"); }
+      finally { setBusy(false); }
+    });
+    return () => engine.enableFixtureDrag(false);
+  }, [selectedFixture?.fixture_index, selectedFixture?.sheet_id, engineRef, _patchFixture]);
+
+  // ---------- Opening editing (Session 6) ----------
+  const _patchOpening = useCallback(async (patch, opts = {}) => {
+    if (!selectedOpening) return;
+    const sheet = _getSheet(selectedOpening.sheet_id);
+    if (!sheet) throw new Error("Sheet not found");
+    const key = selectedOpening.opening_type === "door" ? "doors" : "windows";
+    const arr = Array.isArray(sheet[key]) ? sheet[key] : [];
+    const idx = selectedOpening.opening_index;
+    if (idx < 0 || idx >= arr.length) throw new Error("Opening not found");
+    if (!opts.skipUndo) {
+      _pushUndo({
+        sheet_id: sheet.id,
+        walls:    sheet.walls    || [],
+        doors:    sheet.doors    || [],
+        windows:  sheet.windows  || [],
+        labels:   sheet.labels   || [],
+        fixtures: sheet.fixtures || [],
+      });
+    }
+    const nextArr = [...arr];
+    if (patch === null) {
+      nextArr.splice(idx, 1);
+    } else {
+      nextArr[idx] = { ...nextArr[idx], ...patch };
+    }
+    const payload = {
+      walls:    sheet.walls    || [],
+      doors:    sheet.doors    || [],
+      windows:  sheet.windows  || [],
+      labels:   sheet.labels   || [],
+      fixtures: sheet.fixtures || [],
+    };
+    payload[key] = nextArr;
+    await _saveSheet(sheet.id, payload);
+    if (patch === null) {
+      setSelectedOpening(null);
+    } else {
+      setSelectedOpening((prev) => prev ? { ...prev, ...patch, width_ft: patch.width ?? prev.width_ft } : prev);
+    }
+    await refreshBlueprint();
+  }, [selectedOpening, _getSheet, _saveSheet, _pushUndo, refreshBlueprint]);
+
+  const setOpeningWidth = useCallback(async (width_ft) => {
+    setBusy(true); setError("");
+    try { await _patchOpening({ width: Math.max(1.5, Math.min(12, Number(width_ft) || 3)) }); }
+    catch (e) { setError(e?.response?.data?.detail || e?.message || "Opening resize failed"); }
+    finally { setBusy(false); }
+  }, [_patchOpening]);
+
+  const deleteOpening = useCallback(async () => {
+    setBusy(true); setError("");
+    try { await _patchOpening(null); }
+    catch (e) { setError(e?.response?.data?.detail || e?.message || "Opening delete failed"); }
+    finally { setBusy(false); }
+  }, [_patchOpening]);
+
+  // Enable opening drag whenever an opening is selected.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine?.enableOpeningDrag) return;
+    if (!selectedOpening) {
+      engine.enableOpeningDrag(false);
+      return;
+    }
+    engine.enableOpeningDrag(true, async (kind, payload) => {
+      if (kind !== "commit") return;
+      setBusy(true); setError("");
+      try { await _patchOpening({ position: payload.position_ft, wall_index: payload.wall_index }); }
+      catch (e) { setError(e?.response?.data?.detail || e?.message || "Opening move failed"); }
+      finally { setBusy(false); }
+    });
+    return () => engine.enableOpeningDrag(false);
+  }, [selectedOpening?.opening_type, selectedOpening?.opening_index, selectedOpening?.sheet_id, engineRef, _patchOpening]);
+
+  // Add-opening mode — clicking a wall in the 3D scene fires "add-opening"
+  // which invokes _createOpeningAt below. Mode is toggled by the panel's
+  // "+ DOOR" / "+ WINDOW" buttons; engine cursor changes to crosshair.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine?.setAddOpeningMode) return;
+    engine.setAddOpeningMode(addOpeningMode);
+  }, [addOpeningMode, engineRef]);
+
+  const _createOpeningAt = useCallback(async (payload) => {
+    // payload = { opening_type, wall_index, wall_id, sheet_id, position_ft }
+    const sheet = _getSheet(payload.sheet_id);
+    if (!sheet) return;
+    const key = payload.opening_type === "door" ? "doors" : "windows";
+    const arr = Array.isArray(sheet[key]) ? sheet[key] : [];
+    _pushUndo({
+      sheet_id: sheet.id,
+      walls:    sheet.walls    || [],
+      doors:    sheet.doors    || [],
+      windows:  sheet.windows  || [],
+      labels:   sheet.labels   || [],
+      fixtures: sheet.fixtures || [],
+    });
+    const newItem = {
+      id: `${payload.opening_type[0]}-${Date.now()}`,
+      position: payload.position_ft,
+      width: payload.opening_type === "door" ? 3 : 4,
+      wall_index: payload.wall_index,
+    };
+    const nextArr = [...arr, newItem];
+    const patch = {
+      walls:    sheet.walls    || [],
+      doors:    sheet.doors    || [],
+      windows:  sheet.windows  || [],
+      labels:   sheet.labels   || [],
+      fixtures: sheet.fixtures || [],
+    };
+    patch[key] = nextArr;
+    setBusy(true); setError("");
+    try {
+      await _saveSheet(sheet.id, patch);
+      await refreshBlueprint();
+      // Exit add mode and select the freshly-created opening
+      setAddOpeningMode(null);
+      setSelectedOpening({
+        opening_type: payload.opening_type,
+        opening_index: nextArr.length - 1,
+        opening_id: newItem.id,
+        wall_index: payload.wall_index,
+        sheet_id: payload.sheet_id,
+        width_ft: newItem.width,
+      });
+      setEngineSelectedOpening(payload.opening_type, nextArr.length - 1, payload.sheet_id);
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || "Add opening failed");
+    } finally { setBusy(false); }
+  }, [_getSheet, _saveSheet, _pushUndo, refreshBlueprint, setEngineSelectedOpening]);
+
+  // Bind the ref so the enableWallEditor click handler (declared earlier)
+  // can call the latest _createOpeningAt without a TDZ error.
+  useEffect(() => { createOpeningAtRef.current = _createOpeningAt; }, [_createOpeningAt]);
+
+  // ---------- Trim tags on walls (Session 7) ----------
+  // Toggle boolean flags on the selected wall: trim_baseboard,
+  // trim_crown, trim_chair_rail. Door/window casings are auto-derived
+  // from openings on the wall — no per-wall toggle needed.
+  const setWallTrim = useCallback(async (patch) => {
+    if (!selected) return;
+    setBusy(true); setError("");
+    try {
+      const sheet = _getSheet(selected.sheet_id);
+      if (!sheet) throw new Error("Sheet not found");
+      const walls = sheet.walls || [];
+      const idx = walls.findIndex((w) => w.id === selected.wall_id);
+      if (idx < 0) throw new Error("Wall not found");
+      _pushUndo({
+        sheet_id: sheet.id,
+        walls, doors: sheet.doors || [], windows: sheet.windows || [],
+        labels: sheet.labels || [], fixtures: sheet.fixtures || [],
+      });
+      const nextWalls = [...walls];
+      nextWalls[idx] = { ...nextWalls[idx], ...patch };
+      await _saveSheet(sheet.id, {
+        walls: nextWalls,
+        doors: sheet.doors || [],
+        windows: sheet.windows || [],
+        labels: sheet.labels || [],
+        fixtures: sheet.fixtures || [],
+      });
+      setSelected((prev) => prev ? { ...prev, ...patch } : prev);
+      await refreshBlueprint();
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || "Trim update failed");
+    } finally { setBusy(false); }
+  }, [selected, _getSheet, _saveSheet, _pushUndo, refreshBlueprint]);
+
   useEffect(() => {
     if (!editing) return;
     const onKey = (e) => {
-      if (e.key === "Escape") { setSelected(null); setCutMode(false); setEngineSelected(null); }
-      if ((e.key === "Delete" || e.key === "Backspace") && selected && !busy) deleteSelected();
+      if (e.key === "Escape") {
+        setSelected(null); setCutMode(false); setEngineSelected(null);
+        setSelectedFixture(null); setEngineSelectedFixture(null);
+        setSelectedOpening(null); setEngineSelectedOpening(null, null, null);
+        setAddOpeningMode(null);
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && !busy) {
+        if (selected) deleteSelected();
+        else if (selectedFixture) deleteFixture();
+        else if (selectedOpening) deleteOpening();
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
       if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) { e.preventDefault(); redo(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editing, selected, busy, deleteSelected, undo, redo, setEngineSelected]);
+  }, [editing, selected, selectedFixture, selectedOpening, busy, deleteSelected, deleteFixture, deleteOpening, undo, redo, setEngineSelected, setEngineSelectedFixture, setEngineSelectedOpening]);
 
   return {
     editing, setEditing,
     selected, cutMode, setCutMode,
     selectedRoof, setSelectedRoof,
     selectedRoom, setSelectedRoom,
+    selectedFixture, setSelectedFixture,
+    selectedOpening, setSelectedOpening,
+    addOpeningMode, setAddOpeningMode,
     busy, error,
     deleteSelected, undo, redo,
     setWallHeight,
     updateRoof,
     setRoomFloor, setRoomCeilingHeight, setRoomName,
+    setFixtureRotation, previewFixtureRotation, deleteFixture,
+    setOpeningWidth, deleteOpening,
+    setWallTrim,
     blueprintRoof: {
       type:  blueprint?.roof_type      || "gable",
       pitch: blueprint?.roof_pitch_deg ?? 12,
