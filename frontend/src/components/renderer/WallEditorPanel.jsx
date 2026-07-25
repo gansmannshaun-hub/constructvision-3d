@@ -37,9 +37,18 @@ export function WallEditorPanel({
     setRoomNameDraft(selectedRoom?.name || "");
   }, [selectedRoom?.label_index, selectedRoom?.sheet_id, selectedRoom?.name]);
 
-  const ceilFt = Number(selectedRoom?.ceiling_height_ft) > 0
-    ? Number(selectedRoom.ceiling_height_ft)
-    : CEILING_DEFAULT_FT;
+  // Local draft for the ceiling slider — commits on mouseup / touchend so
+  // dragging from 7 → 14 ft doesn't fire 14 PUTs (one per 0.5 ft step).
+  const [ceilingDraft, setCeilingDraft] = useState(null);
+  useEffect(() => {
+    setCeilingDraft(null);   // reset draft whenever a different room is picked
+  }, [selectedRoom?.label_index, selectedRoom?.sheet_id]);
+
+  const ceilFt = ceilingDraft !== null
+    ? ceilingDraft
+    : (Number(selectedRoom?.ceiling_height_ft) > 0
+        ? Number(selectedRoom.ceiling_height_ft)
+        : CEILING_DEFAULT_FT);
 
   const status = cutMode
     ? "CUT — click any wall to split at that point. ESC cancels."
@@ -197,7 +206,18 @@ export function WallEditorPanel({
               step={CEILING_STEP_FT}
               value={ceilFt}
               disabled={busy}
-              onChange={(e) => onSetRoomCeiling?.(Number(e.target.value))}
+              onChange={(e) => setCeilingDraft(Number(e.target.value))}
+              onMouseUp={() => {
+                if (ceilingDraft !== null) { onSetRoomCeiling?.(ceilingDraft); setCeilingDraft(null); }
+              }}
+              onTouchEnd={() => {
+                if (ceilingDraft !== null) { onSetRoomCeiling?.(ceilingDraft); setCeilingDraft(null); }
+              }}
+              onKeyUp={(e) => {
+                if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && ceilingDraft !== null) {
+                  onSetRoomCeiling?.(ceilingDraft); setCeilingDraft(null);
+                }
+              }}
               className="w-full accent-[#FF9933] disabled:opacity-40"
             />
             <div className="flex justify-between text-[9px] font-mono text-neutral-600 mb-1">

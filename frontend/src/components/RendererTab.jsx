@@ -77,7 +77,19 @@ export default function RendererTab() {
     if (!mountRef.current) return;
     const engine = createSceneEngine(mountRef.current);
     engineRef.current = engine;
-    return () => { engine.dispose(); engineRef.current = null; };
+    // Expose engine on window in non-production builds so Playwright /
+    // integration tests can drive the 3D picker deterministically
+    // (raycasting against WebGL doesn't work reliably in headless mode).
+    if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+      window.__renderer_engine = engine;
+    }
+    return () => {
+      engine.dispose();
+      engineRef.current = null;
+      if (typeof window !== "undefined" && window.__renderer_engine === engine) {
+        delete window.__renderer_engine;
+      }
+    };
   }, []);
 
   // Build geometry ONLY when the blueprint's structural content actually

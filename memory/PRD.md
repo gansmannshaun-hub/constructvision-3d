@@ -108,7 +108,28 @@ email digest with /invite landing.
 | Frontend e2e (iter16 report)   | 100% (4/4 critical flows)      |
 
 ## Recently shipped
-- **2026-02-21 · React-child crash fix (defense in depth)** — Earlier
+- **2026-02-22 · 3D Editor Session 4 — Rooms · Floor Material · Ceiling Height** —
+  Clicking any room floor tile in the 3D Renderer's EDIT mode now selects
+  the room. A new `room-editor-card` in `WallEditorPanel` lets the user:
+  (a) rename the room, (b) pick from 9 floor materials (Hardwood, Tile,
+  Carpet, Concrete, Vinyl, LVP, Polished Concrete, Epoxy, Marble), (c)
+  set a 7–14 ft drop ceiling in 0.5 ft steps. Rooms are computed on the
+  fly from each `sheet.labels[i]` by ray-casting to the nearest wall in
+  ±x/±z (axis-aligned rectangle). Persistence lives on the label itself
+  as new keys `floor_material` / `ceiling_height_ft` / `name_override`
+  — no new backend endpoint (existing PUT `/api/projects/{p}/blueprint/sheets/{s}`).
+  Ceiling slider commits on mouseup (not on every step) to avoid PUT
+  storms. Engine now exposed on `window.__renderer_engine` in dev/test
+  builds so future Playwright tests can bypass canvas raycasting.
+  Backend contract fully verified via `test_iter58_room_labels_persistence.py`
+  (4/4). New shared constants file: `lib/renderer/floorMaterials.js`.
+
+- **2026-02-22 · 3D Editor Sessions 1-3** — Wall pick / cut / delete /
+  undo / redo, cyan endpoint-drag handles with 0.5 ft snap, per-wall
+  height slider (4-30 ft), roof-face picking with type / pitch / color
+  panel. All persist via the same sheet PUT.
+
+
   narrow fix on ManualTraceOverlay wasn't enough: ~40 components across
   the app call `setError(err.response.data.detail)` and would crash on
   any FastAPI 422 (Pydantic v2 emits `detail` as `list[{type,loc,msg,...}]`).
