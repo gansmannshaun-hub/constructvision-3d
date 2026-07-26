@@ -1,0 +1,24 @@
+{
+  "summary": "Verified Site Picker Google Maps auth-failure fix (SitePickerModal.jsx). On preview domain, gm_authFailure fires as expected (RefererNotAllowedMapError) and the modal cleanly swaps to the in-app fallback UI: site-picker-map-auth-failed card in the map pane + editable site-picker-manual-lat/lng/address inputs in the sidebar. End-to-end manual capture works: entered 37.42 / -122.08 / 'Googleplex Test' -> POST /api/projects/{id}/site returned 200 with satellite image + AI analysis (server key path, no referrer restriction). Modal closes after success and the 3D renderer sidebar SITE panel now shows the captured thumbnail, address ('1600 Amphitheatre Pkwy, Mountain Vi...'), 996ft x 996ft dimensions, AI summary, and CHANGE SITE button; the 3D scene ground is textured with the fetched satellite tile — confirming data persists via GET /api/projects/{id}/site.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/frontend/src/components/SitePickerModal.jsx", "/app/backend/routes/site.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SitePickerModal.jsx cleanup effect restores window.gm_authFailure to `prev` (which may be undefined). Harmless but could `delete window.gm_authFailure` if prev is falsy for slightly cleaner teardown. Not blocking.",
+    "MissingKeyOrManualFallback (no-key path) was NOT exercised at runtime (would require unsetting REACT_APP_GOOGLE_MAPS_API_KEY). Code inspection: identical data-testids, uses same POST /api/projects/{id}/site backend endpoint. Looks correct.",
+    "Google console prints deprecation warnings for google.maps.places.Autocomplete and google.maps.Marker. Not new, not caused by this fix, but worth migrating to PlaceAutocompleteElement / AdvancedMarkerElement eventually."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@atlas.app / Open0says3me#*03#*",
+  "seed_data_creation": "None (used existing TEST_iter60_sc_1784957028573 project, captured site coords Googleplex 37.42/-122.08 into it — non-destructive: overwrites the site sub-document only).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fix verified working on preview domain. gm_authFailure -> mapAuthFailed state -> MapAuthFailedFallback + sidebar manual inputs -> POST /site (server-key path) succeeds -> modal closes -> site data persists and appears in 3D renderer SITE sidebar + textures ground plane. Note that once a site is captured, the SITE sidebar button changes from 'PICK SITE FROM MAP' to 'CHANGE SITE' — future tests re-opening the picker should account for both labels or use a data-testid on the trigger.",
+  "rca of the issue": "Root cause is external Google Cloud Console config: the browser-restricted Maps API key (REACT_APP_GOOGLE_MAPS_API_KEY) does not include https://construction-viz-2.preview.emergentagent.com/* in its HTTP-referrer allowlist, so the Maps JS SDK throws RefererNotAllowedMapError and previously displayed Google's generic gray 'Oops!' error inside the modal with no recovery path. FIX (applied by main agent): hook window.gm_authFailure to detect the failure and swap in an in-app explanation card (MapAuthFailedFallback) + manual lat/lng/address entry inputs in the sidebar. The backend POST /api/projects/{id}/site uses a SEPARATE unrestricted server key (GOOGLE_MAPS_SERVER_KEY) for Static Maps + GPT-4o vision, so capture continues to work end-to-end from the fallback path. Permanent mitigation (out of code scope) is for the operator to add the preview + production origins to the browser key's referrer allowlist in Google Cloud Console -> Credentials."
+}
