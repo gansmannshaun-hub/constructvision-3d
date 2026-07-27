@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ArrowUpRight, ArrowLeft, Mail, Check } from "lucide-react";
 import { useStore, apiClient } from "@/store";
 import { getApp, APPS } from "@/data/apps";
+import { CONTACT_EMAIL, CONTACT_MAILTO, mailtoWithSubject } from "@/data/brand";
 import MockAtlasBlueprint from "@/components/landing/MockAtlasBlueprint";
 import { AppScreenshot } from "@/components/landing/AppScreenshot";
 
@@ -530,7 +531,49 @@ export default function AppDetail() {
         <SoonDetail app={app} />
       )}
       <RelatedApps currentId={app.id} />
+      <AppFooter app={app} />
     </div>
+  );
+}
+
+function AppFooter({ app }) {
+  return (
+    <footer
+      data-testid={`app-detail-footer-${app.id}`}
+      className="border-t border-[#262626] bg-black py-16"
+    >
+      <div className="w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-16">
+        <div
+          id="contact"
+          data-testid="app-detail-contact-section"
+          className="border border-[#262626] hover:border-[#FFCC00]/50 transition-colors p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10"
+        >
+          <div>
+            <div className="label-mono text-[#FFCC00] mb-2">// CONTACT</div>
+            <h3 className="font-serif-editorial text-white text-3xl md:text-4xl leading-tight">
+              Questions about {app.name}? <em className="italic text-neutral-500">Email us.</em>
+            </h3>
+          </div>
+          <a
+            href={mailtoWithSubject(`${app.name} — Question`)}
+            data-testid={`app-detail-contact-email-${app.id}`}
+            className="inline-flex items-center gap-2 bg-[#FFCC00] hover:bg-[#E6B800] text-black font-mono font-bold px-6 py-3 transition-all hover:-translate-y-0.5 md:shrink-0"
+          >
+            <Mail size={16} />
+            <span>{CONTACT_EMAIL}</span>
+          </a>
+        </div>
+        <div className="flex flex-wrap items-center justify-between text-xs font-mono text-neutral-500 gap-4">
+          <div>© 2026 Gonzo Labs. All rights reserved.</div>
+          <div className="flex items-center gap-6">
+            <Link to="/" className="hover:text-white">Studio</Link>
+            <Link to="/terms" className="hover:text-white">Terms</Link>
+            <Link to="/privacy" className="hover:text-white">Privacy</Link>
+            <a href={CONTACT_MAILTO} className="hover:text-[#FFCC00]">{CONTACT_EMAIL}</a>
+          </div>
+        </div>
+      </div>
+    </footer>
   );
 }
 

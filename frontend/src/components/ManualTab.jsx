@@ -1,4 +1,6 @@
 import React, { useMemo, useState } from "react";
+import { Mail } from "lucide-react";
+import { CONTACT_EMAIL, CONTACT_MAILTO, mailtoWithSubject } from "@/data/brand";
 
 /**
  * In-app user manual. Pure-frontend, no API calls — content is curated to match
@@ -521,6 +523,7 @@ const SECTIONS = [
     hint: "18",
     body: [
       { kind: "h", text: "Need help?" },
+      { kind: "contact", text: "Fastest way to reach the studio. We answer every email personally — usually within 24 hours." },
       { kind: "p", text: "Atlas is actively developed — your feedback directly shapes the roadmap." },
       { kind: "h2", text: "Common questions" },
       { kind: "ul", items: [
@@ -535,6 +538,8 @@ const SECTIONS = [
       ]},
       { kind: "h2", text: "Status of the data you upload" },
       { kind: "p", text: "Documents, photos, and LiDAR scans are stored in your project's MongoDB record. Deleting a project deletes everything associated with it. Stripe handles all payment data — Atlas never sees full card numbers." },
+      { kind: "h2", text: "Something still not working?" },
+      { kind: "contact", text: "Send a short description + the URL you were on and any error text. We'll get back to you within 24 hours.", subject: "Atlas — Bug report" },
     ],
   },
 ];
@@ -580,6 +585,28 @@ function Block({ block }) {
       return (
         <div className="border-l-4 border-[#FFCC00] bg-[#FFCC00]/5 px-4 py-3 mb-3 text-xs font-mono text-neutral-200">
           <span className="text-[#FFCC00] font-bold">TIP · </span>{block.text}
+        </div>
+      );
+    case "contact":
+      return (
+        <div
+          data-testid="manual-contact-block"
+          className="border border-[#FFCC00]/40 bg-[#FFCC00]/5 px-5 py-4 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        >
+          <div>
+            <div className="label-mono text-[#FFCC00] mb-1">// CONTACT US</div>
+            <p className="text-sm text-neutral-200">
+              {block.text || "Questions, feature requests, bug reports — email the studio directly."}
+            </p>
+          </div>
+          <a
+            href={block.subject ? mailtoWithSubject(block.subject) : CONTACT_MAILTO}
+            data-testid="manual-contact-email-link"
+            className="inline-flex items-center gap-2 bg-[#FFCC00] hover:bg-[#E6B800] text-black font-mono font-bold px-4 py-2 text-xs transition-all whitespace-nowrap sm:shrink-0"
+          >
+            <Mail size={14} />
+            <span data-testid="manual-contact-email">{CONTACT_EMAIL}</span>
+          </a>
         </div>
       );
     default:

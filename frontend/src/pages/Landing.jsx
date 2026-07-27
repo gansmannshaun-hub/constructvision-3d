@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowUpRight, Boxes, Cpu, Layers3, FileText, MapPin, Users,
-  Wand2, ScanLine, Ruler, LineChart, Cloud, Lock, HardHat,
+  Wand2, ScanLine, Ruler, LineChart, Cloud, Lock, HardHat, Mail,
 } from "lucide-react";
 import { useStore } from "@/store";
 import { APPS } from "@/data/apps";
+import { CONTACT_EMAIL, CONTACT_MAILTO, mailtoWithSubject } from "@/data/brand";
 import HeroCanvas from "@/components/landing/HeroCanvas";
 import MockAtlasBlueprint from "@/components/landing/MockAtlasBlueprint";
 import { AppScreenshot } from "@/components/landing/AppScreenshot";
@@ -60,6 +61,7 @@ function Nav({ token }) {
           <a href="#features" data-testid="landing-nav-features" className="hover:text-white transition-colors">Features</a>
           <a href="#apps" data-testid="landing-nav-apps" className="hover:text-white transition-colors">Studio Apps</a>
           <a href="#pricing" data-testid="landing-nav-pricing" className="hover:text-white transition-colors">Pricing</a>
+          <a href="#contact" data-testid="landing-nav-contact" className="hover:text-white transition-colors">Contact</a>
         </nav>
         <div className="flex items-center gap-3">
           {token ? (
@@ -641,6 +643,10 @@ function PricingSection() {
 // =====================================================================
 // FOOTER
 // =====================================================================
+function MailIcon({ size = 18 }) {
+  return <Mail size={size} strokeWidth={2} aria-hidden="true" />;
+}
+
 function Footer() {
   return (
     <footer
@@ -648,6 +654,40 @@ function Footer() {
       className="relative bg-black border-t border-[#262626] pt-24 pb-12 overflow-hidden"
     >
       <div className="w-full max-w-7xl mx-auto px-6 md:px-12 lg:px-16">
+        {/* Contact strip — the primary "get in touch" surface. Big, obvious, one-click. */}
+        <div
+          id="contact"
+          data-testid="landing-contact-section"
+          className="border border-[#262626] hover:border-[#FFCC00]/50 transition-colors p-8 md:p-10 mb-16 flex flex-col md:flex-row md:items-end justify-between gap-6"
+        >
+          <div>
+            <div className="label-mono text-[#FFCC00] mb-3">// CONTACT</div>
+            <h3 className="font-serif-editorial text-white text-4xl md:text-5xl leading-[0.95] tracking-tight">
+              Get in touch.
+              <br /><em className="italic text-neutral-500">We read every email.</em>
+            </h3>
+            <p className="mt-4 text-neutral-400 max-w-xl text-sm md:text-base">
+              Feature requests, bug reports, custom-tier quotes, partnership pitches — all welcome.
+              Fastest way to reach the studio:
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 md:shrink-0">
+            <a
+              href={CONTACT_MAILTO}
+              data-testid="landing-contact-email-link"
+              className="group inline-flex items-center gap-2 bg-[#FFCC00] hover:bg-[#E6B800] text-black font-mono font-bold px-6 py-4 transition-all hover:-translate-y-0.5"
+            >
+              <MailIcon />
+              <span data-testid="landing-contact-email">{CONTACT_EMAIL}</span>
+            </a>
+            <a
+              href={mailtoWithSubject("Atlas — Feature request")}
+              data-testid="landing-contact-feature-link"
+              className="text-xs font-mono text-neutral-400 hover:text-white underline underline-offset-4"
+            >Suggest a feature →</a>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10 md:gap-6 border-b border-[#262626] pb-16">
           <div className="md:col-span-2">
             <div className="label-mono text-[#00E5FF]">// STUDIO</div>
@@ -656,6 +696,12 @@ function Footer() {
               A studio building software for the trades, the shops, and the makers.
               Contact us — we like hearing what you&apos;re stuck on.
             </p>
+            <a
+              href={CONTACT_MAILTO}
+              className="mt-4 inline-flex items-center gap-2 text-sm font-mono text-[#FFCC00] hover:text-white transition-colors"
+            >
+              <MailIcon size={14} />{CONTACT_EMAIL}
+            </a>
           </div>
           <div>
             <div className="label-mono mb-4">// STUDIO</div>
@@ -663,6 +709,7 @@ function Footer() {
               <li><a href="#apps" className="hover:text-white transition-colors">All apps</a></li>
               <li><a href="#features" className="hover:text-white transition-colors">Atlas features</a></li>
               <li><a href="#pricing" className="hover:text-white transition-colors">Pricing</a></li>
+              <li><a href="#contact" className="hover:text-white transition-colors">Contact</a></li>
             </ul>
           </div>
           <div>

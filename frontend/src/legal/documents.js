@@ -72,7 +72,7 @@ These Terms are governed by the laws of the State of Missouri, United States, wi
 We may update these Terms from time to time. When we do, we will bump the version number and require you to re-accept on next login. Continued use of the Service after acceptance constitutes agreement.
 
 ## 13. Contact
-Questions about these Terms? Contact us through the in-app **Support** chat or email **support@app-gonzo.com**.
+Questions about these Terms? Contact us through the in-app **Support** chat or email **gonzo.ai.labs@gmail.com**.
 `,
 };
 
@@ -152,7 +152,7 @@ You have the right to:
 - **Restrict** or object to certain processing
 - **Portability**: receive your data in a machine-readable format
 
-To exercise any right, use the in-app **Support** chat or email **support@app-gonzo.com**. We will respond within 30 days.
+To exercise any right, use the in-app **Support** chat or email **gonzo.ai.labs@gmail.com**. We will respond within 30 days.
 
 If you are in the EU/EEA/UK, you may also lodge a complaint with your supervisory authority.
 If you are in California (CCPA/CPRA), you may request the categories of personal information collected and to whom it was disclosed in the past 12 months.
@@ -170,6 +170,6 @@ Atlas may process data in the United States. By using the Service you consent to
 We may update this Policy. When we make material changes, we will bump the version and require you to re-accept on next login.
 
 ## 12. Contact
-Questions or requests? Use the in-app **Support** chat or email **support@app-gonzo.com**.
+Questions or requests? Use the in-app **Support** chat or email **gonzo.ai.labs@gmail.com**.
 `,
 };

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { apiClient, useStore } from "../store";
+import { CONTACT_EMAIL, mailtoWithSubject } from "@/data/brand";
 
 const fmtUSD = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -352,7 +353,13 @@ export default function Billing() {
                 <div className="font-bold uppercase tracking-wide mb-1">Billing temporarily unavailable</div>
                 <div className="text-[#FFCC00]/90 leading-relaxed">
                   This server is not configured for payments yet — checkout will be disabled.
-                  Please try again shortly, or contact support if this persists.
+                  Please try again shortly, or{" "}
+                  <a
+                    data-testid="billing-contact-support-link"
+                    href={mailtoWithSubject("Atlas billing — checkout unavailable")}
+                    className="underline hover:text-white"
+                  >contact support at {CONTACT_EMAIL}</a>{" "}
+                  if this persists.
                   <span className="block mt-1 text-xs text-neutral-400">
                     (Admin: set <code className="text-[#FFCC00]">STRIPE_API_KEY</code> in the deployment environment variables and redeploy.)
                   </span>
