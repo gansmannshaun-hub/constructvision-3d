@@ -2061,6 +2061,76 @@ export function createSceneEngine(mount) {
     }
   }
 
+  // ---------- Push/Pull drag on selected wall (SketchUp-style) ----------
+  // Vertical mouse drag on the selected wall's face changes its height
+  // live. Screen-pixel delta → feet delta (100 px = 1 ft, snapped to
+  // 0.25 ft). Fires callback("preview", ft) during drag so the caller
+  // can update the mesh; callback("commit", ft) on release for save.
+  let pushPullEnabled = false;
+  let pushPullCallback = null;
+  let activePushPullDrag = null;   // {startY, startHeightFt, wallId}
+  let pushPullTargetWall = null;   // wall userData object
+
+  function _onPushPullDown(e) {
+    if (!pushPullEnabled || !pushPullTargetWall) return;
+    if (e.button !== 0) return;
+    // Only start if the pointer is actually over the selected wall.
+    const rect = renderer.domElement.getBoundingClientRect();
+    _dragNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    _dragNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    _dragRay.setFromCamera(_dragNdc, camera);
+    const target = wallPickables.find((m) => m.userData.wall_id === pushPullTargetWall.wall_id);
+    if (!target) return;
+    if (!_dragRay.intersectObject(target, false).length) return;
+    activePushPullDrag = {
+      startY: e.clientY,
+      startHeightFt: Number(pushPullTargetWall.height_ft) > 0 ? Number(pushPullTargetWall.height_ft) : 10,
+      wallId: pushPullTargetWall.wall_id,
+    };
+    controls.enabled = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }
+
+  function _onPushPullMove(e) {
+    if (!activePushPullDrag) return;
+    // Screen up (negative deltaY) = pull (taller). 100 px = 1 ft.
+    const dyPx = activePushPullDrag.startY - e.clientY;
+    const dyFt = dyPx / 100;
+    const raw = activePushPullDrag.startHeightFt + dyFt;
+    const snap = Math.round(raw * 4) / 4;   // 0.25 ft snap
+    const clamped = Math.max(4, Math.min(30, snap));
+    activePushPullDrag.lastHeight = clamped;
+    pushPullCallback?.("preview", clamped);
+  }
+
+  function _onPushPullUp() {
+    if (!activePushPullDrag) return;
+    const finalFt = activePushPullDrag.lastHeight ?? activePushPullDrag.startHeightFt;
+    activePushPullDrag = null;
+    controls.enabled = true;
+    pushPullCallback?.("commit", finalFt);
+  }
+
+  function enablePushPullDrag(on, wallData, cb) {
+    pushPullEnabled = !!on;
+    pushPullTargetWall = wallData || null;
+    pushPullCallback = cb || null;
+    if (on) {
+      renderer.domElement.style.cursor = "ns-resize";
+      renderer.domElement.addEventListener("pointerdown", _onPushPullDown);
+      window.addEventListener("pointermove", _onPushPullMove);
+      window.addEventListener("pointerup", _onPushPullUp);
+    } else {
+      renderer.domElement.style.cursor = wallEditorEnabled ? "pointer" : "";
+      renderer.domElement.removeEventListener("pointerdown", _onPushPullDown);
+      window.removeEventListener("pointermove", _onPushPullMove);
+      window.removeEventListener("pointerup", _onPushPullUp);
+      activePushPullDrag = null;
+      controls.enabled = true;
+    }
+  }
+
   function setAddOpeningMode(mode) {
     // mode: null | "door" | "window"
     addOpeningMode = (mode === "door" || mode === "window") ? mode : null;
@@ -2742,6 +2812,7 @@ export function createSceneEngine(mount) {
            enableEndpointDrag,
            setSelectedFixture, enableFixtureDrag, setFixtureRotation,
            setSelectedOpening, enableOpeningDrag, setAddOpeningMode,
+           enablePushPullDrag,
            enableSectionMode, applySectionCut, restoreSectionCut,
            restoreAllSectionCuts, getSectionCuts,
            __test_firePick };

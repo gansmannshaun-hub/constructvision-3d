@@ -249,6 +249,8 @@ export default function RendererTab() {
             onDeleteOpening={wallEditor.deleteOpening}
             addOpeningMode={wallEditor.addOpeningMode}
             onToggleAddMode={wallEditor.setAddOpeningMode}
+            pushPullMode={wallEditor.pushPullMode}
+            onTogglePushPull={wallEditor.setPushPullMode}
             onExit={() => wallEditor.setEditing(false)}
           />
         )}

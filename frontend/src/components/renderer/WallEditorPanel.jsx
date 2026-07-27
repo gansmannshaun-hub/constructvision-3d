@@ -32,10 +32,13 @@ export function WallEditorPanel({
   selectedFixture, onSetFixtureRotation, onPreviewFixtureRotation, onDeleteFixture,
   selectedOpening, onSetOpeningWidth, onDeleteOpening,
   addOpeningMode, onToggleAddMode,
+  pushPullMode, onTogglePushPull,
   onExit,
 }) {
   const status = addOpeningMode
     ? `ADD ${addOpeningMode.toUpperCase()} — click any wall to place. ESC cancels.`
+    : pushPullMode
+    ? "PUSH/PULL — click and drag vertically on the selected wall to change its height. ESC exits."
     : cutMode
     ? "CUT — click any wall to split at that point. ESC cancels."
     : selectedRoof
@@ -145,6 +148,17 @@ export function WallEditorPanel({
           }`}
           title="Toggle cut mode — click a wall to split at that point"
         >{cutMode ? "CUT MODE · ESC" : "✂ CUT"}</button>
+        <button
+          data-testid="wall-editor-push-pull"
+          onClick={() => onTogglePushPull?.(!pushPullMode)}
+          disabled={busy || !selected}
+          className={`flex-1 label-mono px-3 py-2 border transition-colors disabled:opacity-30 ${
+            pushPullMode
+              ? "bg-[#FF6600] text-white border-[#FF6600]"
+              : "border-[#FF6600]/50 text-[#FF6600] hover:bg-[#FF6600] hover:text-white"
+          }`}
+          title="Push/Pull — drag vertically on the selected wall to change height (SketchUp-style)"
+        >{pushPullMode ? "PUSH/PULL · ESC" : "⇕ PUSH/PULL"}</button>
         <button
           data-testid="wall-editor-undo"
           onClick={onUndo}

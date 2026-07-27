@@ -22,6 +22,7 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
   const [selectedFixture, setSelectedFixture] = useState(null);
   const [selectedOpening, setSelectedOpening] = useState(null);
   const [addOpeningMode, setAddOpeningMode] = useState(null);   // null | "door" | "window"
+  const [pushPullMode, setPushPullMode] = useState(false);
   const [cutMode, setCutMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -94,6 +95,7 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
       setSelectedFixture(null);
       setSelectedOpening(null);
       setAddOpeningMode(null);
+      setPushPullMode(false);
       setCutMode(false);
       return;
     }
@@ -392,6 +394,31 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
       setError(e?.response?.data?.detail || e?.message || "Roof update failed");
     } finally { setBusy(false); }
   }, [updateBlueprint]);
+
+  // Push/Pull — while active AND a wall is selected, dragging vertically
+  // on the wall in the 3D viewport changes its height live. Commit on
+  // release saves the new height to the sheet. This is a SketchUp-style
+  // direct-manipulation alternative to the height slider — same effect,
+  // more intuitive gesture.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine?.enablePushPullDrag) return;
+    if (!pushPullMode || !selected) {
+      engine.enablePushPullDrag(false);
+      return;
+    }
+    engine.enablePushPullDrag(true, selected, async (kind, heightFt) => {
+      if (kind === "preview") {
+        // Live-update the selected height in-memory so the panel slider
+        // reflects the drag. The actual mesh height isn't rebuilt until
+        // the commit persists to the sheet.
+        setSelected((prev) => prev ? { ...prev, height_ft: heightFt } : prev);
+      } else if (kind === "commit") {
+        try { await setWallHeight(heightFt); } catch { /* setError already handled */ }
+      }
+    });
+    return () => engine.enablePushPullDrag(false);
+  }, [pushPullMode, selected?.wall_id, selected?.sheet_id, engineRef, setWallHeight]);
 
   // ---------- Room editing (Session 4) ----------
   // Rooms are seeded by label positions. Persisting a change means
@@ -716,6 +743,7 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
         setSelectedFixture(null); setEngineSelectedFixture(null);
         setSelectedOpening(null); setEngineSelectedOpening(null, null, null);
         setAddOpeningMode(null);
+        setPushPullMode(false);
       }
       if ((e.key === "Delete" || e.key === "Backspace") && !busy) {
         if (selected) deleteSelected();
@@ -737,6 +765,7 @@ export function useWallEditor({ engineRef, refreshBlueprint, updateBlueprint }) 
     selectedFixture, setSelectedFixture,
     selectedOpening, setSelectedOpening,
     addOpeningMode, setAddOpeningMode,
+    pushPullMode, setPushPullMode,
     busy, error,
     deleteSelected, undo, redo,
     setWallHeight,

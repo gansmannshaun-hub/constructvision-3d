@@ -52,6 +52,18 @@ export default function CadEditorTab() {
   const [moveFrom, setMoveFrom] = useState(null);             // {type, id, anchor}
   const [offsetWall, setOffsetWall] = useState(null);         // wall picked for offset
   const [textEditor, setTextEditor] = useState(null);         // {x, y, value}
+  // Lasso tool state — freehand polygon that multi-selects walls
+  // whose midpoint falls inside on release. `lassoPath` is null when
+  // not drawing; an array of [x,y] SVG-coord points while dragging.
+  const [lassoPath, setLassoPath] = useState(null);
+  const [multiSelectedIds, setMultiSelectedIds] = useState([]);
+  // Dimension tool state — persistent labeled ft-in dimension lines.
+  // `dimStart` is set after the first click; second click commits.
+  // Persisted inside `labels[]` with `kind: "dimension"` so we don't
+  // need a schema change (labels is a free-form List[dict] on the
+  // backend). Rendered inline with normal text labels but drawn as a
+  // dim line + ticks + centered ft-in text.
+  const [dimStart, setDimStart] = useState(null);
   const [hover, setHover] = useState(null);                   // current cursor in coords
   const [inference, setInference] = useState(null);           // {type, point} for snap indicator
   const [measureInput, setMeasureInput] = useState("");
@@ -93,6 +105,7 @@ export default function CadEditorTab() {
     setSelected(null);
     setPendingStart(null); setRectStart(null); setCircleCenter(null);
     setTapeStart(null); setMoveFrom(null); setOffsetWall(null);
+    setLassoPath(null); setMultiSelectedIds([]); setDimStart(null);
     setDirty(true);
   }, []);
   const {
@@ -189,6 +202,14 @@ export default function CadEditorTab() {
       e.preventDefault();
       return;
     }
+    // Lasso tool — begin drawing the polygon
+    if (tool === "lasso" && e.button === 0) {
+      const raw = toSvgCoord(e);
+      setLassoPath([raw]);
+      setMultiSelectedIds([]);
+      e.preventDefault();
+      return;
+    }
   };
 
   const onMouseMove = (e) => {
@@ -215,6 +236,17 @@ export default function CadEditorTab() {
       if (!labelDrag.moved) setLabelDrag({ ...labelDrag, moved: true });
       return;
     }
+    // Lasso — accumulate every ~0.5 unit of movement to keep the SVG
+    // path short. Rendering + inside-test only care about vertices,
+    // not sub-pixel precision.
+    if (lassoPath) {
+      const raw = toSvgCoord(e);
+      const last = lassoPath[lassoPath.length - 1];
+      if (!last || Math.hypot(raw[0] - last[0], raw[1] - last[1]) > 0.4) {
+        setLassoPath([...lassoPath, raw]);
+      }
+      return;
+    }
     const raw = toSvgCoord(e);
     const { p, inf } = snappedPoint(raw);
     setHover(p);
@@ -234,6 +266,28 @@ export default function CadEditorTab() {
         dragInProgressRef.current = false;
       }
       setLabelDrag(null);
+    }
+    // Lasso commit — ray-cast every wall midpoint against the traced
+    // polygon. Even-odd rule fill test. Skips micro-loops (<5 vertices).
+    if (lassoPath) {
+      const path = lassoPath;
+      setLassoPath(null);
+      if (path.length < 5) { setMultiSelectedIds([]); return; }
+      const inside = (x, y) => {
+        let hit = false;
+        for (let i = 0, j = path.length - 1; i < path.length; j = i++) {
+          const [xi, yi] = path[i], [xj, yj] = path[j];
+          const cross = (yi > y) !== (yj > y) &&
+                        x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi;
+          if (cross) hit = !hit;
+        }
+        return hit;
+      };
+      const hitIds = walls
+        .filter((w) => inside((w.start[0] + w.end[0]) / 2, (w.start[1] + w.end[1]) / 2))
+        .map((w) => w.id);
+      setMultiSelectedIds(hitIds);
+      setSelected(null);
     }
   };
 
@@ -374,6 +428,28 @@ export default function CadEditorTab() {
       setTapeStart((prev) => (prev ? null : p));
       return;
     }
+    if (tool === "dimension") {
+      // Two-click flow: first click sets start, second click commits a
+      // persistent label with kind="dimension". Rendered as a dim line
+      // + ticks + centered ft-in text. ESC cancels; tool switch clears.
+      if (!dimStart) { setDimStart(p); return; }
+      if (dist(dimStart, p) < 0.25) { setDimStart(null); return; }
+      const midX = (dimStart[0] + p[0]) / 2;
+      const midY = (dimStart[1] + p[1]) / 2;
+      const len = dist(dimStart, p);
+      setLabels((arr) => [...arr, {
+        id: cryptoId(),
+        kind: "dimension",
+        position: [midX, midY - 1],  // labels[] require a position
+        text: formatFeetInches(len),
+        start: dimStart,
+        end: p,
+        offset_ft: 1,
+      }]);
+      setDimStart(null);
+      markDirty();
+      return;
+    }
     if (tool === "zoom") {
       const scale = e.shiftKey ? 1.25 : 1 / 1.25;
       const newW = Math.max(5, Math.min(400, vb.w * scale));
@@ -446,6 +522,15 @@ export default function CadEditorTab() {
       }
       if (e.key === "Escape") {
         setPendingStart(null); setRectStart(null); setCircleCenter(null); setTapeStart(null); setMoveFrom(null); setSelected(null);
+        setLassoPath(null); setMultiSelectedIds([]); setDimStart(null);
+        return;
+      }
+      if ((e.key === "Backspace" || e.key === "Delete") && multiSelectedIds.length > 0) {
+        // Lasso multi-select delete — remove every selected wall at once.
+        const ids = new Set(multiSelectedIds);
+        setWalls((a) => a.filter((w) => !ids.has(w.id)));
+        setMultiSelectedIds([]);
+        markDirty();
         return;
       }
       if ((e.key === "Backspace" || e.key === "Delete") && selected) {
@@ -464,11 +549,12 @@ export default function CadEditorTab() {
       if (t) {
         setTool(t.id);
         setPendingStart(null); setRectStart(null); setCircleCenter(null); setTapeStart(null); setMoveFrom(null);
+        setLassoPath(null); setMultiSelectedIds([]); setDimStart(null);
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [selected, undo, redo]);
+  }, [selected, multiSelectedIds, undo, redo]);
 
   // ---------- Measurement input (length-aware commit while drawing) ----------
   const onMeasureSubmit = (e) => {
@@ -1017,6 +1103,7 @@ export default function CadEditorTab() {
               classic drafting look. Click target is a wider invisible line. */}
           {walls.map((w) => {
             const isSel = selected?.type === "wall" && selected.id === w.id;
+            const isMulti = multiSelectedIds.includes(w.id);
             const isMoving = moveFrom?.type === "wall" && moveFrom.id === w.id;
             const dx = w.end[0] - w.start[0];
             const dy = w.end[1] - w.start[1];
@@ -1030,8 +1117,13 @@ export default function CadEditorTab() {
             const p2 = [w.end[0]   + nx * half, w.end[1]   + ny * half];
             const p3 = [w.end[0]   - nx * half, w.end[1]   - ny * half];
             const p4 = [w.start[0] - nx * half, w.start[1] - ny * half];
-            const fillColor = isSel ? "rgba(255,204,0,0.35)" : (w.source === "opencv" ? "rgba(50,50,60,0.55)" : "rgba(30,30,40,0.85)");
-            const strokeColor = isSel ? "#FFCC00" : isMoving ? "#0055FF" : "#0F0F14";
+            const fillColor = isMulti ? "rgba(255,102,0,0.45)"
+              : isSel ? "rgba(255,204,0,0.35)"
+              : (w.source === "opencv" ? "rgba(50,50,60,0.55)" : "rgba(30,30,40,0.85)");
+            const strokeColor = isMulti ? "#FF6600"
+              : isSel ? "#FFCC00"
+              : isMoving ? "#0055FF"
+              : "#0F0F14";
             const strokeW = Math.max(0.06, t * 0.15);
             return (
               <g
@@ -1206,8 +1298,50 @@ export default function CadEditorTab() {
             );
           })}
 
-          {/* Text labels */}
+          {/* Text labels + dimension labels (kind === "dimension") */}
           {labels.map((l) => {
+            if (l.kind === "dimension") {
+              const isSel = selected?.type === "label" && selected.id === l.id;
+              const [sx, sy] = l.start;
+              const [ex, ey] = l.end;
+              const dx = ex - sx, dy = ey - sy;
+              const len = Math.hypot(dx, dy) || 1;
+              const nx = -dy / len, ny = dx / len;
+              const off = l.offset_ft || 1;
+              // Baseline offset perpendicular to the measured segment
+              const bx1 = sx + nx * off, by1 = sy + ny * off;
+              const bx2 = ex + nx * off, by2 = ey + ny * off;
+              const tick = 0.4;
+              const midX = (bx1 + bx2) / 2, midY = (by1 + by2) / 2;
+              const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+              const color = isSel ? "#FFCC00" : "#00E5FF";
+              return (
+                <g
+                  key={l.id}
+                  data-testid={`cad-dimension-${l.id}`}
+                  onClick={(e) => onElementClick(e, "label", l.id)}
+                  style={{ cursor: tool === "select" || tool === "eraser" ? "pointer" : undefined }}
+                >
+                  {/* Extension lines */}
+                  <line x1={sx} y1={sy} x2={bx1} y2={by1} stroke={color} strokeWidth="0.06" strokeDasharray="0.3 0.15" />
+                  <line x1={ex} y1={ey} x2={bx2} y2={by2} stroke={color} strokeWidth="0.06" strokeDasharray="0.3 0.15" />
+                  {/* Main dim line */}
+                  <line x1={bx1} y1={by1} x2={bx2} y2={by2} stroke={color} strokeWidth="0.08" />
+                  {/* Ticks */}
+                  <line x1={bx1 - nx * tick} y1={by1 - ny * tick} x2={bx1 + nx * tick} y2={by1 + ny * tick} stroke={color} strokeWidth="0.08" />
+                  <line x1={bx2 - nx * tick} y1={by2 - ny * tick} x2={bx2 + nx * tick} y2={by2 + ny * tick} stroke={color} strokeWidth="0.08" />
+                  <text
+                    x={midX} y={midY - 0.4}
+                    fontSize="1.1"
+                    fill={color}
+                    textAnchor="middle"
+                    fontFamily="'IBM Plex Mono', monospace"
+                    style={{ paintOrder: "stroke", stroke: "#000", strokeWidth: 0.25, strokeLinejoin: "round" }}
+                    transform={`rotate(${angle} ${midX} ${midY - 0.4})`}
+                  >{l.text}</text>
+                </g>
+              );
+            }
             const isSel = selected?.type === "label" && selected.id === l.id;
             const fs = l.font_size || 1.5;
             const textLen = String(l.text || "").length;
@@ -1305,6 +1439,35 @@ export default function CadEditorTab() {
             <circle cx={circleCenter[0]} cy={circleCenter[1]} r={dist(circleCenter, hover)}
               fill="rgba(255, 204, 0, 0.1)" stroke="#FFCC00" strokeWidth="0.3" strokeDasharray="1 0.6" />
           )}
+          {/* Lasso — live polygon preview while dragging */}
+          {tool === "lasso" && lassoPath && lassoPath.length > 1 && (
+            <polygon
+              data-testid="cad-lasso-preview"
+              points={lassoPath.map((p) => `${p[0]},${p[1]}`).join(" ")}
+              fill="rgba(255,102,0,0.15)"
+              stroke="#FF6600" strokeWidth="0.2" strokeDasharray="0.7 0.4"
+            />
+          )}
+          {/* Dimension — preview line while awaiting second click */}
+          {tool === "dimension" && dimStart && hover && (() => {
+            const [sx, sy] = dimStart, [ex, ey] = hover;
+            const len = dist(dimStart, hover);
+            return (
+              <g data-testid="cad-dimension-preview">
+                <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="#00E5FF" strokeWidth="0.15" strokeDasharray="0.5 0.3" />
+                <circle cx={sx} cy={sy} r="0.35" fill="#00E5FF" />
+                <circle cx={ex} cy={ey} r="0.35" fill="#00E5FF" />
+                {len > 0.05 && (
+                  <text
+                    x={(sx + ex) / 2} y={(sy + ey) / 2 - 0.7}
+                    fontSize="1.1" fill="#00E5FF" textAnchor="middle"
+                    fontFamily="'IBM Plex Mono', monospace"
+                    style={{ paintOrder: "stroke", stroke: "#000", strokeWidth: 0.25 }}
+                  >{formatFeetInches(len)}</text>
+                )}
+              </g>
+            );
+          })()}
           {tool === "tape" && tapeStart && hover && (() => {
             const dx = hover[0] - tapeStart[0];
             const dy = hover[1] - tapeStart[1];

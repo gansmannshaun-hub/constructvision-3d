@@ -75,6 +75,7 @@ export const TOOL_INPUT = {
 
 export const TOOLS = [
   { id: "select",   key: "V", label: "Select",       hint: "Click an element to select. Backspace to delete." },
+  { id: "lasso",    key: "F", label: "Lasso",        hint: "Click-drag a freeform loop. All walls whose midpoint falls inside get multi-selected. DEL removes them, ESC clears." },
   { id: "line",     key: "L", label: "Line",         hint: "Click for start, click again to finish wall. ESC cancels." },
   { id: "rect",     key: "R", label: "Rectangle",    hint: "Click corner 1, then corner 2. Creates 4 walls." },
   { id: "circle",   key: "C", label: "Circle",       hint: "Click center, then drag to radius. Approximated to 16 segments." },
@@ -82,6 +83,7 @@ export const TOOLS = [
   { id: "window",   key: "W", label: "Window",       hint: "Click on a wall to drop a window." },
   { id: "eraser",   key: "E", label: "Eraser",       hint: "Click any element to remove it." },
   { id: "tape",     key: "T", label: "Tape Measure", hint: "Click two points to measure distance." },
+  { id: "dimension",key: "N", label: "Dimension",    hint: "Click two points to place a persistent labeled dimension line on the sheet." },
   { id: "move",     key: "M", label: "Move",         hint: "Click an element, then click a destination." },
   { id: "offset",   key: "O", label: "Offset",       hint: "Click a wall, then click the side / type a distance and Enter." },
   { id: "text",     key: "X", label: "Text",         hint: "Click anywhere to place a text label." },

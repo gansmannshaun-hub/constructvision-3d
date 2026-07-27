@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore, apiClient, API } from "../store";
 import PricingPanel from "./PricingPanel";
+import MaterialsPalette from "./MaterialsPalette";
 
 const CATEGORY_COLORS = {
   Structural: "#0055FF",
@@ -28,6 +29,7 @@ export default function MaterialsTab() {
   const project = projects.find((p) => p.id === currentProjectId);
   const navigate = useNavigate();
   const [downloading, setDownloading] = useState(false);
+  const [view, setView] = useState("takeoff");   // "takeoff" | "palette"
 
   const grouped = useMemo(() => {
     const m = {};
@@ -98,8 +100,29 @@ export default function MaterialsTab() {
           <h2 className="font-display text-3xl tracking-tighter">Materials & Takeoff</h2>
         </div>
         <div className="flex items-center gap-1.5">
-          <button
-            data-testid="download-csv-button"
+          <div
+            data-testid="materials-view-toggle"
+            className="flex border border-white/15 mr-2"
+          >
+            <button
+              data-testid="materials-view-takeoff"
+              onClick={() => setView("takeoff")}
+              className={`label-mono px-3 py-2 text-xs transition-colors ${
+                view === "takeoff" ? "bg-[#FFCC00] text-black" : "text-neutral-400 hover:text-white"
+              }`}
+            >TAKEOFF</button>
+            <button
+              data-testid="materials-view-palette"
+              onClick={() => setView("palette")}
+              className={`label-mono px-3 py-2 text-xs transition-colors ${
+                view === "palette" ? "bg-[#FFCC00] text-black" : "text-neutral-400 hover:text-white"
+              }`}
+            >PALETTE</button>
+          </div>
+          {view === "takeoff" && (
+            <>
+              <button
+                data-testid="download-csv-button"
             onClick={() => downloadTakeoff("csv")}
             disabled={downloading || materials.length === 0}
             className="border border-white/15 hover:bg-white/5 disabled:opacity-40 text-white font-bold px-3 py-3 text-xs uppercase tracking-wider transition-colors whitespace-nowrap flex items-center gap-1.5"
@@ -130,9 +153,15 @@ export default function MaterialsTab() {
             </svg>
             {downloading ? "Generating..." : "PDF"}
           </button>
+            </>
+          )}
         </div>
       </div>
 
+      {view === "palette" ? (
+        <MaterialsPalette />
+      ) : (
+      <>
       {/* Pricing & bid panel (regional multiplier, sliders, bid versions) */}
       {currentProjectId && <PricingPanel projectId={currentProjectId} />}
 
@@ -186,6 +215,8 @@ export default function MaterialsTab() {
             Verify with vendors before final bidding.
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
