@@ -16,6 +16,7 @@ import AcceptInvite from "@/pages/AcceptInvite";
 import SupportBubble from "@/components/SupportBubble";
 import AppErrorBoundary from "@/components/AppErrorBoundary";
 import { useStore, apiClient } from "@/store";
+import { useAutoCanonical } from "@/hooks/useAutoCanonical";
 import "@/index.css";
 
 function Protected({ children }) {
@@ -33,6 +34,13 @@ function SignInRoute() {
   return <Auth />;
 }
 
+// Empty component that runs the SEO canonical/robots hook on every route
+// change. Must live inside <BrowserRouter> so useLocation() works.
+function SeoUpdater() {
+  useAutoCanonical();
+  return null;
+}
+
 export default function App() {
   // verify token on mount + refresh user (incl. is_admin flag)
   useEffect(() => {
@@ -48,6 +56,7 @@ export default function App() {
   return (
     <AppErrorBoundary>
       <BrowserRouter>
+        <SeoUpdater />
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/apps/:id" element={<AppDetail />} />

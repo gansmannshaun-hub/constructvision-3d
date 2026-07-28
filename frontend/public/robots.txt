@@ -1,10 +1,37 @@
+## app-gonzo.com robots.txt
+## Canonical host: https://app-gonzo.com (apex, HTTPS)
+## Every other variant (http://, www.) 301-redirects here.
+
 User-agent: *
 Allow: /
+
+# --- Auth-gated / private routes (noindex is also set in the meta tag) ---
 Disallow: /app
+Disallow: /app/
 Disallow: /admin
+Disallow: /admin/
 Disallow: /settings
 Disallow: /billing
+
+# --- User-scoped one-time-use URLs (never valuable in a search result) ---
+Disallow: /accept-terms
+Disallow: /accept-invite
 Disallow: /invite/
 Disallow: /share/
+
+# --- Auth pages (nothing for a crawler to see; require credentials) ---
+Disallow: /signin
+
+# --- API surface (backend) ---
+Disallow: /api/
+
+# --- Static assets we still want crawled for image indexing ---
+Allow: /*.css$
+Allow: /*.js$
+Allow: /*.svg$
+Allow: /*.png$
+Allow: /*.jpg$
+Allow: /*.jpeg$
+Allow: /*.webp$
 
 Sitemap: https://app-gonzo.com/sitemap.xml
