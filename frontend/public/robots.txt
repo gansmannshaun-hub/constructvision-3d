@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /admin
+Disallow: /settings
+Disallow: /billing
+Disallow: /invite/
+Disallow: /share/
+Sitemap: https://app-gonzo.com/sitemap.xml
